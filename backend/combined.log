@@ -1,0 +1,6 @@
+{"level":"info","message":"Server running on port 4000"}
+{"level":"info","message":"MongoDB connected"}
+{"level":"info","message":"Default users initialized"}
+{"level":"info","message":"User logged in successfully: guest"}
+{"level":"info","message":"::1 - - [04/Nov/2025:13:03:19 +0000] \"POST /api/auth/login HTTP/1.1\" 200 347 \"http://localhost:3000/\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36\""}
+{"level":"info","message":"::1 - - [04/Nov/2025:13:03:19 +0000] \"GET /api/auth/verify HTTP/1.1\" 304 - \"http://localhost:3000/\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36\""}
