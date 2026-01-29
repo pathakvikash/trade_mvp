@@ -557,34 +557,6 @@ const styles = {
   },
 
   // Additional Trade page styles
-  selectedCoinInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-    padding: '16px',
-    backgroundColor: colors.background,
-    borderRadius: '8px',
-    marginBottom: '20px',
-  },
-  coinIcon: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-  },
-  coinDetails: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  coinName: {
-    fontSize: '1.1rem',
-    fontWeight: '600',
-    color: colors.text,
-  },
-  coinPrice: {
-    color: colors.textLight,
-    fontSize: '0.9rem',
-  },
 
   // Settings page styles
   settingsCard: {
@@ -654,18 +626,6 @@ const styles = {
     fontSize: '2rem',
     fontWeight: 'bold',
     color: '#1e293b',
-  },
-  timeframeSelector: {
-    display: 'flex',
-    gap: '8px',
-  },
-  timeframeButton: {
-    padding: '8px 16px',
-    borderRadius: '8px',
-    border: '2px solid #2563eb',
-    cursor: 'pointer',
-    fontWeight: '600',
-    transition: 'all 0.2s ease',
   },
   marketGrid: {
     display: 'grid',

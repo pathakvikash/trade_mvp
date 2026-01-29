@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Line } from 'react-chartjs-2';
 import axios from 'axios';
 import {
@@ -57,23 +57,7 @@ const Market = () => {
     { label: 'Max', value: 'max' },
   ];
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchMarketData();
-    }, 30000); // Refresh every 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    fetchMarketData();
-    fetchChartData();
-    if (chartType === 'candlestick') {
-      fetchCandlestickData();
-    }
-  }, [selectedCoin, timeframe, chartType]);
-
-  const fetchMarketData = async () => {
+  const fetchMarketData = useCallback(async () => {
     try {
       const response = await axios.get(
         'https://api.coingecko.com/api/v3/coins/markets',
@@ -91,9 +75,9 @@ const Market = () => {
       setError('Failed to fetch market data');
       console.error(err);
     }
-  };
+  }, []);
 
-  const fetchChartData = async () => {
+  const fetchChartData = useCallback(async () => {
     try {
       const response = await axios.get(
         `https://api.coingecko.com/api/v3/coins/${selectedCoin}/market_chart`,
@@ -134,9 +118,9 @@ const Market = () => {
       setError('Failed to fetch chart data');
       console.error(err);
     }
-  };
+  }, [selectedCoin, timeframe]);
 
-  const fetchCandlestickData = async () => {
+  const fetchCandlestickData = useCallback(async () => {
     try {
       const response = await axios.get(
         `https://api.coingecko.com/api/v3/coins/${selectedCoin}/ohlc`,
@@ -160,7 +144,23 @@ const Market = () => {
       setError('Failed to fetch candlestick data');
       console.error(err);
     }
-  };
+  }, [selectedCoin, timeframe]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchMarketData();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchMarketData]);
+
+  useEffect(() => {
+    fetchMarketData();
+    fetchChartData();
+    if (chartType === 'candlestick') {
+      fetchCandlestickData();
+    }
+  }, [selectedCoin, timeframe, chartType, fetchMarketData, fetchChartData, fetchCandlestickData]);
 
   const chartOptions = {
     responsive: true,

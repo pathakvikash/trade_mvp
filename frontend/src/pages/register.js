@@ -15,7 +15,6 @@ const Register = () => {
     confirmPassword: '',
     role: 'user', // Default role
   });
-  const [autofilled, setAutofilled] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -29,7 +28,7 @@ const Register = () => {
     try {
       const response = await axios.post(
         `${process.env.REACT_APP_API_URL}/api/auth/check-email`,
-        { email }
+        { email },
       );
       return response.data.exists;
     } catch (err) {
@@ -62,7 +61,7 @@ const Register = () => {
       const exists = await checkEmailExists(email);
       if (exists) {
         setError(
-          'This email is already registered. Please use a different email or login.'
+          'This email is already registered. Please use a different email or login.',
         );
       } else {
         setError('');
@@ -79,8 +78,6 @@ const Register = () => {
       password: 'CryptoZen123!',
       confirmPassword: 'CryptoZen123!',
     }));
-
-    setAutofilled(true);
   };
 
   const validatePassword = (password) => {
@@ -128,7 +125,7 @@ const Register = () => {
     const emailExists = await checkEmailExists(formData.email);
     if (emailExists) {
       setError(
-        'This email is already registered. Please use a different email or login.'
+        'This email is already registered. Please use a different email or login.',
       );
       return;
     }
@@ -138,7 +135,7 @@ const Register = () => {
       const { confirmPassword, ...registrationData } = formData;
       const registerResponse = await axios.post(
         `${process.env.REACT_APP_API_URL}/api/auth/register`,
-        registrationData
+        registrationData,
       );
 
       if (registerResponse.data && registerResponse.data.success) {
@@ -148,7 +145,7 @@ const Register = () => {
             {
               email: formData.email,
               password: formData.password,
-            }
+            },
           );
 
           if (loginResponse.data && loginResponse.data.token) {
@@ -161,9 +158,8 @@ const Register = () => {
             };
             setLogin(loginResponse.data.token, userData);
 
-            axios.defaults.headers.common[
-              'Authorization'
-            ] = `Bearer ${loginResponse.data.token}`;
+            axios.defaults.headers.common['Authorization'] =
+              `Bearer ${loginResponse.data.token}`;
 
             navigate('/dashboard');
           } else {
@@ -180,7 +176,7 @@ const Register = () => {
     } catch (err) {
       console.error('Registration error:', err);
       setError(
-        err.response?.data?.message || 'Registration failed. Please try again.'
+        err.response?.data?.message || 'Registration failed. Please try again.',
       );
     } finally {
       setLoading(false);
@@ -323,4 +319,3 @@ const Register = () => {
 };
 
 export default Register;
-

@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-
-import axios from 'axios';
 import styles from '../styles/globalStyles';
-import useUserStore from '../store/userStore';
 
 const Portfolio = () => {
   const [portfolio, setPortfolio] = useState({
@@ -14,8 +10,6 @@ const Portfolio = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const navigate = useNavigate();
-  const user = useUserStore((state) => state.user);
 
   useEffect(() => {
     const fetchPortfolioData = async () => {
