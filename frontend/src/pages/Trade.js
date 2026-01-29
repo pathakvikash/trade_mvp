@@ -218,7 +218,9 @@ const Trade = () => {
               required
             >
               <option value='buy'>Buy</option>
-              <option value='sell'>Sell</option>
+              <option style={styles.select} value='sell'>
+                Sell
+              </option>
             </select>
           </div>
 
@@ -268,8 +270,20 @@ const Trade = () => {
             </div>
           )}
 
-          <button type='submit' style={styles.submitButton}>
-            {tradeData.type === 'buy' ? 'Buy Now' : 'Sell Now'}
+          <button
+            type='submit'
+            style={{
+              ...styles.submitButton,
+              background: tradeData.type === 'sell' ? 'red' : '#10b981',
+            }}
+          >
+            <span
+              style={{
+                color: tradeData.type === 'sell' ? 'white' : '',
+              }}
+            >
+              {tradeData.type === 'buy' ? 'Buy Now' : 'Sell Now'}
+            </span>
           </button>
         </form>
       </div>

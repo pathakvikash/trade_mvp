@@ -49,7 +49,11 @@ function App() {
               <Route
                 key={path}
                 path={path.replace('/', '')}
-                element={<ProtectedRoute><ErrorBoundary>{element}</ErrorBoundary></ProtectedRoute>}
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>{element}</ErrorBoundary>
+                  </ProtectedRoute>
+                }
               />
             ))}
           </Route>

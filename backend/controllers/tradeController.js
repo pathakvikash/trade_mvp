@@ -2,11 +2,13 @@ const mongoose = require('mongoose');
 const Trade = require('../models/Trade');
 const User = require('../models/User');
 const logger = require('../config/logger');
+const BaseController = require('./BaseController');
 
 // Example Low Fee (0.1%)
 const FEE_PERCENTAGE = 0.1;
 
-exports.placeTrade = async (req, res) => {
+// Wrap the handler so unexpected errors are logged and passed to error middleware
+exports.placeTrade = BaseController.wrap(async (req, res) => {
   const { userId, cryptoSymbol, type, amount, priceAtTrade } = req.body;
 
   const session = await mongoose.startSession();
@@ -54,9 +56,18 @@ exports.placeTrade = async (req, res) => {
     logger.info(`Trade successful: ${trade}`);
     res.status(201).json({ message: 'Trade successful', trade });
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    logger.error(error);
-    res.status(500).json({ message: error.message });
+    // Ensure transaction is aborted and session closed before propagating
+    try {
+      await session.abortTransaction();
+    } catch (e) {
+      // ignore
+    }
+    try {
+      session.endSession();
+    } catch (e) {
+      // ignore
+    }
+    // Rethrow so BaseController.wrap will log and pass to next()
+    throw error;
   }
-};
+});
