@@ -27,10 +27,7 @@ module.exports = {
   port: envVars.PORT,
   mongoose: {
     url: envVars.MONGO_URI,
-    options: {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    },
+    options: {},
   },
   jwt: {
     secret: envVars.JWT_SECRET,
