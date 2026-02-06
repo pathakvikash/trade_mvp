@@ -1,80 +1,95 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import styles from '../styles/globalStyles';
+import useMarketStore from '../store/marketStore';
 
 const Portfolio = () => {
-  const [portfolio, setPortfolio] = useState({
-    holdings: [],
-    transactions: [],
-    totalValue: 0,
-    totalPnL: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const marketData = useMarketStore((state) => state.marketData);
+  const socketStatus = useMarketStore((state) => state.socketStatus);
 
-  useEffect(() => {
-    const fetchPortfolioData = async () => {
-      try {
-        // For now, using dummy data
-        const dummyData = {
-          holdings: [
-            {
-              symbol: 'BTC',
-              name: 'Bitcoin',
-              amount: 0.5,
-              avgBuyPrice: 35000,
-              currentPrice: 39000,
-              value: 19500,
-              pnL: 2000,
-              pnLPercentage: 11.43,
-              icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
-            },
-            {
-              symbol: 'ETH',
-              name: 'Ethereum',
-              amount: 4.2,
-              avgBuyPrice: 2000,
-              currentPrice: 2300,
-              value: 9660,
-              pnL: 1260,
-              pnLPercentage: 15,
-              icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-            },
-          ],
-          transactions: [
-            {
-              id: 1,
-              type: 'buy',
-              symbol: 'BTC',
-              amount: 0.3,
-              price: 34000,
-              total: 10200,
-              date: '2024-01-15T10:30:00Z',
-            },
-            {
-              id: 2,
-              type: 'sell',
-              symbol: 'ETH',
-              amount: 1.5,
-              price: 2100,
-              total: 3150,
-              date: '2024-01-14T15:45:00Z',
-            },
-          ],
-          totalValue: 29160,
-          totalPnL: 3260,
-        };
+  // Static holdings data with amounts and historical buy prices
+  const holdingsBase = [
+    {
+      symbol: 'BTC',
+      name: 'Bitcoin',
+      amount: 0.5,
+      avgBuyPrice: 35000,
+      icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
+    },
+    {
+      symbol: 'ETH',
+      name: 'Ethereum',
+      amount: 4.2,
+      avgBuyPrice: 2000,
+      icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
+    },
+  ];
 
-        setPortfolio(dummyData);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching portfolio:', err);
-        setError('Failed to load portfolio data');
-        setLoading(false);
-      }
+  // Dummy transactions (static)
+  const transactions = [
+    {
+      id: 1,
+      type: 'buy',
+      symbol: 'BTC',
+      amount: 0.3,
+      price: 34000,
+      total: 10200,
+      date: '2024-01-15T10:30:00Z',
+    },
+    {
+      id: 2,
+      type: 'sell',
+      symbol: 'ETH',
+      amount: 1.5,
+      price: 2100,
+      total: 3150,
+      date: '2024-01-14T15:45:00Z',
+    },
+  ];
+
+  const holdings = useMemo(() => {
+    if (!marketData || marketData.length === 0) {
+      return holdingsBase.map(h => ({
+        ...h,
+        currentPrice: 0,
+        value: 0,
+        pnL: 0,
+        pnLPercentage: 0,
+      }));
+    }
+
+    return holdingsBase.map(holding => {
+      const marketCoin = marketData.find(m => m.symbol.toUpperCase() === holding.symbol.toUpperCase());
+      const currentPrice = marketCoin ? marketCoin.current_price : 0;
+      const value = holding.amount * currentPrice;
+      const costBasis = holding.amount * holding.avgBuyPrice;
+      const pnL = value - costBasis;
+      const pnLPercentage = costBasis > 0 ? (pnL / costBasis) * 100 : 0;
+
+      return {
+        ...holding,
+        currentPrice,
+        value,
+        pnL,
+        pnLPercentage,
+      };
+    });
+  }, [marketData]);
+
+  const portfolio = useMemo(() => {
+    const totalValue = holdings.reduce((sum, h) => sum + h.value, 0);
+    const totalCostBasis = holdingsBase.reduce((sum, h) => sum + h.amount * h.avgBuyPrice, 0);
+    const totalPnL = totalValue - totalCostBasis;
+
+    return {
+      holdings,
+      transactions,
+      totalValue,
+      totalPnL,
     };
+  }, [holdings]);
 
-    fetchPortfolioData();
-  }, []);
+  const isLoading = marketData.length === 0 && socketStatus === 'connecting';
+  const hasError = socketStatus === 'error';
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -95,7 +110,7 @@ const Portfolio = () => {
     });
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loadingSpinner}></div>
@@ -106,7 +121,11 @@ const Portfolio = () => {
 
   return (
     <div style={styles.dashboardContainer}>
-      {error && <div style={styles.errorMessage}>{error}</div>}
+      {hasError && (
+        <div style={{ ...styles.errorMessage, marginBottom: '20px' }}>
+          Unable to load market data. Prices may not be current.
+        </div>
+      )}
 
       {/* Portfolio Summary */}
       <div style={styles.dashboardSection}>
@@ -178,7 +197,7 @@ const Portfolio = () => {
                 {formatCurrency(holding.pnL)}
                 <span style={styles.pnlPercentage}>
                   ({holding.pnL >= 0 ? '+' : ''}
-                  {holding.pnLPercentage}%)
+                  {holding.pnLPercentage.toFixed(2)}%)
                 </span>
               </div>
             </div>

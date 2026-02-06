@@ -1,13 +1,15 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
+import useMarketStore from './store/marketStore';
 
 const Home = React.lazy(() => import('./pages/Home'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Trade = React.lazy(() => import('./pages/Trade'));
 const Portfolio = React.lazy(() => import('./pages/Portfolio'));
+const Liquidation = React.lazy(() => import('./pages/Liquidation'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 const Login = React.lazy(() => import('./pages/Login'));
 const Register = React.lazy(() => import('./pages/register'));
@@ -15,6 +17,12 @@ const Market = React.lazy(() => import('./pages/Market'));
 const CandlestickChart = React.lazy(() => import('./CandlestickChart'));
 
 function App() {
+  // Start market socket on app load, stays connected throughout the app
+  useEffect(() => {
+    const cleanup = useMarketStore.getState().initSocket();
+    return cleanup;
+  }, []);
+
   const publicRoutes = [
     { path: '/', element: <Home />, index: true },
     { path: '/login', element: <Login /> },
@@ -26,6 +34,7 @@ function App() {
     { path: '/dashboard', element: <Dashboard /> },
     { path: '/trade', element: <Trade /> },
     { path: '/portfolio', element: <Portfolio /> },
+    { path: '/liquidation', element: <Liquidation /> },
     { path: '/settings', element: <Settings /> },
     { path: '/candlestick-chart', element: <CandlestickChart /> },
   ];

@@ -3,14 +3,17 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import styles from '../styles/globalStyles';
 import useUserStore from '../store/userStore';
+import useMarketStore from '../store/marketStore';
 
 const Trade = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, token } = useUserStore((state) => state);
-  const [availableCoins, setAvailableCoins] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const marketData = useMarketStore((state) => state.marketData);
+  const socketStatus = useMarketStore((state) => state.socketStatus);
 
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [selectedCoin, setSelectedCoin] = useState(null);
   const [tradeData, setTradeData] = useState({
     userId: user?.id || '',
     cryptoSymbol: searchParams.get('symbol') || '',
@@ -19,81 +22,30 @@ const Trade = () => {
     priceAtTrade: '',
   });
 
-  const [message, setMessage] = useState({ type: '', text: '' });
-  const [selectedCoin, setSelectedCoin] = useState(null);
+  const isLoading = marketData.length === 0 && socketStatus === 'connecting';
+
+  const availableCoins = marketData.map((coin) => ({
+    symbol: coin.symbol.toUpperCase(),
+    name: coin.name,
+    price: coin.current_price,
+    image: coin.image,
+  }));
+
 
   useEffect(() => {
-    const fetchCoins = async () => {
-      try {
-        const response = await axios.get(
-          'https://api.coingecko.com/api/v3/coins/markets',
-          {
-            params: {
-              vs_currency: 'usd',
-              order: 'market_cap_desc',
-              per_page: 20,
-              page: 1,
-            },
-          }
-        );
-
-        const coins = response.data.map((coin) => ({
-          symbol: coin.symbol.toUpperCase(),
-          name: coin.name,
-          price: coin.current_price,
-          image: coin.image,
+    const symbolFromUrl = searchParams.get('symbol');
+    if (symbolFromUrl && availableCoins.length > 0) {
+      const coin = availableCoins.find((c) => c.symbol === symbolFromUrl);
+      if (coin) {
+        setSelectedCoin(coin);
+        setTradeData((prev) => ({
+          ...prev,
+          cryptoSymbol: coin.symbol,
+          priceAtTrade: coin.price.toString(),
         }));
-
-        setAvailableCoins(coins);
-
-        // If there's a symbol in the URL, select that coin
-        const symbolFromUrl = searchParams.get('symbol');
-        if (symbolFromUrl) {
-          const coin = coins.find((c) => c.symbol === symbolFromUrl);
-          if (coin) {
-            setSelectedCoin(coin);
-            setTradeData((prev) => ({
-              ...prev,
-              cryptoSymbol: coin.symbol,
-              priceAtTrade: coin.price.toString(),
-            }));
-          }
-        }
-
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching coins:', err);
-        // Fallback to dummy data
-        const dummyCoins = [
-          {
-            symbol: 'BTC',
-            name: 'Bitcoin',
-            price: 39000,
-            image:
-              'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
-          },
-          {
-            symbol: 'ETH',
-            name: 'Ethereum',
-            price: 2300,
-            image:
-              'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-          },
-          {
-            symbol: 'SOL',
-            name: 'Solana',
-            price: 98,
-            image:
-              'https://assets.coingecko.com/coins/images/4128/large/solana.png',
-          },
-        ];
-        setAvailableCoins(dummyCoins);
-        setLoading(false);
       }
-    };
-
-    fetchCoins();
-  }, [searchParams, navigate, user?.id]);
+    }
+  }, [searchParams, availableCoins]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -159,7 +111,7 @@ const Trade = () => {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loadingSpinner}></div>

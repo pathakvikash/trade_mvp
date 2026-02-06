@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import styles from '../styles/globalStyles';
+import useMarketStore from '../store/marketStore';
 import PortfolioSummary from '../components/dashboard/PortfolioSummary';
 import MarketOverview from '../components/dashboard/MarketOverview';
 import MarketForecast from '../components/dashboard/MarketForecast';
@@ -17,103 +17,29 @@ const dummyPortfolio = {
   ]
 };
 
-// Dummy forecast data
-const generateForecast = (price) => ({
-  trend: Math.random() > 0.5 ? 'bullish' : 'bearish',
-  support: price * 0.95,
-  resistance: price * 1.05
-});
-
 const Dashboard = () => {
-  const [cryptoData, setCryptoData] = useState([]);
+  const marketData = useMarketStore((state) => state.marketData);
+  const socketStatus = useMarketStore((state) => state.socketStatus);
   const [userPortfolio, setUserPortfolio] = useState(dummyPortfolio);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+
+  const cryptoData = useMemo(() => {
+    if (!marketData || marketData.length === 0) {
+      return [];
+    }
+    return marketData.slice(0, 10).map(coin => ({
+      name: coin.name,
+      symbol: coin.symbol.toUpperCase(),
+      price: coin.current_price,
+      priceChange24h: coin.price_change_percentage_24h,
+      marketCap: coin.market_cap,
+      icon: coin.image
+    }));
+  }, [marketData]);
+
+  const isLoading = cryptoData.length === 0 && socketStatus === 'connecting';
+  const hasError = socketStatus === 'error';
 
   useEffect(() => {
-    const fetchCryptoData = async () => {
-      try {
-        // Fetch real-time data from CoinGecko API
-        const response = await axios.get(
-          'https://api.coingecko.com/api/v3/coins/markets',
-          {
-            params: {
-              vs_currency: 'usd',
-              order: 'market_cap_desc',
-              per_page: 10,
-              page: 1,
-              sparkline: false,
-              price_change_percentage: '24h'
-            }
-          }
-        );
-
-        // Transform CoinGecko data to match our format
-        const transformedData = response.data.map(coin => ({
-          name: coin.name,
-          symbol: coin.symbol.toUpperCase(),
-          price: coin.current_price,
-          priceChange24h: coin.price_change_percentage_24h,
-          marketCap: coin.market_cap,
-          icon: coin.image,
-          forecast: generateForecast(coin.current_price) // Add dummy forecast
-        }));
-
-        setCryptoData(transformedData);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching crypto data:', err);
-        // Fallback to dummy data if API fails
-        const dummyData = [
-          {
-            name: 'Bitcoin',
-            symbol: 'BTC',
-            price: 39876.54,
-            priceChange24h: 2.45,
-            marketCap: 800456789012,
-            icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
-            forecast: {
-              trend: 'bullish',
-              support: 38000,
-              resistance: 41000
-            }
-          },
-          {
-            name: 'Ethereum',
-            symbol: 'ETH',
-            price: 2345.67,
-            priceChange24h: -1.23,
-            marketCap: 234567890123,
-            icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-            forecast: {
-              trend: 'bearish',
-              support: 2200,
-              resistance: 2400
-            }
-          },
-          {
-            name: 'Solana',
-            symbol: 'SOL',
-            price: 98.76,
-            priceChange24h: 5.67,
-            marketCap: 34567890123,
-            icon: 'https://assets.coingecko.com/coins/images/4128/large/solana.png',
-            forecast: {
-              trend: 'bullish',
-              support: 95,
-              resistance: 105
-            }
-          }
-        ];
-        setCryptoData(dummyData);
-        setLoading(false);
-        setError('Using dummy data due to API error');
-      }
-    };
-
-    fetchCryptoData();
-
-    // Simulate real-time updates
     const interval = setInterval(() => {
       setUserPortfolio(prev => ({
         ...prev,
@@ -145,7 +71,7 @@ const Dashboard = () => {
     return formatCurrency(value);
   }, [formatCurrency]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loadingSpinner}></div>
@@ -156,24 +82,28 @@ const Dashboard = () => {
 
   return (
     <div style={styles.dashboardContainer}>
-      {error && <div style={{...styles.errorMessage, marginBottom: '20px'}}>{error}</div>}
-      
-      <PortfolioSummary 
-        userPortfolio={userPortfolio} 
-        formatCurrency={formatCurrency} 
-        formatPercentage={formatPercentage} 
+      {hasError && (
+        <div style={{ ...styles.errorMessage, marginBottom: '20px' }}>
+          Unable to connect to market data. Some features may be limited.
+        </div>
+      )}
+
+      <PortfolioSummary
+        userPortfolio={userPortfolio}
+        formatCurrency={formatCurrency}
+        formatPercentage={formatPercentage}
       />
 
-      <MarketOverview 
-        cryptoData={cryptoData} 
-        formatCurrency={formatCurrency} 
-        formatPercentage={formatPercentage} 
-        formatMarketCap={formatMarketCap} 
+      <MarketOverview
+        cryptoData={cryptoData}
+        formatCurrency={formatCurrency}
+        formatPercentage={formatPercentage}
+        formatMarketCap={formatMarketCap}
       />
 
-      <MarketForecast 
-        cryptoData={cryptoData} 
-        formatCurrency={formatCurrency} 
+      <MarketForecast
+        cryptoData={cryptoData}
+        formatCurrency={formatCurrency}
       />
     </div>
   );
