@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import useMarketStore from '../store/marketStore';
 import { Line } from 'react-chartjs-2';
 import axios from 'axios';
 import {
@@ -32,7 +33,6 @@ const Market = () => {
   const [selectedCoin, setSelectedCoin] = useState('bitcoin');
   const [chartData, setChartData] = useState(null);
   const [candlestickData, setCandlestickData] = useState(null);
-  const [marketData, setMarketData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAlertForm, setShowAlertForm] = useState(false);
@@ -44,6 +44,11 @@ const Market = () => {
     value: '',
   });
   const [chartType, setChartType] = useState('line'); // 'line' or 'candlestick'
+
+  // Subscribe to market store
+  const marketData = useMarketStore((state) => state.marketData);
+  const socketStatus = useMarketStore((state) => state.socketStatus);
+  const lastUpdate = useMarketStore((state) => state.lastUpdate);
 
   // CoinGecko /ohlc endpoint only supports 1, 7, 14, 30, 90, 180, 365, max days
   const availableTimeframes = [
@@ -70,7 +75,7 @@ const Market = () => {
           },
         }
       );
-      setMarketData(response.data);
+      useMarketStore.getState().setMarketData(response.data);
     } catch (err) {
       setError('Failed to fetch market data');
       console.error(err);
@@ -147,12 +152,17 @@ const Market = () => {
   }, [selectedCoin, timeframe]);
 
   useEffect(() => {
+    // Fallback to polling if socket disconnects or stops sending updates
     const interval = setInterval(() => {
-      fetchMarketData();
-    }, 30000); // Refresh every 30 seconds
+      const now = Date.now();
+      const stale = now - lastUpdate > 35000;
+      if (socketStatus !== 'connected' || stale) {
+        fetchMarketData();
+      }
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [fetchMarketData]);
+  }, [fetchMarketData, socketStatus, lastUpdate]);
 
   useEffect(() => {
     fetchMarketData();
@@ -233,7 +243,27 @@ const Market = () => {
 
       <div style={styles.marketHeader}>
         <div style={styles.marketHeaderTop}>
-          <h1 style={styles.marketTitle}>Crypto Market</h1>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <h1 style={styles.marketTitle}>Crypto Market</h1>
+            <div style={{ marginLeft: 12, display: 'flex', alignItems: 'center' }}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  display: 'inline-block',
+                  marginRight: 8,
+                  backgroundColor:
+                    socketStatus === 'connected'
+                      ? '#10b981'
+                      : socketStatus === 'connecting'
+                      ? '#f59e0b'
+                      : '#ef4444',
+                }}
+              ></span>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>{socketStatus}</span>
+            </div>
+          </div>
           <div style={styles.timeframeControls}>
             <div style={styles.timeframeSelector}>
               {availableTimeframes.map((tf) => (
