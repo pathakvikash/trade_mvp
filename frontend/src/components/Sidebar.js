@@ -17,6 +17,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     { path: '/market', icon: '📈', label: 'Market' },
     { path: '/trade', icon: '💱', label: 'Trade' },
     { path: '/portfolio', icon: '📈', label: 'Portfolio' },
+    { path: '/liquidation', icon: '🔥', label: 'Liquidation' },
     { path: '/settings', icon: '⚙️', label: 'Settings' },
   ];
 
