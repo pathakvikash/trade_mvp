@@ -1,26 +1,28 @@
 import React, { useMemo } from 'react';
 import styles from '../styles/globalStyles';
 
+// Move static data outside component to avoid dependency issues
+const MOCK_LIQUIDATION_DATA = {
+    BTC: [
+        { priceLevel: 65000, liquidationPrice: 65000, liquidations: 245 },
+        { priceLevel: 60000, liquidationPrice: 60000, liquidations: 512 },
+        { priceLevel: 55000, liquidationPrice: 55000, liquidations: 789 },
+        { priceLevel: 50000, liquidationPrice: 50000, liquidations: 1020 },
+        { priceLevel: 45000, liquidationPrice: 45000, liquidations: 1456 },
+        { priceLevel: 40000, liquidationPrice: 40000, liquidations: 892 },
+        { priceLevel: 35000, liquidationPrice: 35000, liquidations: 634 },
+    ],
+    ETH: [
+        { priceLevel: 3500, liquidationPrice: 3500, liquidations: 156 },
+        { priceLevel: 3000, liquidationPrice: 3000, liquidations: 312 },
+        { priceLevel: 2500, liquidationPrice: 2500, liquidations: 589 },
+        { priceLevel: 2000, liquidationPrice: 2000, liquidations: 756 },
+        { priceLevel: 1500, liquidationPrice: 1500, liquidations: 923 },
+        { priceLevel: 1000, liquidationPrice: 1000, liquidations: 445 },
+    ],
+};
+
 const LiquidationHeatmap = ({ holdings, currentPrices }) => {
-    const MOCK_LIQUIDATION_DATA = {
-        BTC: [
-            { priceLevel: 65000, liquidationPrice: 65000, liquidations: 245 },
-            { priceLevel: 60000, liquidationPrice: 60000, liquidations: 512 },
-            { priceLevel: 55000, liquidationPrice: 55000, liquidations: 789 },
-            { priceLevel: 50000, liquidationPrice: 50000, liquidations: 1020 },
-            { priceLevel: 45000, liquidationPrice: 45000, liquidations: 1456 },
-            { priceLevel: 40000, liquidationPrice: 40000, liquidations: 892 },
-            { priceLevel: 35000, liquidationPrice: 35000, liquidations: 634 },
-        ],
-        ETH: [
-            { priceLevel: 3500, liquidationPrice: 3500, liquidations: 156 },
-            { priceLevel: 3000, liquidationPrice: 3000, liquidations: 312 },
-            { priceLevel: 2500, liquidationPrice: 2500, liquidations: 589 },
-            { priceLevel: 2000, liquidationPrice: 2000, liquidations: 756 },
-            { priceLevel: 1500, liquidationPrice: 1500, liquidations: 923 },
-            { priceLevel: 1000, liquidationPrice: 1000, liquidations: 445 },
-        ],
-    };
 
     const calculateRiskLevel = (currentPrice, levels) => {
         const lowestLevel = levels.length > 0 ? Math.min(...levels.map(l => l.priceLevel)) : 0;

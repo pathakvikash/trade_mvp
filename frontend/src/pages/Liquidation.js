@@ -3,26 +3,27 @@ import styles from '../styles/globalStyles';
 import useMarketStore from '../store/marketStore';
 import LiquidationHeatmap from '../components/LiquidationHeatmap';
 
+// Move static data outside component to avoid dependency issues
+const holdingsBase = [
+    {
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        amount: 0.5,
+        avgBuyPrice: 35000,
+        icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
+    },
+    {
+        symbol: 'ETH',
+        name: 'Ethereum',
+        amount: 4.2,
+        avgBuyPrice: 2000,
+        icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
+    },
+];
+
 const Liquidation = () => {
     const marketData = useMarketStore((state) => state.marketData);
     const socketStatus = useMarketStore((state) => state.socketStatus);
-
-    const holdingsBase = [
-        {
-            symbol: 'BTC',
-            name: 'Bitcoin',
-            amount: 0.5,
-            avgBuyPrice: 35000,
-            icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
-        },
-        {
-            symbol: 'ETH',
-            name: 'Ethereum',
-            amount: 4.2,
-            avgBuyPrice: 2000,
-            icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-        },
-    ];
 
     const holdings = useMemo(() => {
         if (!marketData || marketData.length === 0) {

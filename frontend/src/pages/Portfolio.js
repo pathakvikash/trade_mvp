@@ -1,50 +1,50 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import styles from '../styles/globalStyles';
 import useMarketStore from '../store/marketStore';
+
+// Move static data outside component to avoid dependency issues
+const holdingsBase = [
+  {
+    symbol: 'BTC',
+    name: 'Bitcoin',
+    amount: 0.5,
+    avgBuyPrice: 35000,
+    icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
+  },
+  {
+    symbol: 'ETH',
+    name: 'Ethereum',
+    amount: 4.2,
+    avgBuyPrice: 2000,
+    icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
+  },
+];
+
+// Dummy transactions (static)
+const transactions = [
+  {
+    id: 1,
+    type: 'buy',
+    symbol: 'BTC',
+    amount: 0.3,
+    price: 34000,
+    total: 10200,
+    date: '2024-01-15T10:30:00Z',
+  },
+  {
+    id: 2,
+    type: 'sell',
+    symbol: 'ETH',
+    amount: 1.5,
+    price: 2100,
+    total: 3150,
+    date: '2024-01-14T15:45:00Z',
+  },
+];
 
 const Portfolio = () => {
   const marketData = useMarketStore((state) => state.marketData);
   const socketStatus = useMarketStore((state) => state.socketStatus);
-
-  // Static holdings data with amounts and historical buy prices
-  const holdingsBase = [
-    {
-      symbol: 'BTC',
-      name: 'Bitcoin',
-      amount: 0.5,
-      avgBuyPrice: 35000,
-      icon: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
-    },
-    {
-      symbol: 'ETH',
-      name: 'Ethereum',
-      amount: 4.2,
-      avgBuyPrice: 2000,
-      icon: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-    },
-  ];
-
-  // Dummy transactions (static)
-  const transactions = [
-    {
-      id: 1,
-      type: 'buy',
-      symbol: 'BTC',
-      amount: 0.3,
-      price: 34000,
-      total: 10200,
-      date: '2024-01-15T10:30:00Z',
-    },
-    {
-      id: 2,
-      type: 'sell',
-      symbol: 'ETH',
-      amount: 1.5,
-      price: 2100,
-      total: 3150,
-      date: '2024-01-14T15:45:00Z',
-    },
-  ];
 
   const holdings = useMemo(() => {
     if (!marketData || marketData.length === 0) {
