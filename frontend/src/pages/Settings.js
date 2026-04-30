@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import styles from '../styles/globalStyles';
 import useUserStore from '../store/userStore';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
 
 const Settings = () => {
   const user = useUserStore((state) => state.user) || {};
@@ -24,7 +27,7 @@ const Settings = () => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    
+
     if (type === 'checkbox') {
       setFormData(prev => ({
         ...prev,
@@ -48,186 +51,175 @@ const Settings = () => {
   };
 
   return (
-    <div style={styles.dashboardContainer}>
-      <div style={styles.dashboardSection}>
-        <h2 style={styles.sectionTitle}>Account Settings</h2>
-        
-        <div style={styles.settingsCard}>
-          <form onSubmit={handleSubmit} style={styles.settingsForm}>
-            {/* Profile Settings */}
-            <div style={styles.settingsSection}>
-              <h3 style={styles.settingsSectionTitle}>Profile Information</h3>
-              
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Full Name</label>
-                <input
-                  type="text"
-                  name="fullName"
-                  value={formData.fullName}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              </div>
+    <div className="space-y-6">
+      <Card>
+        <h2 className="mb-6 text-xl font-semibold text-white">Account Settings</h2>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  style={styles.input}
-                  disabled
-                />
-                <small style={styles.helperText}>
-                  Email cannot be changed. Contact support if needed.
-                </small>
-              </div>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Profile Settings */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-white">Profile Information</h3>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300">Full Name</label>
+              <Input
+                type="text"
+                name="fullName"
+                value={formData.fullName}
+                onChange={handleChange}
+              />
             </div>
 
-            {/* Password Change */}
-            <div style={styles.settingsSection}>
-              <h3 style={styles.settingsSectionTitle}>Change Password</h3>
-              
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Current Password</label>
-                <input
-                  type="password"
-                  name="currentPassword"
-                  value={formData.currentPassword}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300">Email</label>
+              <Input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                disabled
+              />
+              <p className="text-xs text-slate-500">
+                Email cannot be changed. Contact support if needed.
+              </p>
+            </div>
+          </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>New Password</label>
-                <input
-                  type="password"
-                  name="newPassword"
-                  value={formData.newPassword}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              </div>
+          {/* Password Change */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-white">Change Password</h3>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Confirm New Password</label>
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300">Current Password</label>
+              <Input
+                type="password"
+                name="currentPassword"
+                value={formData.currentPassword}
+                onChange={handleChange}
+              />
             </div>
 
-            {/* Preferences */}
-            <div style={styles.settingsSection}>
-              <h3 style={styles.settingsSectionTitle}>Preferences</h3>
-              
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Display Currency</label>
-                <select
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300">New Password</label>
+              <Input
+                type="password"
+                name="newPassword"
+                value={formData.newPassword}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300">Confirm New Password</label>
+              <Input
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+              />
+            </div>
+          </div>
+
+          {/* Preferences */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-white">Preferences</h3>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-300">Display Currency</label>
+                <Select
                   name="currency"
                   value={formData.currency}
                   onChange={handleChange}
-                  style={styles.select}
                 >
                   <option value="USD">USD</option>
                   <option value="EUR">EUR</option>
                   <option value="GBP">GBP</option>
                   <option value="JPY">JPY</option>
-                </select>
+                </Select>
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Theme</label>
-                <select
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-300">Theme</label>
+                <Select
                   name="theme"
                   value={formData.theme}
                   onChange={handleChange}
-                  style={styles.select}
                 >
                   <option value="light">Light</option>
                   <option value="dark">Dark</option>
-                </select>
+                </Select>
               </div>
             </div>
+          </div>
 
-            {/* Notifications */}
-            <div style={styles.settingsSection}>
-              <h3 style={styles.settingsSectionTitle}>Notifications</h3>
-              
-              <div style={styles.checkboxGroup}>
-                <label style={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    name="email"
-                    checked={formData.notifications.email}
-                    onChange={handleChange}
-                    style={styles.checkbox}
-                  />
-                  Email Notifications
-                </label>
+          {/* Notifications */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-white">Notifications</h3>
 
-                <label style={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    name="price"
-                    checked={formData.notifications.price}
-                    onChange={handleChange}
-                    style={styles.checkbox}
-                  />
-                  Price Alerts
-                </label>
+            <div className="space-y-3">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  name="email"
+                  checked={formData.notifications.email}
+                  onChange={handleChange}
+                  className="rounded border-slate-600 bg-slate-800 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-sm text-slate-300">Email Notifications</span>
+              </label>
 
-                <label style={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    name="news"
-                    checked={formData.notifications.news}
-                    onChange={handleChange}
-                    style={styles.checkbox}
-                  />
-                  News Updates
-                </label>
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  name="price"
+                  checked={formData.notifications.price}
+                  onChange={handleChange}
+                  className="rounded border-slate-600 bg-slate-800 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-sm text-slate-300">Price Alerts</span>
+              </label>
 
-                <label style={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    name="trading"
-                    checked={formData.notifications.trading}
-                    onChange={handleChange}
-                    style={styles.checkbox}
-                  />
-                  Trading Notifications
-                </label>
-              </div>
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  name="news"
+                  checked={formData.notifications.news}
+                  onChange={handleChange}
+                  className="rounded border-slate-600 bg-slate-800 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-sm text-slate-300">News Updates</span>
+              </label>
+
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  name="trading"
+                  checked={formData.notifications.trading}
+                  onChange={handleChange}
+                  className="rounded border-slate-600 bg-slate-800 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-sm text-slate-300">Trading Notifications</span>
+              </label>
             </div>
+          </div>
 
-            {message.text && (
-              <div
-                style={
-                  message.type === 'error'
-                    ? styles.errorMessage
-                    : styles.successMessage
-                }
-              >
-                {message.text}
-              </div>
-            )}
+          {message.text && (
+            <div className={`rounded-2xl border p-4 ${message.type === 'error'
+                ? 'border-red-800/50 bg-red-950/20 text-red-300'
+                : 'border-emerald-800/50 bg-emerald-950/20 text-emerald-300'
+              }`}>
+              {message.text}
+            </div>
+          )}
 
-            <button type="submit" style={styles.submitButton}>
-              Save Changes
-            </button>
-          </form>
-        </div>
-      </div>
+          <Button type="submit" className="w-full md:w-auto">
+            Save Changes
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 };
 
 export default Settings;
- 
