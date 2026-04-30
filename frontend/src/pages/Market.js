@@ -13,8 +13,10 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
-import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
-import styles from '../styles/globalStyles';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
 import CandlestickChart from '../CandlestickChart';
 
 ChartJS.register(
@@ -230,76 +232,68 @@ const Market = () => {
 
   if (loading) {
     return (
-      <div style={styles.loadingContainer}>
-        <div style={styles.loadingSpinner}></div>
-        <p>Loading market data...</p>
+      <div className="flex min-h-full items-center justify-center bg-slate-950">
+        <Card className="text-center">
+          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent mx-auto"></div>
+          <p className="text-slate-300">Loading market data...</p>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className='container mx-auto px-4 py-6'>
-      {error && <div style={styles.errorMessage}>{error}</div>}
+    <div className="min-h-0 bg-slate-950 p-4 md:p-6">
+      {error && (
+        <Card className="mb-6 border-red-800/50 bg-red-950/20">
+          <p className="text-red-300">{error}</p>
+        </Card>
+      )}
 
-      <div style={styles.marketHeader}>
-        <div style={styles.marketHeaderTop}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <h1 style={styles.marketTitle}>Crypto Market</h1>
-            <div style={{ marginLeft: 12, display: 'flex', alignItems: 'center' }}>
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  display: 'inline-block',
-                  marginRight: 8,
-                  backgroundColor:
-                    socketStatus === 'connected'
-                      ? '#10b981'
-                      : socketStatus === 'connecting'
-                      ? '#f59e0b'
-                      : '#ef4444',
-                }}
-              ></span>
-              <span style={{ fontSize: 12, color: '#6b7280' }}>{socketStatus}</span>
+      <Card className="mb-6">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-white">Crypto Market</h1>
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${socketStatus === 'connected'
+                ? 'bg-emerald-400'
+                : socketStatus === 'connecting'
+                  ? 'bg-yellow-400'
+                  : 'bg-red-400'
+                }`}></div>
+              <span className="text-sm text-slate-400 capitalize">{socketStatus}</span>
             </div>
           </div>
-          <div style={styles.timeframeControls}>
-            <div style={styles.timeframeSelector}>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-2xl border border-slate-800 bg-slate-900/50 p-1">
               {availableTimeframes.map((tf) => (
                 <button
                   key={tf.value}
                   onClick={() => handleTimeframeClick(tf.value)}
-                  style={{
-                    ...styles.timeframeButton,
-                    backgroundColor:
-                      timeframe === tf.value ? '#2563eb' : 'transparent',
-                    color: timeframe === tf.value ? 'white' : '#2563eb',
-                  }}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${timeframe === tf.value
+                    ? 'bg-brand-600 text-white'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
                 >
                   {tf.label}
                 </button>
               ))}
             </div>
-            <div className="chart-type-toggle ml-4">
+            <div className="flex rounded-2xl border border-slate-800 bg-slate-900/50 p-1">
               <button
                 onClick={() => setChartType('line')}
-                style={{
-                  ...styles.timeframeButton,
-                  backgroundColor: chartType === 'line' ? '#2563eb' : 'transparent',
-                  color: chartType === 'line' ? 'white' : '#2563eb',
-                }}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${chartType === 'line'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  }`}
               >
                 Line
               </button>
               <button
                 onClick={() => setChartType('candlestick')}
-                style={{
-                  ...styles.timeframeButton,
-                  backgroundColor: chartType === 'candlestick' ? '#2563eb' : 'transparent',
-                  color: chartType === 'candlestick' ? 'white' : '#2563eb',
-                  marginLeft: '8px',
-                }}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${chartType === 'candlestick'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  }`}
               >
                 Candlestick
               </button>
@@ -307,187 +301,152 @@ const Market = () => {
           </div>
         </div>
 
-        <div style={styles.alertSection}>
-          <button
-            onClick={() => setShowAlertForm(true)}
-            style={styles.createAlertButton}
-          >
+        <div className="flex justify-end">
+          <Button onClick={() => setShowAlertForm(true)}>
             + Create Alert
-          </button>
+          </Button>
+        </div>
 
-          {showAlertForm && (
-            <div style={styles.alertFormOverlay}>
-              <div style={styles.alertForm}>
-                <h3 style={styles.alertFormTitle}>Create Price Alert</h3>
-                <form onSubmit={handleCreateAlert}>
-                  <div style={styles.alertFormGroup}>
-                    <label>Cryptocurrency</label>
-                    <select
-                      value={newAlert.coin}
-                      onChange={(e) =>
-                        setNewAlert({ ...newAlert, coin: e.target.value })
-                      }
-                      required
-                      style={styles.alertSelect}
-                    >
-                      <option value=''>Select Coin</option>
-                      {marketData.map((coin) => (
-                        <option key={coin.id} value={coin.symbol}>
-                          {coin.name} ({coin.symbol.toUpperCase()})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+        {showAlertForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <Card className="w-full max-w-md">
+              <h3 className="mb-4 text-lg font-semibold text-white">Create Price Alert</h3>
+              <form onSubmit={handleCreateAlert} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Cryptocurrency</label>
+                  <Select
+                    value={newAlert.coin}
+                    onChange={(e) => setNewAlert({ ...newAlert, coin: e.target.value })}
+                    required
+                  >
+                    <option value=''>Select Coin</option>
+                    {marketData.map((coin) => (
+                      <option key={coin.id} value={coin.symbol}>
+                        {coin.name} ({coin.symbol.toUpperCase()})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
 
-                  <div style={styles.alertFormGroup}>
-                    <label>Alert Type</label>
-                    <select
-                      value={newAlert.type}
-                      onChange={(e) =>
-                        setNewAlert({ ...newAlert, type: e.target.value })
-                      }
-                      style={styles.alertSelect}
-                    >
-                      <option value='price'>Price Alert</option>
-                      <option value='change'>24h Change Alert</option>
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Alert Type</label>
+                  <Select
+                    value={newAlert.type}
+                    onChange={(e) => setNewAlert({ ...newAlert, type: e.target.value })}
+                  >
+                    <option value="price">Price Alert</option>
+                    <option value="change">Percentage Change</option>
+                  </Select>
+                </div>
 
-                  <div style={styles.alertFormGroup}>
-                    <label>Condition</label>
-                    <select
-                      value={newAlert.condition}
-                      onChange={(e) =>
-                        setNewAlert({ ...newAlert, condition: e.target.value })
-                      }
-                      style={styles.alertSelect}
-                    >
-                      <option value='above'>Goes Above</option>
-                      <option value='below'>Goes Below</option>
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Condition</label>
+                  <Select
+                    value={newAlert.condition}
+                    onChange={(e) => setNewAlert({ ...newAlert, condition: e.target.value })}
+                  >
+                    <option value="above">Above</option>
+                    <option value="below">Below</option>
+                  </Select>
+                </div>
 
-                  <div style={styles.alertFormGroup}>
-                    <label>Value</label>
-                    <input
-                      type='number'
-                      value={newAlert.value}
-                      onChange={(e) =>
-                        setNewAlert({ ...newAlert, value: e.target.value })
-                      }
-                      placeholder={
-                        newAlert.type === 'price'
-                          ? 'Enter price'
-                          : 'Enter percentage'
-                      }
-                      required
-                      style={styles.alertInput}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Value</label>
+                  <Input
+                    type="number"
+                    value={newAlert.value}
+                    onChange={(e) => setNewAlert({ ...newAlert, value: e.target.value })}
+                    placeholder={newAlert.type === 'price' ? 'Enter price' : 'Enter percentage'}
+                    required
+                  />
+                </div>
 
-                  <div style={styles.alertFormButtons}>
-                    <button type='submit' style={styles.alertSubmitButton}>
-                      Create Alert
-                    </button>
-                    <button
-                      type='button'
-                      onClick={() => setShowAlertForm(false)}
-                      style={styles.alertCancelButton}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
+                <div className="flex gap-3">
+                  <Button type="submit" className="flex-1">
+                    Create Alert
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setShowAlertForm(false)}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+        )}
 
-          {alerts.length > 0 && (
-            <div style={styles.activeAlerts}>
+        {alerts.length > 0 && (
+          <Card>
+            <h4 className="mb-4 text-lg font-semibold text-white">Active Alerts</h4>
+            <div className="space-y-2">
               {alerts.map((alert) => (
-                <div key={alert.id} style={styles.alertItem}>
-                  <span style={styles.alertText}>
-                    {alert.coin.toUpperCase()}{' '}
-                    {alert.type === 'price' ? 'Price' : '24h Change'}{' '}
-                    {alert.condition} {alert.type === 'price' ? '$' : ''}
-                    {alert.value}
+                <div key={alert.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
+                  <span className="text-sm text-slate-300">
+                    {alert.coin.toUpperCase()} {alert.condition} {alert.value}
                     {alert.type === 'change' && '%'}
                   </span>
                   <button
                     onClick={() => handleRemoveAlert(alert.id)}
-                    style={styles.alertRemoveButton}
+                    className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
                   >
                     ×
                   </button>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
+          </Card>
+        )}
+      </Card>
 
-      <div style={styles.marketGrid}>
-        <div style={styles.chartCard}>
-          {chartType === 'line' && chartData && (
-            <div style={styles.chartContainer}>
-              <Line data={chartData} options={chartOptions} />
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <Card>
+            <div className="h-96">
+              {chartType === 'line' && chartData && (
+                <Line data={chartData} options={chartOptions} />
+              )}
+              {chartType === 'candlestick' && candlestickData && (
+                <CandlestickChart data={candlestickData} />
+              )}
             </div>
-          )}
-          {chartType === 'candlestick' && candlestickData && (
-            <div style={styles.chartContainer}>
-              <CandlestickChart data={candlestickData} />
-            </div>
-          )}
+          </Card>
         </div>
 
-        <div style={styles.marketList}>
+        <div className="space-y-2 max-h-[38rem] overflow-y-auto pr-1">
           {marketData.map((coin) => (
             <div
               key={coin.id}
               onClick={() => setSelectedCoin(coin.id)}
-              style={{
-                ...styles.coinItem,
-                backgroundColor:
-                  selectedCoin === coin.id
-                    ? 'rgba(37, 99, 235, 0.1)'
-                    : 'transparent',
-              }}
+              className={`cursor-pointer rounded-2xl border p-4 transition hover:bg-slate-900/50 ${selectedCoin === coin.id
+                ? 'border-brand-500 bg-brand-950/20'
+                : 'border-slate-800 bg-slate-900/50'
+                }`}
             >
-              <div style={styles.coinInfo}>
-                <img src={coin.image} alt={coin.name} style={styles.coinIcon} />
-                <div style={styles.coinDetails}>
-                  <span style={styles.coinName}>{coin.name}</span>
-                  <span style={styles.coinSymbol}>
-                    {coin.symbol.toUpperCase()}
-                  </span>
+              <div className="flex items-center gap-3">
+                <img src={coin.image} alt={coin.name} className="h-10 w-10 rounded-full" />
+                <div className="flex-1">
+                  <div className="font-medium text-white">{coin.name}</div>
+                  <div className="text-sm text-slate-400">{coin.symbol.toUpperCase()}</div>
                 </div>
-              </div>
-              <div style={styles.coinPrice}>
-                <span style={styles.currentPrice}>
-                  ${coin.current_price.toLocaleString()}
-                </span>
-                <span
-                  style={{
-                    ...styles.priceChange,
-                    color:
-                      coin.price_change_percentage_24h >= 0
-                        ? '#10b981'
-                        : '#ef4444',
-                  }}
-                >
-                  {coin.price_change_percentage_24h >= 0 ? (
-                    <ArrowUpIcon style={styles.changeIcon} />
-                  ) : (
-                    <ArrowDownIcon style={styles.changeIcon} />
-                  )}
-                  {Math.abs(coin.price_change_percentage_24h).toFixed(2)}%
-                </span>
+                <div className="text-right">
+                  <div className="font-medium text-white">
+                    ${coin.current_price?.toFixed(2)}
+                  </div>
+                  <div className={`text-sm ${coin.price_change_percentage_24h >= 0 ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                    {coin.price_change_percentage_24h?.toFixed(2)}%
+                  </div>
+                </div>
               </div>
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

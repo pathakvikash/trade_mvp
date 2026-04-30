@@ -1,37 +1,31 @@
 import React from 'react';
-import styles from '../../styles/globalStyles';
+import Card from '../ui/Card';
 
 const PortfolioSummary = React.memo(({ userPortfolio, formatCurrency, formatPercentage }) => {
   return (
-    <div style={styles.dashboardSection}>
-      <h2 style={styles.sectionTitle}>Your Portfolio</h2>
-      <div style={styles.portfolioGrid}>
-        <div style={styles.portfolioCard}>
-          <h3>Total Balance</h3>
-          <p style={styles.portfolioValue}>
+    <Card>
+      <h2 className="mb-6 text-xl font-semibold text-white">Your Portfolio</h2>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+          <h3 className="text-sm font-medium text-slate-400">Total Balance</h3>
+          <p className="mt-2 text-2xl font-bold text-white">
             {formatCurrency(userPortfolio.totalBalance)}
           </p>
         </div>
-        <div style={styles.portfolioCard}>
-          <h3>24h Change</h3>
-          <p style={{
-            ...styles.portfolioValue,
-            color: userPortfolio.dayChange >= 0 ? '#10b981' : '#ef4444'
-          }}>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+          <h3 className="text-sm font-medium text-slate-400">24h Change</h3>
+          <p className={`mt-2 text-2xl font-bold ${userPortfolio.dayChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {formatPercentage(userPortfolio.dayChange)}
           </p>
         </div>
-        <div style={styles.portfolioCard}>
-          <h3>Total Profit/Loss</h3>
-          <p style={{
-            ...styles.portfolioValue,
-            color: userPortfolio.totalPnL >= 0 ? '#10b981' : '#ef4444'
-          }}>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+          <h3 className="text-sm font-medium text-slate-400">Total Profit/Loss</h3>
+          <p className={`mt-2 text-2xl font-bold ${userPortfolio.totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {formatCurrency(userPortfolio.totalPnL)}
           </p>
         </div>
       </div>
-    </div>
+    </Card>
   );
 });
 

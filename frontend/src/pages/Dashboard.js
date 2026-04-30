@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import styles from '../styles/globalStyles';
 import useMarketStore from '../store/marketStore';
 import PortfolioSummary from '../components/dashboard/PortfolioSummary';
 import MarketOverview from '../components/dashboard/MarketOverview';
 import MarketForecast from '../components/dashboard/MarketForecast';
+import Card from '../components/ui/Card';
 
 // Dummy portfolio data
 const dummyPortfolio = {
@@ -73,38 +73,42 @@ const Dashboard = () => {
 
   if (isLoading) {
     return (
-      <div style={styles.loadingContainer}>
-        <div style={styles.loadingSpinner}></div>
-        <p>Loading your dashboard...</p>
+      <div className="flex min-h-full items-center justify-center bg-slate-950">
+        <Card className="text-center">
+          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent mx-auto"></div>
+          <p className="text-slate-300">Loading your dashboard...</p>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div style={styles.dashboardContainer}>
+    <div className="min-h-0 bg-slate-950 p-4 md:p-6">
       {hasError && (
-        <div style={{ ...styles.errorMessage, marginBottom: '20px' }}>
-          Unable to connect to market data. Some features may be limited.
-        </div>
+        <Card className="mb-6 border-red-800/50 bg-red-950/20">
+          <p className="text-red-300">Unable to connect to market data. Some features may be limited.</p>
+        </Card>
       )}
 
-      <PortfolioSummary
-        userPortfolio={userPortfolio}
-        formatCurrency={formatCurrency}
-        formatPercentage={formatPercentage}
-      />
+      <div className="mx-auto max-w-screen-2xl space-y-6">
+        <PortfolioSummary
+          userPortfolio={userPortfolio}
+          formatCurrency={formatCurrency}
+          formatPercentage={formatPercentage}
+        />
 
-      <MarketOverview
-        cryptoData={cryptoData}
-        formatCurrency={formatCurrency}
-        formatPercentage={formatPercentage}
-        formatMarketCap={formatMarketCap}
-      />
+        <MarketOverview
+          cryptoData={cryptoData}
+          formatCurrency={formatCurrency}
+          formatPercentage={formatPercentage}
+          formatMarketCap={formatMarketCap}
+        />
 
-      <MarketForecast
-        cryptoData={cryptoData}
-        formatCurrency={formatCurrency}
-      />
+        <MarketForecast
+          cryptoData={cryptoData}
+          formatCurrency={formatCurrency}
+        />
+      </div>
     </div>
   );
 };

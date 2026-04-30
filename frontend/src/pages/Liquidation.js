@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import styles from '../styles/globalStyles';
 import useMarketStore from '../store/marketStore';
 import LiquidationHeatmap from '../components/LiquidationHeatmap';
+import Card from '../components/ui/Card';
 
 // Move static data outside component to avoid dependency issues
 const holdingsBase = [
@@ -61,28 +61,30 @@ const Liquidation = () => {
 
     if (isLoading) {
         return (
-            <div style={styles.loadingContainer}>
-                <div style={styles.loadingSpinner}></div>
-                <p>Loading liquidation data...</p>
+            <div className="flex min-h-full items-center justify-center">
+                <Card className="text-center">
+                    <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent mx-auto"></div>
+                    <p className="text-slate-300">Loading liquidation data...</p>
+                </Card>
             </div>
         );
     }
 
     return (
-        <div style={styles.dashboardContainer}>
+        <div className="space-y-6 min-h-0">
             {hasError && (
-                <div style={{ ...styles.errorMessage, marginBottom: '20px' }}>
-                    Unable to load market data. Liquidation analysis may be incomplete.
-                </div>
+                <Card className="border-red-800/50 bg-red-950/20">
+                    <p className="text-red-300">Unable to load market data. Liquidation analysis may be incomplete.</p>
+                </Card>
             )}
 
-            <div style={styles.dashboardSection}>
-                <h1 style={styles.sectionTitle}>Liquidation Risk Analysis</h1>
-                <p style={{ ...styles.textLight, marginBottom: '24px' }}>
+            <Card>
+                <h1 className="mb-4 text-2xl font-bold text-white">Liquidation Risk Analysis</h1>
+                <p className="text-slate-400">
                     Monitor liquidation levels and risk exposure for your crypto holdings. The heatmap
                     shows liquidation volume at different price levels to help you understand market risk.
                 </p>
-            </div>
+            </Card>
 
             <LiquidationHeatmap holdings={holdings} currentPrices={marketData} />
         </div>

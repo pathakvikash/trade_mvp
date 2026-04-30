@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import styles from '../styles/globalStyles';
 import useMarketStore from '../store/marketStore';
+import Card from '../components/ui/Card';
 
 // Move static data outside component to avoid dependency issues
 const holdingsBase = [
@@ -112,132 +112,123 @@ const Portfolio = () => {
 
   if (isLoading) {
     return (
-      <div style={styles.loadingContainer}>
-        <div style={styles.loadingSpinner}></div>
-        <p>Loading your portfolio...</p>
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Card className="text-center">
+          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent mx-auto"></div>
+          <p className="text-slate-300">Loading your portfolio...</p>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div style={styles.dashboardContainer}>
+    <div className="space-y-6">
       {hasError && (
-        <div style={{ ...styles.errorMessage, marginBottom: '20px' }}>
-          Unable to load market data. Prices may not be current.
-        </div>
+        <Card className="border-red-800/50 bg-red-950/20">
+          <p className="text-red-300">Unable to load market data. Prices may not be current.</p>
+        </Card>
       )}
 
       {/* Portfolio Summary */}
-      <div style={styles.dashboardSection}>
-        <h2 style={styles.sectionTitle}>Portfolio Summary</h2>
-        <div style={styles.portfolioGrid}>
-          <div style={styles.portfolioCard}>
-            <h3>Total Portfolio Value</h3>
-            <p style={styles.portfolioValue}>
+      <Card>
+        <h2 className="mb-6 text-xl font-semibold text-white">Portfolio Summary</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+            <h3 className="text-sm font-medium text-slate-400">Total Portfolio Value</h3>
+            <p className="mt-2 text-2xl font-bold text-white">
               {formatCurrency(portfolio.totalValue)}
             </p>
           </div>
-          <div style={styles.portfolioCard}>
-            <h3>Total Profit/Loss</h3>
-            <p
-              style={{
-                ...styles.portfolioValue,
-                color: portfolio.totalPnL >= 0 ? '#10b981' : '#ef4444',
-              }}
-            >
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+            <h3 className="text-sm font-medium text-slate-400">Total Profit/Loss</h3>
+            <p className={`mt-2 text-2xl font-bold ${portfolio.totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {formatCurrency(portfolio.totalPnL)}
             </p>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Holdings */}
-      <div style={styles.dashboardSection}>
-        <h2 style={styles.sectionTitle}>Your Holdings</h2>
-        <div style={styles.cryptoTable}>
-          <div style={styles.tableHeader}>
-            <div style={styles.tableHeaderCell}>Asset</div>
-            <div style={styles.tableHeaderCell}>Amount</div>
-            <div style={styles.tableHeaderCell}>Avg Buy Price</div>
-            <div style={styles.tableHeaderCell}>Current Price</div>
-            <div style={styles.tableHeaderCell}>Value</div>
-            <div style={styles.tableHeaderCell}>P/L</div>
-          </div>
-          {portfolio.holdings.map((holding) => (
-            <div key={holding.symbol} style={styles.tableRow}>
-              <div style={styles.tableCell}>
-                <div style={styles.cryptoInfo}>
-                  <img
-                    src={holding.icon}
-                    alt={holding.name}
-                    style={styles.cryptoIcon}
-                  />
-                  <div>
-                    <div style={styles.cryptoName}>{holding.name}</div>
-                    <div style={styles.cryptoSymbol}>{holding.symbol}</div>
-                  </div>
-                </div>
-              </div>
-              <div style={styles.tableCell}>{holding.amount}</div>
-              <div style={styles.tableCell}>
-                {formatCurrency(holding.avgBuyPrice)}
-              </div>
-              <div style={styles.tableCell}>
-                {formatCurrency(holding.currentPrice)}
-              </div>
-              <div style={styles.tableCell}>
-                {formatCurrency(holding.value)}
-              </div>
-              <div
-                style={{
-                  ...styles.tableCell,
-                  color: holding.pnL >= 0 ? '#10b981' : '#ef4444',
-                }}
-              >
-                {formatCurrency(holding.pnL)}
-                <span style={styles.pnlPercentage}>
-                  ({holding.pnL >= 0 ? '+' : ''}
-                  {holding.pnLPercentage.toFixed(2)}%)
-                </span>
-              </div>
-            </div>
-          ))}
+      <Card>
+        <h2 className="mb-6 text-xl font-semibold text-white">Your Holdings</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Asset</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Amount</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Avg Buy Price</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Current Price</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Value</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">P/L</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {portfolio.holdings.map((holding) => (
+                <tr key={holding.symbol} className="hover:bg-slate-900/30">
+                  <td className="py-4">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={holding.icon}
+                        alt={holding.name}
+                        className="h-8 w-8 rounded-full"
+                      />
+                      <div>
+                        <div className="font-medium text-white">{holding.name}</div>
+                        <div className="text-sm text-slate-400">{holding.symbol}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4 text-white">{holding.amount}</td>
+                  <td className="py-4 text-white">{formatCurrency(holding.avgBuyPrice)}</td>
+                  <td className="py-4 text-white">{formatCurrency(holding.currentPrice)}</td>
+                  <td className="py-4 text-white">{formatCurrency(holding.value)}</td>
+                  <td className={`py-4 ${holding.pnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {formatCurrency(holding.pnL)}
+                    <span className="text-sm">
+                      ({holding.pnL >= 0 ? '+' : ''}{holding.pnLPercentage.toFixed(2)}%)
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
+      </Card >
 
       {/* Recent Transactions */}
-      <div style={styles.dashboardSection}>
-        <h2 style={styles.sectionTitle}>Recent Transactions</h2>
-        <div style={styles.cryptoTable}>
-          <div style={styles.tableHeader}>
-            <div style={styles.tableHeaderCell}>Type</div>
-            <div style={styles.tableHeaderCell}>Asset</div>
-            <div style={styles.tableHeaderCell}>Amount</div>
-            <div style={styles.tableHeaderCell}>Price</div>
-            <div style={styles.tableHeaderCell}>Total</div>
-            <div style={styles.tableHeaderCell}>Date</div>
-          </div>
-          {portfolio.transactions.map((tx) => (
-            <div key={tx.id} style={styles.tableRow}>
-              <div
-                style={{
-                  ...styles.tableCell,
-                  color: tx.type === 'buy' ? '#10b981' : '#ef4444',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {tx.type}
-              </div>
-              <div style={styles.tableCell}>{tx.symbol}</div>
-              <div style={styles.tableCell}>{tx.amount}</div>
-              <div style={styles.tableCell}>{formatCurrency(tx.price)}</div>
-              <div style={styles.tableCell}>{formatCurrency(tx.total)}</div>
-              <div style={styles.tableCell}>{formatDate(tx.date)}</div>
-            </div>
-          ))}
+      < Card >
+        <h2 className="mb-6 text-xl font-semibold text-white">Recent Transactions</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Type</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Asset</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Amount</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Price</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Total</th>
+                <th className="pb-3 text-left text-sm font-medium text-slate-400">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {portfolio.transactions.map((tx) => (
+                <tr key={tx.id} className="hover:bg-slate-900/30">
+                  <td className={`py-4 font-medium capitalize ${tx.type === 'buy' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {tx.type}
+                  </td>
+                  <td className="py-4 text-white">{tx.symbol}</td>
+                  <td className="py-4 text-white">{tx.amount}</td>
+                  <td className="py-4 text-white">{formatCurrency(tx.price)}</td>
+                  <td className="py-4 text-white">{formatCurrency(tx.total)}</td>
+                  <td className="py-4 text-white">{formatDate(tx.date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
+      </Card >
+    </div >
   );
 };
 

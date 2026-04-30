@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import styles from '../styles/globalStyles';
+import Card from '../components/ui/Card';
 
 // Move static data outside component to avoid dependency issues
 const MOCK_LIQUIDATION_DATA = {
@@ -22,10 +22,11 @@ const MOCK_LIQUIDATION_DATA = {
     ],
 };
 
-const LiquidationHeatmap = ({ holdings, currentPrices }) => {
+const LiquidationHeatmap = ({ holdings }) => {
 
     const calculateRiskLevel = (currentPrice, levels) => {
-        const lowestLevel = levels.length > 0 ? Math.min(...levels.map(l => l.priceLevel)) : 0;
+        if (!currentPrice || levels.length === 0) return 'low';
+        const lowestLevel = Math.min(...levels.map((l) => l.priceLevel));
         const distance = currentPrice - lowestLevel;
         const percentageDistance = (distance / currentPrice) * 100;
 
@@ -35,39 +36,34 @@ const LiquidationHeatmap = ({ holdings, currentPrices }) => {
     };
 
     const findNearestLiquidation = (currentPrice, levels) => {
-        if (levels.length === 0) return null;
-
-        const nearestBelow = levels
-            .filter(l => l.priceLevel < currentPrice)
+        if (levels.length === 0 || !currentPrice) return null;
+        return levels
+            .filter((l) => l.priceLevel < currentPrice)
             .reduce((prev, curr) =>
                 Math.abs(curr.priceLevel - currentPrice) < Math.abs(prev.priceLevel - currentPrice)
                     ? curr
                     : prev,
                 levels[0]
             );
-
-        return nearestBelow;
     };
 
-    const getRiskColor = (riskLevel) => {
+    const getRiskColorClass = (riskLevel) => {
         switch (riskLevel) {
             case 'high':
-                return '#ef4444';
+                return 'bg-red-500 text-red-950';
             case 'medium':
-                return '#f59e0b';
+                return 'bg-amber-500 text-amber-950';
             case 'low':
-                return '#10b981';
+                return 'bg-emerald-500 text-emerald-950';
             default:
-                return '#6b7280';
+                return 'bg-slate-500 text-slate-950';
         }
     };
 
     const getHeatmapIntensity = (liquidations, maxLiquidations) => {
-        const intensity = (liquidations / maxLiquidations) * 100;
-        // Color from light to dark red based on liquidation intensity
-        const hue = 0; // red hue
-        const lightness = 90 - (intensity * 0.7); // 90% to 20%
-        return `hsl(${hue}, 100%, ${lightness}%)`;
+        const intensity = maxLiquidations > 0 ? (liquidations / maxLiquidations) * 100 : 0;
+        const lightness = 90 - Math.min(intensity * 0.7, 70);
+        return `hsl(0, 100%, ${lightness}%)`;
     };
 
     const formatCurrency = (value, decimals = 2) => {
@@ -79,151 +75,121 @@ const LiquidationHeatmap = ({ holdings, currentPrices }) => {
         }).format(value);
     };
 
-    // Calculate liquidation risk for each holding
     const liquidationRisk = useMemo(() => {
-        return holdings.map(holding => {
+        return holdings.map((holding) => {
             const liquidationLevels = MOCK_LIQUIDATION_DATA[holding.symbol] || [];
-
-            // Find current price index to determine proximity to liquidation levels
-            const currentPrice = holding.currentPrice;
+            const currentPrice = holding.currentPrice || 0;
             const riskLevel = calculateRiskLevel(currentPrice, liquidationLevels);
-
             return {
-                symbol: holding.symbol,
-                name: holding.name,
-                currentPrice,
-                amount: holding.amount,
+                ...holding,
                 liquidationLevels,
                 riskLevel,
-                distanceToLiquidation: findNearestLiquidation(currentPrice, liquidationLevels),
+                nearestLiquidation: findNearestLiquidation(currentPrice, liquidationLevels),
             };
         });
     }, [holdings]);
 
     return (
-        <div style={styles.dashboardContainer}>
-            {/* Risk Summary */}
-            <div style={styles.dashboardSection}>
-                <h2 style={styles.sectionTitle}>Liquidation Risk Overview</h2>
-                <div style={styles.riskSummaryGrid}>
-                    {liquidationRisk.map(risk => (
-                        <div key={risk.symbol} style={styles.riskCard}>
-                            <div style={styles.riskCardHeader}>
-                                <h3 style={styles.riskCardTitle}>{risk.name}</h3>
-                                <span
-                                    style={{
-                                        ...styles.riskBadge,
-                                        backgroundColor: getRiskColor(risk.riskLevel),
-                                    }}
-                                >
-                                    {risk.riskLevel.toUpperCase()}
+        <div className="space-y-6">
+            <div className="grid gap-6 lg:grid-cols-2">
+                {liquidationRisk.map((risk) => (
+                    <Card key={risk.symbol} className="border-slate-800 bg-slate-950/95">
+                        <div className="flex items-center justify-between gap-4">
+                            <div>
+                                <h3 className="text-lg font-semibold text-white">{risk.name}</h3>
+                                <p className="text-sm text-slate-400">{risk.symbol} liquidation summary</p>
+                            </div>
+                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getRiskColorClass(risk.riskLevel)}`}>
+                                {risk.riskLevel.toUpperCase()}
+                            </span>
+                        </div>
+                        <div className="mt-6 space-y-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
+                            <div className="flex items-center justify-between text-sm text-slate-400">
+                                <span>Current Price</span>
+                                <span className="font-semibold text-white">{formatCurrency(risk.currentPrice)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm text-slate-400">
+                                <span>Nearest Liquidation</span>
+                                <span className="font-semibold text-white">
+                                    {risk.nearestLiquidation ? formatCurrency(risk.nearestLiquidation.priceLevel) : 'N/A'}
                                 </span>
                             </div>
-                            <div style={styles.riskCardContent}>
-                                <div style={styles.riskMetric}>
-                                    <span>Current Price:</span>
-                                    <strong>{formatCurrency(risk.currentPrice)}</strong>
-                                </div>
-                                <div style={styles.riskMetric}>
-                                    <span>Nearest Liquidation:</span>
-                                    <strong>{formatCurrency(risk.distanceToLiquidation.priceLevel)}</strong>
-                                </div>
-                                <div style={styles.riskMetric}>
-                                    <span>Distance:</span>
-                                    <strong>
-                                        {(
-                                            ((risk.currentPrice - risk.distanceToLiquidation.priceLevel) /
-                                                risk.currentPrice) * 100
-                                        ).toFixed(2)}%
-                                    </strong>
-                                </div>
+                            <div className="flex items-center justify-between text-sm text-slate-400">
+                                <span>Distance</span>
+                                <span className="font-semibold text-white">
+                                    {risk.nearestLiquidation
+                                        ? `${(((risk.currentPrice - risk.nearestLiquidation.priceLevel) / risk.currentPrice) * 100).toFixed(2)}%`
+                                        : 'N/A'}
+                                </span>
                             </div>
                         </div>
-                    ))}
-                </div>
+                    </Card>
+                ))}
             </div>
 
-            {/* Liquidation Heatmap Levels */}
-            <div style={styles.dashboardSection}>
-                <h2 style={styles.sectionTitle}>Liquidation Levels Heatmap</h2>
-                {liquidationRisk.map(risk => {
-                    const maxLiquidations = Math.max(...risk.liquidationLevels.map(l => l.liquidations));
-
+            <div className="space-y-6">
+                {liquidationRisk.map((risk) => {
+                    const maxLiquidations = risk.liquidationLevels.length > 0 ? Math.max(...risk.liquidationLevels.map((l) => l.liquidations)) : 0;
                     return (
-                        <div key={risk.symbol} style={styles.heatmapContainer}>
-                            <h3 style={styles.heatmapTitle}>{risk.name} ({risk.symbol})</h3>
-                            <div style={styles.heatmapContent}>
-                                {/* Y-axis labels */}
-                                <div style={styles.heatmapYAxis}>
-                                    {risk.liquidationLevels.map(level => (
-                                        <div key={level.priceLevel} style={styles.heatmapYLabel}>
-                                            {formatCurrency(level.priceLevel, 0)}
-                                        </div>
-                                    ))}
+                        <Card key={`heatmap-${risk.symbol}`} className="border-slate-800 bg-slate-950/95">
+                            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">{risk.name} ({risk.symbol})</h3>
+                                    <p className="text-sm text-slate-400">Liquidation levels across price zones</p>
                                 </div>
-
-                                {/* Heatmap bars */}
-                                <div style={styles.heatmapBars}>
-                                    {risk.liquidationLevels.map(level => {
-                                        const isCurrentPrice = Math.abs(level.priceLevel - risk.currentPrice) < risk.currentPrice * 0.02;
-
-                                        return (
-                                            <div key={level.priceLevel} style={styles.heatmapBarRow}>
+                                <div className="text-sm text-slate-400">
+                                    Current price: <span className="font-semibold text-white">{formatCurrency(risk.currentPrice)}</span>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {risk.liquidationLevels.map((level) => {
+                                    const isCurrentPrice = Math.abs(level.priceLevel - risk.currentPrice) < risk.currentPrice * 0.02;
+                                    return (
+                                        <div key={level.priceLevel} className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)] items-center">
+                                            <div className="text-sm text-slate-400">{formatCurrency(level.priceLevel, 0)}</div>
+                                            <div className="relative h-10 overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/70">
                                                 <div
+                                                    className="absolute inset-y-0 left-0 rounded-l-3xl"
                                                     style={{
-                                                        ...styles.heatmapBar,
+                                                        width: `${maxLiquidations ? (level.liquidations / maxLiquidations) * 100 : 0}%`,
                                                         backgroundColor: getHeatmapIntensity(level.liquidations, maxLiquidations),
-                                                        borderLeft: isCurrentPrice ? '3px solid #2563eb' : 'none',
-                                                        opacity: isCurrentPrice ? 1 : 0.8,
                                                     }}
-                                                    title={`${level.liquidations} liquidations`}
-                                                >
-                                                    <span style={styles.heatmapValue}>{level.liquidations}</span>
+                                                />
+                                                <div className="relative z-10 flex h-full items-center justify-end pr-4 text-sm font-semibold text-white">
+                                                    {level.liquidations}
                                                 </div>
+                                                {isCurrentPrice && <div className="absolute inset-y-0 right-0 w-1 rounded-r-3xl bg-brand-500" />}
                                             </div>
-                                        );
-                                    })}
-                                </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-
-                            {/* Current price indicator */}
-                            <div style={styles.heatmapLegend}>
-                                <div style={styles.legendItem}>
-                                    <div style={{ ...styles.legendColor, backgroundColor: '#2563eb' }}></div>
-                                    <span>Current Price: {formatCurrency(risk.currentPrice)}</span>
-                                </div>
-                            </div>
-                        </div>
+                        </Card>
                     );
                 })}
             </div>
 
-            {/* Legend */}
-            <div style={styles.dashboardSection}>
-                <h3 style={styles.sectionTitle}>Legend</h3>
-                <div style={styles.legendGrid}>
-                    <div style={styles.legendItem}>
-                        <div style={{ ...styles.legendColor, backgroundColor: '#ef4444' }}></div>
-                        <span>High Risk (Distance &lt; 15%)</span>
+            <Card className="border-slate-800 bg-slate-950/95">
+                <h3 className="text-lg font-semibold text-white">Legend</h3>
+                <div className="grid gap-3 sm:grid-cols-2 mt-4">
+                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
+                        <span className="h-3 w-3 rounded-full bg-red-500"></span>
+                        <span className="text-sm text-slate-300">High Risk (distance &lt; 15%)</span>
                     </div>
-                    <div style={styles.legendItem}>
-                        <div style={{ ...styles.legendColor, backgroundColor: '#f59e0b' }}></div>
-                        <span>Medium Risk (Distance 15-30%)</span>
+                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
+                        <span className="h-3 w-3 rounded-full bg-amber-500"></span>
+                        <span className="text-sm text-slate-300">Medium Risk (distance 15-30%)</span>
                     </div>
-                    <div style={styles.legendItem}>
-                        <div style={{ ...styles.legendColor, backgroundColor: '#10b981' }}></div>
-                        <span>Low Risk (Distance &gt; 30%)</span>
+                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
+                        <span className="h-3 w-3 rounded-full bg-emerald-500"></span>
+                        <span className="text-sm text-slate-300">Low Risk (distance &gt; 30%)</span>
                     </div>
-                    <div style={styles.legendItem}>
-                        <div style={{ ...styles.legendColor, backgroundColor: '#f5f5dc' }}></div>
-                        <span>Low Liquidation Volume</span>
-                    </div>
-                    <div style={styles.legendItem}>
-                        <div style={{ ...styles.legendColor, backgroundColor: '#8b0000' }}></div>
-                        <span>High Liquidation Volume</span>
+                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
+                        <span className="h-3 w-3 rounded-full bg-slate-500"></span>
+                        <span className="text-sm text-slate-300">Low liquidation volume</span>
                     </div>
                 </div>
-            </div>
+            </Card>
         </div>
     );
 };
