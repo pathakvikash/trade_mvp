@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import styles from '../styles/globalStyles';
 import useUserStore from '../store/userStore';
 
 const Register = () => {
@@ -184,124 +183,129 @@ const Register = () => {
   };
 
   return (
-    <div style={styles.authContainer}>
-      <div style={styles.authCard}>
-        <div style={styles.authHeader}>
-          <h2 style={styles.authTitle}>Create Account</h2>
-          <p style={styles.authSubtitle}>
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
+      <div className="w-full max-w-md rounded-[1.25rem] border border-slate-800 bg-slate-900/90 p-6 shadow-soft backdrop-blur-sm sm:p-8">
+        <div className="mb-8 text-center">
+          <h2 className="bg-gradient-to-r from-blue-400 to-brand-500 bg-clip-text text-4xl font-bold text-transparent">
+            Create Account
+          </h2>
+          <p className="mt-2 text-sm text-slate-400">
             Join thousands of crypto traders worldwide
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={styles.authForm}>
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Full Name</label>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Full Name</label>
             <input
               type='text'
               name='name'
               value={formData.name}
               onChange={handleChange}
-              style={styles.input}
               placeholder='John Doe'
               required
               disabled={loading}
+              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Email</label>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Email</label>
             <input
               type='email'
               name='email'
               value={formData.email}
               onChange={handleEmailChange}
-              style={styles.input}
               placeholder='your@email.com'
               required
               disabled={loading}
+              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Username</label>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Username</label>
             <input
               type='text'
               name='username'
               value={formData.username}
               onChange={handleChange}
-              style={styles.input}
               placeholder='johndoe123'
               required
               disabled={loading}
               pattern='[a-zA-Z0-9]+'
               title='Username can only contain letters and numbers'
+              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
-            <small style={styles.helperText}>
+            <small className="text-xs text-slate-500">
               Username can only contain letters and numbers
             </small>
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Password</label>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Password</label>
             <input
               type='password'
               name='password'
               value={formData.password}
               onChange={handleChange}
-              style={styles.input}
               placeholder='••••••••'
               required
               minLength='8'
               disabled={loading}
+              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
-            <small style={styles.helperText}>
+            <small className="text-xs text-slate-500">
               Password must be at least 8 characters long and contain uppercase,
               lowercase, number, and special character
             </small>
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Confirm Password</label>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Confirm Password</label>
             <input
               type='password'
               name='confirmPassword'
               value={formData.confirmPassword}
               onChange={handleChange}
-              style={styles.input}
               placeholder='••••••••'
               required
               minLength='8'
               disabled={loading}
+              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
 
-          {error && <div style={styles.errorMessage}>{error}</div>}
+          {error && (
+            <div className="rounded-2xl border border-red-900/70 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
 
           <button
             type='submit'
-            style={{
-              ...styles.authButton,
-              opacity: loading ? 0.7 : 1,
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
             disabled={loading}
+            className={`w-full rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
+              loading ? 'cursor-not-allowed opacity-70' : ''
+            }`}
           >
             {loading ? 'Creating Account...' : 'Create Account'}
           </button>
 
-          <div style={styles.authLinks}>
-            <div style={styles.authDivider}>
-              <span style={styles.authDividerText}>
+          <div className="space-y-4 pt-1 text-center">
+            <div className="relative py-1">
+              <div className="h-px w-full bg-slate-800" />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-900 px-3 text-xs text-slate-500">
                 Already have an account?
               </span>
             </div>
-            <Link to='/login' style={styles.authLinkSecondary}>
+            <Link to='/login' className="text-sm text-slate-300 transition hover:text-white">
               Login Here
             </Link>
           </div>
 
-          <div style={styles.guestInfo}>
-            <p style={styles.guestText}>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+            <p className="leading-relaxed">
               Try as a guest:
               <br />
               Email: guest@cryptozen.com
@@ -309,7 +313,11 @@ const Register = () => {
               Password: Guest@123
             </p>
           </div>
-          <button type='button' onClick={handleAutoFill}>
+          <button
+            type='button'
+            onClick={handleAutoFill}
+            className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+          >
             Auto Fill
           </button>
         </form>
