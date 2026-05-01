@@ -10,15 +10,15 @@ const MarketOverview = React.memo(({ cryptoData, formatCurrency, formatPercentag
     <Card>
       <h2 className="mb-6 text-xl font-semibold text-white">Market Overview</h2>
       <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950/70">
-        <div className="max-h-[30rem] overflow-y-auto">
+        <div className="max-h-[30rem] overflow-y-auto px-4">
           <table className="w-full">
           <thead>
             <tr className="border-b border-slate-800">
-              <th className="pb-3 text-left text-sm font-medium text-slate-400">Asset</th>
-              <th className="pb-3 text-left text-sm font-medium text-slate-400">Price</th>
-              <th className="pb-3 text-left text-sm font-medium text-slate-400">24h Change</th>
-              <th className="pb-3 text-left text-sm font-medium text-slate-400">Market Cap</th>
-              <th className="pb-3 text-left text-sm font-medium text-slate-400">Action</th>
+              <th className="py-3 text-left text-sm font-medium text-slate-400">Asset</th>
+              <th className="py-3 text-left text-sm font-medium text-slate-400">Price</th>
+              <th className="py-3 text-left text-sm font-medium text-slate-400">24h Change</th>
+              <th className="py-3 text-left text-sm font-medium text-slate-400">Market Cap</th>
+              <th className="py-3 text-left text-sm font-medium text-slate-400">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">

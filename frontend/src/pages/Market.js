@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import useMarketStore from '../store/marketStore';
 import { Line } from 'react-chartjs-2';
 import axios from 'axios';
@@ -230,6 +231,19 @@ const Market = () => {
     setTimeframe(tf);
   };
 
+  useEffect(() => {
+    if (!showAlertForm) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showAlertForm]);
+
   if (loading) {
     return (
       <div className="flex min-h-full items-center justify-center bg-slate-950">
@@ -307,9 +321,9 @@ const Market = () => {
           </Button>
         </div>
 
-        {showAlertForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <Card className="w-full max-w-md">
+        {showAlertForm && createPortal(
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
+            <Card className="z-[121] w-full max-w-md border-slate-700 bg-slate-900/95 shadow-2xl">
               <h3 className="mb-4 text-lg font-semibold text-white">Create Price Alert</h3>
               <form onSubmit={handleCreateAlert} className="space-y-4">
                 <div>
@@ -376,7 +390,8 @@ const Market = () => {
                 </div>
               </form>
             </Card>
-          </div>
+          </div>,
+          document.body
         )}
 
         {alerts.length > 0 && (
@@ -416,7 +431,7 @@ const Market = () => {
           </Card>
         </div>
 
-        <div className="space-y-2 max-h-[38rem] overflow-y-auto pr-1">
+        <div className="hide-scrollbar space-y-2 max-h-[38rem] overflow-y-auto pr-1">
           {marketData.map((coin) => (
             <div
               key={coin.id}
