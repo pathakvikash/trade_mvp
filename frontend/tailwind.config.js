@@ -33,9 +33,6 @@ module.exports = {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
-      borderRadius: {
-        xl: '1rem',
-      },
     },
   },
   plugins: [],

@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  --bg: #020617;
+  --bg: #070b14;
   --surface: #0f172a;
   --surface-alt: #111827;
   --surface-strong: #0b1120;
@@ -51,6 +51,12 @@
   }
 }
 
+@layer components {
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70;
+  }
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
@@ -65,6 +71,9 @@ code {
   width: 0;
   height: 0;
 }
+
+/* an inner scroller that hits its end must not hand the wheel to the page */
+.overflow-auto, .overflow-y-auto, .overflow-x-auto { overscroll-behavior: contain; }
 
 .hide-scrollbar {
   -ms-overflow-style: none;

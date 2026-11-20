@@ -1,136 +1,125 @@
-import React, { useMemo, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import useMarketStore from '../store/marketStore';
 import useUserStore from '../store/userStore';
+import { fmtPct, fmtPrice } from './ui/fmt';
+import CommandPalette from './shell/CommandPalette';
+import { Icon, ICONS } from './shell/nav';
 
-const menuItems = [
-  { path: '/dashboard', icon: '📊', label: 'Dashboard' },
-  { path: '/market', icon: '📈', label: 'Market' },
-  { path: '/trade', icon: '💱', label: 'Trade' },
-  { path: '/portfolio', icon: '📁', label: 'Portfolio' },
-  { path: '/liquidation', icon: '🔥', label: 'Liquidation' },
-  { path: '/settings', icon: '⚙️', label: 'Settings' },
-];
+const STATUS = {
+  connected: { dot: 'bg-emerald-400', label: 'Live' },
+  connecting: { dot: 'animate-pulse bg-amber-400', label: 'Connecting' },
+  disconnected: { dot: 'bg-rose-400', label: 'Offline' },
+  error: { dot: 'bg-rose-400', label: 'Offline' },
+};
 
-const Header = () => {
-  const marketData = useMarketStore((state) => state.marketData);
-  const user = useUserStore((state) => state.user);
-  const { setLogout } = useUserStore((state) => state);
+const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
+
+const Header = ({ onMenu }) => {
   const navigate = useNavigate();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const marketData = useMarketStore((s) => s.marketData);
+  const socketStatus = useMarketStore((s) => s.socketStatus);
+  const user = useUserStore((s) => s.user);
+  const setLogout = useUserStore((s) => s.setLogout);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
-  const topMarkets = useMemo(
-    () => marketData.slice(0, 4),
-    [marketData]
-  );
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
-  const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onDown = (e) => menuRef.current && !menuRef.current.contains(e.target) && setMenuOpen(false);
+    const onKey = (e) => e.key === 'Escape' && setMenuOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
-  const handleLogout = () => {
+  const logout = () => {
+    setMenuOpen(false);
     setLogout();
     navigate('/login');
-    setIsMobileMenuOpen(false);
   };
 
+  const status = STATUS[socketStatus] || STATUS.error;
+
   return (
-    <>
-      <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center justify-between gap-3 px-4 py-4 md:px-6">
-        <div className="flex items-center gap-3">
+    <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-800/80 bg-[#070b14] px-3">
+      <button type="button" onClick={onMenu} className="focus-ring rounded-md p-1.5 text-slate-400 hover:text-slate-100 lg:hidden" aria-label="Open menu">
+        <Icon d={ICONS.menu} className="h-[18px] w-[18px]" />
+      </button>
+
+      <div role="group" className="hide-scrollbar flex min-w-0 flex-1 items-center gap-4 overflow-x-auto text-xs" aria-label="Live prices">
+        {marketData.slice(0, 8).map((c) => {
+          const up = (c.price_change_percentage_24h ?? 0) >= 0;
+          return (
+            <Link key={c.id} to={`/trade?symbol=${c.symbol.toUpperCase()}`} className="focus-ring flex shrink-0 items-baseline gap-1.5 rounded tabular-nums">
+              <span className="font-medium text-slate-300">{c.symbol.toUpperCase()}</span>
+              <span className="text-slate-400">{fmtPrice(c.current_price)}</span>
+              <span className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(c.price_change_percentage_24h)}</span>
+            </Link>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setPaletteOpen(true)}
+        className="focus-ring flex h-7 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2 text-xs text-slate-500 hover:border-slate-700 hover:text-slate-300 sm:w-52"
+        aria-label="Search coins and pages"
+        aria-haspopup="dialog"
+      >
+        <Icon d={ICONS.search} className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Search</span>
+        <kbd className="ml-auto hidden rounded border border-slate-700 px-1 text-[10px] sm:inline">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+      </button>
+
+      <span className="flex items-center gap-1.5 text-[11px] text-slate-400" title={`Market feed: ${status.label}`}>
+        <span className={`h-2 w-2 rounded-full ${status.dot}`} aria-hidden="true" />
+        <span className="hidden md:inline">{status.label}</span>
+        <span className="sr-only">Market feed {status.label}</span>
+      </span>
+
+      {user ? (
+        <div className="relative" ref={menuRef}>
           <button
-            onClick={toggleMobileMenu}
-            className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-300 transition hover:bg-slate-800 lg:hidden"
-            aria-label="Toggle mobile menu"
+            type="button"
+            onClick={() => setMenuOpen((o) => !o)}
+            className="focus-ring grid h-7 w-7 place-items-center rounded-full border border-slate-700 bg-slate-900 text-xs font-semibold uppercase text-slate-200"
+            aria-label="User menu"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
+            {(user.name || 'U').charAt(0)}
           </button>
-          <div className="rounded-3xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-950/30">
-            TradeMVP
-          </div>
-          <div className="hidden items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-400 sm:flex">
-            <span className="font-semibold uppercase tracking-[0.24em]">Live</span>
-            {topMarkets.map((coin) => (
-              <div key={coin.id} className="flex items-center gap-2 rounded-2xl bg-slate-950 px-3 py-2 text-slate-300">
-                <span className="text-sm font-semibold text-white">{coin.symbol.toUpperCase()}</span>
-                <span className={coin.price_change_percentage_24h >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                  {coin.price_change_percentage_24h?.toFixed(2)}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-1 items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/85 px-4 py-3 md:max-w-xl">
-          <input
-            type="search"
-            placeholder="Search coin, symbol or market"
-            className="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 outline-none"
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button className="hidden rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800 md:inline-flex">
-            Wallet
-          </button>
-          <button className="rounded-full bg-slate-900/85 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 hover:bg-slate-800">
-            {user?.name ? `Hi, ${user.name}` : 'Guest'}
-          </button>
-        </div>
-        </div>
-      </header>
-
-      {/* Mobile Menu Overlay */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-[100] lg:hidden">
-          <div className="fixed inset-0 bg-black/75" onClick={toggleMobileMenu} />
-          <div className="fixed left-0 top-0 flex h-screen w-72 flex-col border-r border-slate-800 bg-slate-950 shadow-2xl shadow-black/70">
-            <div className="flex items-center justify-between border-b border-slate-800 p-4">
-              <h2 className="text-lg font-semibold text-white">Menu</h2>
-              <button
-                onClick={toggleMobileMenu}
-                className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-300 transition hover:bg-slate-800"
-                aria-label="Close mobile menu"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+          {menuOpen && (
+            <div role="menu" className="absolute right-0 top-9 z-50 w-44 rounded-xl border border-slate-800 bg-slate-950 p-1 shadow-xl shadow-black/50">
+              <p className="truncate px-2.5 py-1.5 text-xs text-slate-400">{user.name || 'Signed in'}</p>
+              <button type="button" role="menuitem" onClick={logout} className="focus-ring flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-900">
+                <Icon d={ICONS.logout} /> Logout
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto p-4">
-              <div className="flex flex-col gap-2">
-                {menuItems.map((item) => (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    onClick={toggleMobileMenu}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 rounded-3xl px-4 py-3 text-sm font-medium transition ${
-                        isActive ? 'bg-brand-600/20 text-brand-200' : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
-                      }`
-                    }
-                  >
-                    <span>{item.icon}</span>
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
-            </nav>
-            <div className="mx-4 mb-4 mt-auto rounded-3xl border border-slate-800 bg-slate-900 p-4 text-slate-300">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Signed in as</p>
-              <p className="mt-2 text-sm font-semibold text-white">{user?.name || 'Guest User'}</p>
-              <button
-                onClick={handleLogout}
-                className="mt-4 w-full rounded-2xl bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-700"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
+          )}
         </div>
+      ) : (
+        <Link to="/login" className="focus-ring rounded-lg border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-900">Sign in</Link>
       )}
-    </>
+
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+    </header>
   );
 };
 

@@ -3,30 +3,34 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../store/userStore';
 import useMarketStore from '../store/marketStore';
+import usePolling from '../lib/usePolling';
+import usePortfolio from '../lib/usePortfolio';
+import { API, authed } from '../lib/api';
+import { fmtPrice } from '../components/ui/fmt';
+import { FUT, coin as baseOf } from '../components/liquidation/shared';
+import useFuturesStore from '../store/futuresStore';
+import SegTabs from '../components/ui/SegTabs';
+import SymbolHeader from '../components/trade/SymbolHeader';
 import MarketChartPanel from '../components/trade/MarketChartPanel';
 import OrderBookPanel from '../components/trade/OrderBookPanel';
+import TradesTapePanel from '../components/trade/TradesTapePanel';
 import TradeForm from '../components/trade/TradeForm';
-import PositionsPanel from '../components/trade/PositionsPanel';
-import TradeHistoryPanel from '../components/trade/TradeHistoryPanel';
+import BottomStrip from '../components/trade/BottomStrip';
+
+const MOBILE_TABS = [{ id: 'order', label: 'Order' }, { id: 'book', label: 'Book' }, { id: 'trades', label: 'Trades' }];
 
 const Trade = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { user, token } = useUserStore((state) => state);
-  const marketData = useMarketStore((state) => state.marketData);
-  const socketStatus = useMarketStore((state) => state.socketStatus);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const token = useUserStore((s) => s.token);
+  const prefSymbol = useUserStore((s) => s.user?.preferences?.defaultSymbol);
+  const defaultTf = useUserStore((s) => s.user?.preferences?.defaultTimeframe) || '1m';
+  const marketData = useMarketStore((s) => s.marketData);
+  const account = usePortfolio(token);
 
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [tradeData, setTradeData] = useState({
-    userId: user?.id || '',
-    cryptoSymbol: '',
-    type: 'buy',
-    amount: '',
-    priceAtTrade: '',
-    orderType: 'Market',
-  });
-  const [selectedCoin, setSelectedCoin] = useState(null);
+  const [mobileTab, setMobileTab] = useState('order');
 
   const availableCoins = useMemo(
     () =>
@@ -34,205 +38,131 @@ const Trade = () => {
         symbol: coin.symbol.toUpperCase(),
         name: coin.name,
         price: coin.current_price,
-        image: coin.image,
+        change: coin.price_change_percentage_24h,
       })),
     [marketData]
   );
 
+  // The futures symbol comes from the URL, else the user's default pair (Settings), else BTC; CoinGecko data is only decoration when it has the coin.
+  const urlSymbol = searchParams.get('symbol')?.toUpperCase();
+  const prefBase = prefSymbol?.replace(/USDT$/, '').toUpperCase();
+  const symbol = [urlSymbol, prefBase].find((s) => s && /^[A-Z0-9]{2,20}$/.test(s)) || 'BTC';
+  const futuresSymbol = `${symbol}USDT`;
+  const cg = useMemo(() => availableCoins.find((c) => c.symbol === symbol), [availableCoins, symbol]);
+
+  const ov = usePolling(`${FUT}/overview`, 15000);
+  const overview = useMemo(() => (Array.isArray(ov.data) ? ov.data : []), [ov.data]);
+  // base symbol -> futures last price, for position P&L (overview covers the top-40 perps only)
+  const prices = useMemo(() => Object.fromEntries(overview.map((r) => [baseOf(r.symbol), r.lastPrice ?? r.markPrice])), [overview]);
+  const symbols = useMemo(() => {
+    const list = overview.length ? overview.map((r) => baseOf(r.symbol)) : availableCoins.map((c) => c.symbol);
+    return list.includes(symbol) ? list : [symbol, ...list];
+  }, [overview, availableCoins, symbol]);
+  const candles = useFuturesStore((s) => s.candles);
+  const book = useFuturesStore((s) => s.book);
+  const mark = useFuturesStore((s) => s.mark);
+  const trades = useFuturesStore((s) => s.trades);
+  const interval = useFuturesStore((s) => s.interval);
+  const futuresError = useFuturesStore((s) => s.error);
+  const storeSymbol = useFuturesStore((s) => s.symbol);
+  const subscribe = useFuturesStore((s) => s.subscribe);
+  const unsubscribe = useFuturesStore((s) => s.unsubscribe);
+  const setTimeframe = useFuturesStore((s) => s.setTimeframe);
+
   useEffect(() => {
-    if (availableCoins.length === 0) {
-      return;
-    }
+    if (futuresSymbol) subscribe(futuresSymbol, defaultTf);
+  }, [futuresSymbol, subscribe, defaultTf]);
+  useEffect(() => unsubscribe, [unsubscribe]);
 
-    const symbolFromUrl = searchParams.get('symbol')?.toUpperCase();
-    const initialCoin =
-      availableCoins.find((coin) => coin.symbol === symbolFromUrl) || availableCoins[0];
+  const ready = storeSymbol === futuresSymbol;
+  const reloadSeq = useFuturesStore((s) => s.reloadSeq);
+  // Futures last price (last candle close, else mark); never the CoinGecko spot price.
+  const lastPrice = ready ? (candles.length ? candles[candles.length - 1].close : mark?.markPrice ?? null) : null;
 
-    setSelectedCoin(initialCoin);
-    setTradeData((prev) => ({
-      ...prev,
-      userId: user?.id || '',
-      cryptoSymbol: initialCoin.symbol,
-      priceAtTrade: initialCoin.price.toString(),
-    }));
-  }, [availableCoins, searchParams, user?.id]);
-
-  const chartData = useMemo(() => {
-    if (!selectedCoin) {
-      return null;
-    }
-
-    const base = selectedCoin.price;
-    const labels = Array.from({ length: 12 }, (_, index) => `${12 - index}h`);
-    const prices = Array.from({ length: 12 }, (_, index) => {
-      const volatility = Math.sin(index / 2) * 0.006 + (Math.random() - 0.5) * 0.002;
-      return Number((base * (1 + volatility)).toFixed(2));
-    });
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: `${selectedCoin.symbol} price`,
-          data: prices,
-          borderColor: '#60a5fa',
-          backgroundColor: 'rgba(96, 165, 250, 0.16)',
-          fill: true,
-          tension: 0.35,
-          pointRadius: 0,
-        },
-      ],
-    };
-  }, [selectedCoin]);
-
-  const orderBook = useMemo(() => {
-    const price = selectedCoin?.price || 100;
-    const spread = selectedCoin ? (price * 0.002).toFixed(2) : '0.00';
-    const bids = Array.from({ length: 6 }, (_, index) => {
-      const value = Number((price * (1 - 0.0015 - index * 0.0008)).toFixed(2));
-      const size = ((index + 1) * 0.18).toFixed(3);
-      return { price: value, size, total: `$${(value * Number(size)).toFixed(2)}` };
-    });
-    const asks = Array.from({ length: 6 }, (_, index) => {
-      const value = Number((price * (1 + 0.0015 + index * 0.0008)).toFixed(2));
-      const size = ((index + 1) * 0.14).toFixed(3);
-      return { price: value, size, total: `$${(value * Number(size)).toFixed(2)}` };
-    });
-    return { bids, asks, spread: `$${spread}` };
-  }, [selectedCoin]);
-
-  const positions = useMemo(() => {
-    return availableCoins.slice(0, 3).map((coin, index) => ({
-      symbol: coin.symbol,
-      description: `${coin.name} trading position`,
-      size: `${(index + 0.7).toFixed(3)} ${coin.symbol}`,
-      pnl: Number(((Math.random() - 0.3) * 1200).toFixed(2)),
-    }));
-  }, [availableCoins]);
-
-  const trades = useMemo(() => {
-    return availableCoins.slice(0, 4).map((coin, index) => ({
-      id: `${coin.symbol}-${index}`,
-      symbol: coin.symbol,
-      asset: coin.symbol,
-      action: index % 2 === 0 ? 'Buy' : 'Sell',
-      amount: (Math.random() * 1.8 + 0.1).toFixed(3),
-      price: Number((coin.price * (1 + (Math.random() - 0.5) * 0.008)).toFixed(2)),
-      time: `${11 + index}:${index * 5 + 10} PM`,
-    }));
-  }, [availableCoins]);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-
-    if (name === 'cryptoSymbol') {
-      const coin = availableCoins.find((item) => item.symbol === value);
-      setSelectedCoin(coin);
-      setTradeData((prev) => ({
-        ...prev,
-        cryptoSymbol: value,
-        priceAtTrade: coin ? coin.price.toString() : '',
-      }));
-    } else {
-      setTradeData((prev) => ({ ...prev, [name]: value }));
-    }
-
+  // The server fills at its own mark price; only {cryptoSymbol, type, amount} is sent (the user comes from the token).
+  const handleSubmit = async ({ type, amount }) => {
     setMessage({ type: '', text: '' });
-  };
-
-  const handleTypeChange = (type) => {
-    setTradeData((prev) => ({ ...prev, type, orderType: 'Limit' }));
-    setMessage({ type: '', text: '' });
-  };
-
-  const handleSubmit = async () => {
     if (!token) {
       setMessage({ type: 'error', text: 'Please login to trade.' });
       navigate('/login');
-      return;
+      return false;
     }
 
     setIsSubmitting(true);
-
     try {
-      const tradePayload = {
-        ...tradeData,
-        userId: user?.id || '',
-      };
-
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URL || ''}/api/trades`,
-        tradePayload,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (response?.data) {
-        setMessage({ type: 'success', text: 'Order placed successfully.' });
-        setTradeData((prev) => ({
-          ...prev,
-          amount: '',
-          priceAtTrade: selectedCoin?.price?.toString() || '',
-        }));
-      }
+      const { data } = await axios.post(`${API}/api/trades`, { cryptoSymbol: symbol, type, amount: Number(amount) }, authed(token));
+      const f = data.fill;
+      setMessage({
+        type: 'success',
+        text: `${type === 'buy' ? 'Bought' : 'Sold'} ${f.amount} ${f.symbol} @ ${fmtPrice(f.price)}. Fee $${fmtPrice(f.fee)}. Balance $${fmtPrice(data.balance)}.`,
+      });
+      account.reload();
+      return true;
     } catch (error) {
-      console.error(error);
+      console.error(error.message); // the axios error object carries the Authorization header
+      const status = error.response?.status;
       setMessage({
         type: 'error',
-        text: error.response?.data?.message || 'Unable to place the order at this time.',
+        text: (status === 429 ? 'Too many orders, slow down.' : null) || error.response?.data?.message || 'Unable to place the order at this time.',
       });
     } finally {
       setIsSubmitting(false);
     }
+    return false;
   };
 
-  const isLoading = marketData.length === 0 && socketStatus === 'connecting';
-
-  if (isLoading) {
-    return (
-      <div className="mx-auto flex min-h-[60vh] w-full max-w-screen-lg items-center justify-center px-4 text-slate-300">
-        <div className="animate-pulse rounded-3xl border border-slate-800 bg-slate-900/80 p-8 text-center">
-          <div className="mb-4 h-4 w-40 rounded-full bg-slate-800"></div>
-          <div className="space-y-3">
-            <div className="h-3 rounded-full bg-slate-800"></div>
-            <div className="h-3 rounded-full bg-slate-800"></div>
-            <div className="h-3 rounded-full bg-slate-800 w-3/4"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const show = (tab) => (mobileTab === tab ? '' : 'hidden xl:flex');
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-5 xl:grid-cols-[1.75fr_1fr]">
+    <div className="space-y-3">
+      <SymbolHeader
+        symbols={symbols}
+        symbol={symbol}
+        overview={overview}
+        change={cg?.change}
+        futuresSymbol={futuresSymbol}
+        ready={ready}
+        candles={candles}
+        mark={mark}
+        onSymbol={(s) => setSearchParams({ symbol: s }, { replace: true })}
+      />
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px_300px] xl:grid-rows-[1fr_auto]">
         <MarketChartPanel
-          title="Trading View"
-          symbol={selectedCoin ? `${selectedCoin.symbol}/USD` : 'BTC/USD'}
-          currentPrice={selectedCoin?.price}
-          change={selectedCoin?.price ? (Math.random() * 2 - 1) : 0}
-          chartData={chartData}
-        />
-        <OrderBookPanel bids={orderBook.bids} asks={orderBook.asks} spread={orderBook.spread} />
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
-        <TradeForm
-          availableCoins={availableCoins}
-          selectedCoin={selectedCoin}
-          tradeData={tradeData}
-          onChange={handleChange}
-          onTypeChange={handleTypeChange}
-          onSubmit={handleSubmit}
-          message={message}
-          isSubmitting={isSubmitting}
+          className="h-[420px] xl:col-start-1 xl:row-start-1 xl:h-auto"
+          ticker={symbol}
+          interval={interval}
+          onInterval={setTimeframe}
+          candles={candles}
+          reloadSeq={reloadSeq}
+          error={futuresError}
+          ready={ready}
+          onRetry={() => subscribe(futuresSymbol, interval)}
         />
 
-        <div className="space-y-5">
-          <PositionsPanel positions={positions} />
-          <TradeHistoryPanel trades={trades} />
+        <SegTabs tabs={MOBILE_TABS} active={mobileTab} onChange={setMobileTab} label="Trading panels" className="xl:hidden" />
+
+        <div className={`${mobileTab === 'order' ? 'hidden xl:flex' : 'flex'} flex-col gap-3 xl:col-start-2 xl:row-span-2 xl:row-start-1`}>
+          <OrderBookPanel
+            className={show('book')}
+            book={book}
+            loading={ready && !book && !futuresError}
+          />
+          <TradesTapePanel className={`${show('trades')} flex-1`} trades={trades} />
         </div>
+
+        <div className={`${mobileTab === 'order' ? '' : 'hidden xl:block'} xl:col-start-3 xl:row-span-2 xl:row-start-1`}>
+          <TradeForm
+            key={symbol}
+            coin={{ symbol, price: lastPrice }}
+            balance={account.balance}
+            onSubmit={handleSubmit}
+            message={message}
+            isSubmitting={isSubmitting}
+          />
+        </div>
+
+        <BottomStrip className="xl:col-start-1 xl:row-start-2" symbol={futuresSymbol} account={account} prices={prices} />
       </div>
     </div>
   );

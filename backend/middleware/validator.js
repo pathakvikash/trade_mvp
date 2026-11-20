@@ -1,27 +1,77 @@
-
 const { body, validationResult } = require('express-validator');
+const { AI_MODELS } = require('../services/aiService');
 
-const userValidationRules = () => {
-  return [
-    body('email').isEmail().withMessage('Please provide a valid email'),
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
-  ];
+// isString() first on every field: it rejects objects/arrays (e.g. {"$gt":""}) before they reach a Mongo query.
+const email = body('email').isString().trim().isLength({ max: 254 }).isEmail().withMessage('Please provide a valid email');
+
+// 72: bcrypt ignores anything past 72 bytes, so a longer limit would be a false promise.
+const passwordRule = (field) => body(field).isString().isLength({ min: 8, max: 72 }).withMessage('Password must be 8-72 characters long');
+
+// Login only needs "non-empty": password rules must not lock out accounts created under older rules.
+const loginRules = () => [
+  email,
+  body('password').isString().isLength({ min: 1, max: 128 }).withMessage('Password is required'),
+];
+
+const registerRules = () => [
+  body('username').isString().matches(/^[a-zA-Z0-9_]{3,30}$/).withMessage('Username must be 3-30 characters: letters, numbers, underscore'),
+  body('name').isString().trim().isLength({ min: 1, max: 60 }).withMessage('Name must be 1-60 characters'),
+  email,
+  passwordRule('password'),
+];
+
+const passwordChangeRules = () => [
+  body('currentPassword').isString().isLength({ min: 1, max: 128 }).withMessage('Current password is required'),
+  passwordRule('newPassword'),
+];
+
+// Only these keys may be set through PATCH /api/auth/me; anything else (role, balance, email, username, password...) is a 422.
+const ROOT_KEYS = ['name', 'profile', 'preferences', 'ai'];
+const PROFILE_KEYS = ['bio', 'country', 'timezone'];
+const PREFERENCE_KEYS = ['defaultSymbol', 'defaultTimeframe', 'alertToasts', 'alertSound'];
+const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+const plainObjectWithKeys = (keys) => (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Must be an object');
+  const extra = Object.keys(v).find((k) => !keys.includes(k));
+  if (extra) throw new Error(`Unknown field: ${extra}`);
+  return true;
 };
+
+const updateMeRules = () => [
+  body().custom(plainObjectWithKeys(ROOT_KEYS)),
+  body('name').optional().isString().trim().isLength({ min: 2, max: 60 }).withMessage('Name must be 2-60 characters'),
+  body('profile').optional().custom(plainObjectWithKeys(PROFILE_KEYS)),
+  body('profile.bio').optional().isString().trim().isLength({ max: 160 }).withMessage('Bio must be at most 160 characters'),
+  body('profile.country').optional().isString().trim().isLength({ max: 56 }).withMessage('Country must be at most 56 characters'),
+  body('profile.timezone').optional().isString().trim().isLength({ max: 64 }).withMessage('Timezone must be at most 64 characters'),
+  body('preferences').optional().custom(plainObjectWithKeys(PREFERENCE_KEYS)),
+  body('preferences.defaultSymbol').optional().isString().matches(/^[A-Z0-9]{2,20}$/).withMessage('Default symbol must be 2-20 uppercase letters or digits'),
+  body('preferences.defaultTimeframe').optional().isIn(TIMEFRAMES).withMessage(`Default timeframe must be one of ${TIMEFRAMES.join(', ')}`),
+  body('preferences.alertToasts').optional().custom((v) => typeof v === 'boolean').withMessage('alertToasts must be true or false'),
+  body('preferences.alertSound').optional().custom((v) => typeof v === 'boolean').withMessage('alertSound must be true or false'),
+  body('ai').optional().custom(plainObjectWithKeys(['model'])),
+  body('ai.model').optional({ values: 'undefined' }).custom((v) => v === null || AI_MODELS.some((m) => m.id === v)).withMessage(`AI model must be null or one of ${AI_MODELS.map((m) => m.id).join(', ')}`),
+];
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (errors.isEmpty()) {
     return next();
   }
-  const extractedErrors = [];
-  errors.array().map(err => extractedErrors.push({ [err.param]: err.msg }));
+  const extractedErrors = errors.array().map((err) => ({ [err.path]: err.msg }));
 
   return res.status(422).json({
+    success: false,
+    message: errors.array()[0].msg,
     errors: extractedErrors,
   });
 };
 
 module.exports = {
-  userValidationRules,
+  loginRules,
+  registerRules,
+  passwordChangeRules,
+  updateMeRules,
   validate,
 };

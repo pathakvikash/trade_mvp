@@ -43,9 +43,7 @@ const Login = () => {
           role: response.data.user.role
         };
         setLogin(response.data.token, userData);
-        
-        axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
-        
+
         try {
           await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/verify`, {
             headers: { Authorization: `Bearer ${response.data.token}` }
@@ -58,14 +56,14 @@ const Login = () => {
         throw new Error('Invalid response from server');
       }
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('Login error:', err && err.message);
       setError(
-        err.response?.data?.message || 
-        err.message || 
+        (err.response?.status === 429 ? 'Too many attempts. Try again in a minute.' : null) ||
+        err.response?.data?.message ||
+        err.message ||
         'Login failed. Please try again.'
       );
       setLogout();
-      delete axios.defaults.headers.common['Authorization'];
     } finally {
       setLoading(false);
     }
@@ -141,16 +139,6 @@ const Login = () => {
             <Link to='/register' className="text-sm text-slate-300 transition hover:text-white">
               Create Account
             </Link>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
-            <p className="leading-relaxed">
-              Try as a guest:
-              <br />
-              Email: guest@cryptozen.com
-              <br />
-              Password: Guest@123
-            </p>
           </div>
         </form>
       </div>

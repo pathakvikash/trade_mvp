@@ -9,7 +9,9 @@ const Home = React.lazy(() => import('./pages/Home'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Trade = React.lazy(() => import('./pages/Trade'));
 const Portfolio = React.lazy(() => import('./pages/Portfolio'));
+const Derivatives = React.lazy(() => import('./pages/Derivatives'));
 const Liquidation = React.lazy(() => import('./pages/Liquidation'));
+const Alerts = React.lazy(() => import('./pages/Alerts'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 const Login = React.lazy(() => import('./pages/Login'));
 const Register = React.lazy(() => import('./pages/register'));
@@ -33,14 +35,16 @@ function App() {
   const protectedRoutes = [
     { path: '/dashboard', element: <Dashboard /> },
     { path: '/trade', element: <Trade /> },
+    { path: '/derivatives', element: <Derivatives /> },
     { path: '/portfolio', element: <Portfolio /> },
     { path: '/liquidation', element: <Liquidation /> },
+    { path: '/alerts', element: <Alerts /> },
     { path: '/settings', element: <Settings /> },
     { path: '/candlestick-chart', element: <CandlestickChart /> },
   ];
   return (
     <BrowserRouter>
-      <Suspense fallback={<div>Loading...</div>}>
+      <Suspense fallback={<div className="p-4 text-sm text-slate-500">Loading...</div>}>
         <Routes>
           {/* Public Routes */}
           <Route path='/' element={<Layout />}>

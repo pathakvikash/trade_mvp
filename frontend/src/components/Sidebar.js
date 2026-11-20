@@ -1,92 +1,59 @@
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import useUserStore from '../store/userStore';
+import { NavLink } from 'react-router-dom';
+import { Icon, ICONS, NAV } from './shell/nav';
+import useAlertStore from '../store/alertStore';
 
-const menuItems = [
-  { path: '/dashboard', icon: '📊', label: 'Dashboard' },
-  { path: '/market', icon: '📈', label: 'Market' },
-  { path: '/trade', icon: '💱', label: 'Trade' },
-  { path: '/portfolio', icon: '📁', label: 'Portfolio' },
-  { path: '/liquidation', icon: '🔥', label: 'Liquidation' },
-  { path: '/settings', icon: '⚙️', label: 'Settings' },
-];
-
-const Sidebar = ({ isCollapsed, toggleSidebar }) => {
-  const navigate = useNavigate();
-  const { user, setLogout } = useUserStore((state) => state);
-
-  const handleLogout = () => {
-    setLogout();
-    navigate('/login');
-  };
-
+// Desktop: slim rail (collapsible). Below lg: off-canvas drawer opened from the top bar.
+const Sidebar = ({ collapsed, onToggle, mobileOpen, onClose }) => {
+  const unread = useAlertStore((s) => s.unread);
   return (
-    <aside className={`hidden h-full shrink-0 flex-col min-h-0 border-r border-slate-800 bg-slate-950 px-3 py-5 text-slate-200 lg:flex ${isCollapsed ? 'w-20' : 'w-72'}`}>
-      <div className="mb-6 flex items-center justify-between gap-3 px-1">
-        <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
-          <div className="rounded-3xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">TM</div>
-          {!isCollapsed && <h1 className="text-lg font-semibold text-white">TradeMVP</h1>}
-        </div>
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-300 transition hover:bg-slate-800"
-          aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {isCollapsed ? '→' : '←'}
-        </button>
-      </div>
+  <aside
+    className={`${mobileOpen ? 'fixed inset-y-0 left-0 z-50 flex' : 'hidden'} w-52 shrink-0 flex-col border-r border-slate-800/80 bg-[#070b14] lg:static lg:flex ${collapsed ? 'lg:w-14' : ''}`}
+  >
+    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-slate-800/80 px-3.5">
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-cyan-400/15 text-[11px] font-bold text-cyan-300">TM</span>
+      <span className={`text-sm font-semibold text-slate-100 ${collapsed ? 'lg:hidden' : ''}`}>TradeMVP</span>
+      <button type="button" onClick={onClose} className="focus-ring ml-auto rounded-md p-1 text-slate-400 hover:text-slate-100 lg:hidden" aria-label="Close menu">
+        <Icon d={ICONS.close} />
+      </button>
+    </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-1">
-        <div className="flex flex-col gap-2">
-        {menuItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-3xl px-3 py-3 text-sm font-medium transition ${isActive ? 'bg-brand-600/15 text-brand-200' : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-100'
-              } ${isCollapsed ? 'justify-center' : ''}`
-            }
-            title={item.label}
-          >
-            <span>{item.icon}</span>
-            {!isCollapsed && item.label}
-          </NavLink>
-        ))}
-        </div>
-      </nav>
-
-      <div className="mt-auto pt-4">
-        <div
-          className={`rounded-3xl border border-slate-800 bg-slate-900/80 text-slate-300 ${
-            isCollapsed ? 'flex justify-center p-3' : 'p-4'
-          }`}
+    <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Main">
+      {NAV.map(({ path, label, d }) => (
+        <NavLink
+          key={path}
+          to={path}
+          onClick={onClose}
+          title={label}
+          aria-label={path === '/alerts' && unread > 0 ? `${label}, ${unread} unread` : label}
+          className={({ isActive }) =>
+            `focus-ring flex h-9 items-center gap-3 rounded-lg px-2.5 text-[13px] font-medium transition-colors ${
+              isActive ? 'bg-cyan-400/10 text-cyan-300' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`
+          }
         >
-        {!isCollapsed ? (
-          <>
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Signed in as</p>
-            <p className="mt-3 text-sm font-semibold text-white">{user?.name || 'Guest User'}</p>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="mt-4 w-full rounded-2xl bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-700"
-            >
-              Logout
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-full bg-slate-800 p-3 text-slate-200 transition hover:bg-slate-700"
-            aria-label="Logout"
-          >
-            🚪
-          </button>
-        )}
-        </div>
-      </div>
-    </aside>
+          <Icon d={d} className="h-[18px] w-[18px]" />
+          <span className={collapsed ? 'lg:hidden' : ''}>{label}</span>
+          {path === '/alerts' && unread > 0 && (
+            <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-semibold tabular-nums text-slate-950" aria-hidden="true">{unread}</span>
+          )}
+        </NavLink>
+      ))}
+    </nav>
+
+    <div className="hidden border-t border-slate-800/80 p-2 lg:block">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="focus-ring flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-[13px] text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-expanded={!collapsed}
+      >
+        <Icon d={collapsed ? ICONS.chevronRight : ICONS.chevronLeft} className="h-[18px] w-[18px]" />
+        <span className={collapsed ? 'hidden' : ''}>Collapse</span>
+      </button>
+    </div>
+  </aside>
   );
 };
 

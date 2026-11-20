@@ -7,6 +7,7 @@ const POLL_INTERVAL_MS = process.env.MARKET_POLL_INTERVAL_MS
 
 let interval = null;
 let ioNamespace = null;
+let lastPayload = null;
 
 async function fetchTopMarkets() {
     const url = 'https://api.coingecko.com/api/v3/coins/markets';
@@ -40,6 +41,7 @@ async function pollAndEmit() {
     try {
         const markets = await fetchTopMarkets();
         const payload = normalizeMarkets(markets);
+        lastPayload = payload;
         ioNamespace.emit('market:update', payload);
         logger.info(`marketService: emitted ${payload.length} items`);
     } catch (err) {
@@ -48,6 +50,7 @@ async function pollAndEmit() {
 }
 
 module.exports = {
+    getLast: () => lastPayload,
     start: (ioNs) => {
         ioNamespace = ioNs;
         if (interval) clearInterval(interval);

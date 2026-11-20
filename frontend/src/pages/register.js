@@ -12,7 +12,6 @@ const Register = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'user', // Default role
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,30 +21,16 @@ const Register = () => {
     setError('');
   };
 
-  // Check if email already exists
-  const checkEmailExists = async (email) => {
-    try {
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URL}/api/auth/check-email`,
-        { email },
-      );
-      return response.data.exists;
-    } catch (err) {
-      console.error('Error checking email:', err);
-      return false;
-    }
-  };
-
   // Generate a username suggestion from email
   const generateUsername = (email) => {
     return email
       .split('@')[0]
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
+      .replace(/[^a-z0-9_]/g, '');
   };
 
-  // Handle email change to suggest username and check uniqueness
-  const handleEmailChange = async (e) => {
+  // Handle email change to suggest a username
+  const handleEmailChange = (e) => {
     const email = e.target.value;
     setFormData((prev) => ({
       ...prev,
@@ -55,51 +40,12 @@ const Register = () => {
           ? generateUsername(email)
           : prev.username,
     }));
-
-    if (email) {
-      const exists = await checkEmailExists(email);
-      if (exists) {
-        setError(
-          'This email is already registered. Please use a different email or login.',
-        );
-      } else {
-        setError('');
-      }
-    }
+    setError('');
   };
 
-  const handleAutoFill = () => {
-    setFormData((prev) => ({
-      ...prev,
-      email: 'guest@cryptozen.com',
-      username: generateUsername('guest@cryptozen.com'),
-      name: 'Guest',
-      password: 'CryptoZen123!',
-      confirmPassword: 'CryptoZen123!',
-    }));
-  };
-
-  const validatePassword = (password) => {
-    const minLength = 8;
-    const hasUpperCase = /[A-Z]/.test(password);
-    const hasLowerCase = /[a-z]/.test(password);
-    const hasNumbers = /\d/.test(password);
-    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-
-    if (password.length < minLength) {
-      return 'Password must be at least 8 characters long';
-    }
-    if (!hasUpperCase || !hasLowerCase) {
-      return 'Password must contain both uppercase and lowercase letters';
-    }
-    if (!hasNumbers) {
-      return 'Password must contain at least one number';
-    }
-    if (!hasSpecialChar) {
-      return 'Password must contain at least one special character';
-    }
-    return '';
-  };
+  // Same rule the server enforces (8-72 characters, no character classes); bcrypt ignores anything past 72 bytes.
+  const validatePassword = (password) =>
+    password.length < 8 || password.length > 72 ? 'Password must be 8-72 characters long' : '';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -120,18 +66,11 @@ const Register = () => {
       return;
     }
 
-    // Check email uniqueness before submitting
-    const emailExists = await checkEmailExists(formData.email);
-    if (emailExists) {
-      setError(
-        'This email is already registered. Please use a different email or login.',
-      );
-      return;
-    }
-
     setLoading(true);
     try {
-      const { confirmPassword, ...registrationData } = formData;
+      // role is never sent: the server always creates plain users
+      const { name, username, email, password } = formData;
+      const registrationData = { name, username, email, password };
       const registerResponse = await axios.post(
         `${process.env.REACT_APP_API_URL}/api/auth/register`,
         registrationData,
@@ -157,15 +96,12 @@ const Register = () => {
             };
             setLogin(loginResponse.data.token, userData);
 
-            axios.defaults.headers.common['Authorization'] =
-              `Bearer ${loginResponse.data.token}`;
-
             navigate('/dashboard');
           } else {
             throw new Error('Invalid login response');
           }
         } catch (loginError) {
-          console.error('Auto-login error:', loginError);
+          console.error('Auto-login error:', loginError && loginError.message);
           setError('Registration successful. Please login manually.');
           navigate('/login');
         }
@@ -173,9 +109,11 @@ const Register = () => {
         setError('Registration failed. Please try again.');
       }
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('Registration error:', err && err.message);
       setError(
-        err.response?.data?.message || 'Registration failed. Please try again.',
+        (err.response?.status === 429 ? 'Too many sign-ups from this address. Try again later.' : null) ||
+          err.response?.data?.message ||
+          'Registration failed. Please try again.',
       );
     } finally {
       setLoading(false);
@@ -233,12 +171,12 @@ const Register = () => {
               placeholder='johndoe123'
               required
               disabled={loading}
-              pattern='[a-zA-Z0-9]+'
-              title='Username can only contain letters and numbers'
+              pattern='[a-zA-Z0-9_]{3,30}'
+              title='3-30 characters: letters, numbers and underscore'
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
             <small className="text-xs text-slate-500">
-              Username can only contain letters and numbers
+              3-30 characters: letters, numbers and underscore
             </small>
           </div>
 
@@ -252,12 +190,12 @@ const Register = () => {
               placeholder='••••••••'
               required
               minLength='8'
+              maxLength='72'
               disabled={loading}
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
             <small className="text-xs text-slate-500">
-              Password must be at least 8 characters long and contain uppercase,
-              lowercase, number, and special character
+              Password must be 8-72 characters long
             </small>
           </div>
 
@@ -303,23 +241,6 @@ const Register = () => {
               Login Here
             </Link>
           </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
-            <p className="leading-relaxed">
-              Try as a guest:
-              <br />
-              Email: guest@cryptozen.com
-              <br />
-              Password: Guest@123
-            </p>
-          </div>
-          <button
-            type='button'
-            onClick={handleAutoFill}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-          >
-            Auto Fill
-          </button>
         </form>
       </div>
     </div>

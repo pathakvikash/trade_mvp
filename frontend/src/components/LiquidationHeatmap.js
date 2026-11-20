@@ -1,197 +1,192 @@
-import React, { useMemo } from 'react';
-import Card from '../components/ui/Card';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import useFuturesStore from '../store/futuresStore';
+import usePolling from '../lib/usePolling';
+import useCanvas from './liquidation/useCanvas';
+import { bucketLiquidations } from './liquidation/bucket';
+import SegTabs from './ui/SegTabs';
+import { FUT, Panel, coin, fmtPrice, fmtTime, fmtUsd } from './liquidation/shared';
 
-// Move static data outside component to avoid dependency issues
-const MOCK_LIQUIDATION_DATA = {
-    BTC: [
-        { priceLevel: 65000, liquidationPrice: 65000, liquidations: 245 },
-        { priceLevel: 60000, liquidationPrice: 60000, liquidations: 512 },
-        { priceLevel: 55000, liquidationPrice: 55000, liquidations: 789 },
-        { priceLevel: 50000, liquidationPrice: 50000, liquidations: 1020 },
-        { priceLevel: 45000, liquidationPrice: 45000, liquidations: 1456 },
-        { priceLevel: 40000, liquidationPrice: 40000, liquidations: 892 },
-        { priceLevel: 35000, liquidationPrice: 35000, liquidations: 634 },
-    ],
-    ETH: [
-        { priceLevel: 3500, liquidationPrice: 3500, liquidations: 156 },
-        { priceLevel: 3000, liquidationPrice: 3000, liquidations: 312 },
-        { priceLevel: 2500, liquidationPrice: 2500, liquidations: 589 },
-        { priceLevel: 2000, liquidationPrice: 2000, liquidations: 756 },
-        { priceLevel: 1500, liquidationPrice: 1500, liquidations: 923 },
-        { priceLevel: 1000, liquidationPrice: 1000, liquidations: 445 },
-    ],
+// Window -> kline interval and column count (one column per candle).
+const WINDOWS = {
+  '1h': { ms: 3600e3, iv: '1m', cols: 60 },
+  '6h': { ms: 6 * 3600e3, iv: '5m', cols: 72 },
+  '24h': { ms: 24 * 3600e3, iv: '15m', cols: 96 },
 };
+const ROWS = 40;
+const H = 320;
+const NONE = [];
+const RIGHT = 62;
+const BOTTOM = 20;
+const LONG = '52, 211, 153'; // emerald: longs liquidated
+const SHORT = '251, 113, 133'; // rose: shorts liquidated
 
-const LiquidationHeatmap = ({ holdings }) => {
+const WIN_TABS = Object.keys(WINDOWS).map((id) => ({ id, label: id }));
 
-    const calculateRiskLevel = (currentPrice, levels) => {
-        if (!currentPrice || levels.length === 0) return 'low';
-        const lowestLevel = Math.min(...levels.map((l) => l.priceLevel));
-        const distance = currentPrice - lowestLevel;
-        const percentageDistance = (distance / currentPrice) * 100;
+const LiquidationHeatmap = ({ symbol }) => {
+  const subscribe = useFuturesStore((s) => s.subscribe);
+  const unsubscribe = useFuturesStore((s) => s.unsubscribe);
+  const fSymbol = useFuturesStore((s) => s.symbol);
+  const liquidations = useFuturesStore((s) => s.liquidations);
+  const mark = useFuturesStore((s) => s.mark);
+  const since = useFuturesStore((s) => s.since);
+  const error = useFuturesStore((s) => s.error);
+  const [win, setWin] = useState('24h');
+  const [hover, setHover] = useState(null);
+  const cfg = WINDOWS[win];
 
-        if (percentageDistance > 30) return 'low';
-        if (percentageDistance > 15) return 'medium';
-        return 'high';
-    };
+  useEffect(() => { subscribe(symbol); }, [symbol, subscribe]);
+  useEffect(() => unsubscribe, [unsubscribe]);
 
-    const findNearestLiquidation = (currentPrice, levels) => {
-        if (levels.length === 0 || !currentPrice) return null;
-        return levels
-            .filter((l) => l.priceLevel < currentPrice)
-            .reduce((prev, curr) =>
-                Math.abs(curr.priceLevel - currentPrice) < Math.abs(prev.priceLevel - currentPrice)
-                    ? curr
-                    : prev,
-                levels[0]
-            );
-    };
+  const kl = usePolling(`${FUT}/klines/${symbol}?interval=${cfg.iv}&limit=${cfg.cols}`, 60000);
+  const klines = useMemo(() => (Array.isArray(kl.data) ? kl.data : []), [kl.data]);
+  const events = fSymbol === symbol ? liquidations : NONE;
+  const markPrice = fSymbol === symbol && mark ? mark.markPrice : null;
 
-    const getRiskColorClass = (riskLevel) => {
-        switch (riskLevel) {
-            case 'high':
-                return 'bg-red-500 text-red-950';
-            case 'medium':
-                return 'bg-amber-500 text-amber-950';
-            case 'low':
-                return 'bg-emerald-500 text-emerald-950';
-            default:
-                return 'bg-slate-500 text-slate-950';
+  const grid = useMemo(() => {
+    const step = cfg.ms / cfg.cols;
+    const t1 = Math.ceil(Date.now() / step) * step;
+    const prices = [];
+    klines.forEach((k) => prices.push(k.high, k.low));
+    if (markPrice) prices.push(markPrice);
+    let lo;
+    let hi;
+    if (prices.length) {
+      lo = Math.min(...prices);
+      hi = Math.max(...prices);
+      const pad = (hi - lo) * 0.02 || hi * 0.005;
+      lo -= pad;
+      hi += pad;
+    }
+    return bucketLiquidations(events, { t0: t1 - cfg.ms, t1, cols: cfg.cols, rows: ROWS, lo, hi });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, klines, markPrice, win]);
+
+  const draw = useCallback((ctx, W, Ht) => {
+    const pw = W - RIGHT;
+    const ph = Ht - BOTTOM;
+    const cw = pw / grid.cols;
+    const ch = ph / grid.rows;
+    const max = Math.max(grid.maxLong, grid.maxShort) || 1;
+    const X = (t) => ((t - grid.t0) / (grid.t1 - grid.t0)) * pw;
+    const Y = (p) => ph - ((p - grid.lo) / (grid.hi - grid.lo)) * ph;
+    ctx.clearRect(0, 0, W, Ht);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.5)';
+    ctx.fillRect(0, 0, pw, ph);
+    // Long on the left half of a cell, short on the right half
+    for (let r = 0; r < grid.rows; r += 1) {
+      for (let c = 0; c < grid.cols; c += 1) {
+        const i = r * grid.cols + c;
+        const y = ph - (r + 1) * ch;
+        if (grid.long[i] > 0) {
+          ctx.fillStyle = `rgba(${LONG}, ${0.15 + 0.85 * Math.sqrt(grid.long[i] / max)})`;
+          ctx.fillRect(c * cw, y, cw / 2, ch);
         }
+        if (grid.short[i] > 0) {
+          ctx.fillStyle = `rgba(${SHORT}, ${0.15 + 0.85 * Math.sqrt(grid.short[i] / max)})`;
+          ctx.fillRect(c * cw + cw / 2, y, cw / 2, ch);
+        }
+      }
+    }
+    // Price line (kline closes at candle mid-time)
+    if (klines.length) {
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      klines.forEach((k, i) => {
+        const x = X(k.time * 1000);
+        if (i) ctx.lineTo(x, Y(k.close)); else ctx.moveTo(x, Y(k.close));
+      });
+      ctx.stroke();
+    }
+    ctx.font = '10px ui-sans-serif, system-ui';
+    ctx.fillStyle = '#94a3b8';
+    if (markPrice) {
+      ctx.strokeStyle = '#fbbf24';
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, Y(markPrice));
+      ctx.lineTo(pw, Y(markPrice));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText(fmtPrice(markPrice), pw + 4, Y(markPrice) + 3);
+    }
+    ctx.fillStyle = '#94a3b8';
+    for (let i = 0; i <= 4; i += 1) {
+      const p = grid.lo + ((grid.hi - grid.lo) * i) / 4;
+      const y = Math.min(ph - 2, Math.max(8, Y(p)));
+      if (!markPrice || Math.abs(y - Y(markPrice)) > 11) ctx.fillText(fmtPrice(p), pw + 4, y + 3);
+    }
+    for (let i = 0; i <= 3; i += 1) {
+      const t = grid.t0 + ((grid.t1 - grid.t0) * i) / 3;
+      ctx.textAlign = i === 3 ? 'right' : i === 0 ? 'left' : 'center';
+      ctx.fillText(new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), (pw * i) / 3, Ht - 5);
+    }
+    ctx.textAlign = 'left';
+  }, [grid, klines, markPrice]);
+
+  const { wrap, canvas } = useCanvas(draw, H);
+
+  const onMove = (e) => {
+    const b = canvas.current.getBoundingClientRect();
+    const x = e.clientX - b.left;
+    const y = e.clientY - b.top;
+    const pw = b.width - RIGHT;
+    const ph = H - BOTTOM;
+    if (x < 0 || x >= pw || y < 0 || y >= ph) { setHover(null); return; }
+    setHover({ c: Math.floor((x / pw) * grid.cols), r: Math.floor(((ph - y) / ph) * grid.rows), x, y, w: b.width });
+  };
+
+  const hv = hover && (() => {
+    const step = (grid.t1 - grid.t0) / grid.cols;
+    const pstep = (grid.hi - grid.lo) / grid.rows;
+    const i = hover.r * grid.cols + hover.c;
+    return {
+      time: `${fmtTime(grid.t0 + hover.c * step)} - ${fmtTime(grid.t0 + (hover.c + 1) * step)}`,
+      price: `${fmtPrice(grid.lo + hover.r * pstep)} - ${fmtPrice(grid.lo + (hover.r + 1) * pstep)}`,
+      long: grid.long[i],
+      short: grid.short[i],
     };
+  })();
 
-    const getHeatmapIntensity = (liquidations, maxLiquidations) => {
-        const intensity = maxLiquidations > 0 ? (liquidations / maxLiquidations) * 100 : 0;
-        const lightness = 90 - Math.min(intensity * 0.7, 70);
-        return `hsl(0, 100%, ${lightness}%)`;
-    };
+  const label = `${coin(symbol)} liquidation heatmap, last ${win}: ${grid.count} sampled events, longs liquidated ${fmtUsd(grid.longUsd)}, shorts liquidated ${fmtUsd(grid.shortUsd)}`;
+  const partial = since && since > grid.t0;
 
-    const formatCurrency = (value, decimals = 2) => {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD',
-            minimumFractionDigits: decimals,
-            maximumFractionDigits: decimals,
-        }).format(value);
-    };
-
-    const liquidationRisk = useMemo(() => {
-        return holdings.map((holding) => {
-            const liquidationLevels = MOCK_LIQUIDATION_DATA[holding.symbol] || [];
-            const currentPrice = holding.currentPrice || 0;
-            const riskLevel = calculateRiskLevel(currentPrice, liquidationLevels);
-            return {
-                ...holding,
-                liquidationLevels,
-                riskLevel,
-                nearestLiquidation: findNearestLiquidation(currentPrice, liquidationLevels),
-            };
-        });
-    }, [holdings]);
-
-    return (
-        <div className="space-y-6">
-            <div className="grid gap-6 lg:grid-cols-2">
-                {liquidationRisk.map((risk) => (
-                    <Card key={risk.symbol} className="border-slate-800 bg-slate-950/95">
-                        <div className="flex items-center justify-between gap-4">
-                            <div>
-                                <h3 className="text-lg font-semibold text-white">{risk.name}</h3>
-                                <p className="text-sm text-slate-400">{risk.symbol} liquidation summary</p>
-                            </div>
-                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getRiskColorClass(risk.riskLevel)}`}>
-                                {risk.riskLevel.toUpperCase()}
-                            </span>
-                        </div>
-                        <div className="mt-6 space-y-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
-                            <div className="flex items-center justify-between text-sm text-slate-400">
-                                <span>Current Price</span>
-                                <span className="font-semibold text-white">{formatCurrency(risk.currentPrice)}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm text-slate-400">
-                                <span>Nearest Liquidation</span>
-                                <span className="font-semibold text-white">
-                                    {risk.nearestLiquidation ? formatCurrency(risk.nearestLiquidation.priceLevel) : 'N/A'}
-                                </span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm text-slate-400">
-                                <span>Distance</span>
-                                <span className="font-semibold text-white">
-                                    {risk.nearestLiquidation
-                                        ? `${(((risk.currentPrice - risk.nearestLiquidation.priceLevel) / risk.currentPrice) * 100).toFixed(2)}%`
-                                        : 'N/A'}
-                                </span>
-                            </div>
-                        </div>
-                    </Card>
-                ))}
-            </div>
-
-            <div className="space-y-6">
-                {liquidationRisk.map((risk) => {
-                    const maxLiquidations = risk.liquidationLevels.length > 0 ? Math.max(...risk.liquidationLevels.map((l) => l.liquidations)) : 0;
-                    return (
-                        <Card key={`heatmap-${risk.symbol}`} className="border-slate-800 bg-slate-950/95">
-                            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                    <h3 className="text-lg font-semibold text-white">{risk.name} ({risk.symbol})</h3>
-                                    <p className="text-sm text-slate-400">Liquidation levels across price zones</p>
-                                </div>
-                                <div className="text-sm text-slate-400">
-                                    Current price: <span className="font-semibold text-white">{formatCurrency(risk.currentPrice)}</span>
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                {risk.liquidationLevels.map((level) => {
-                                    const isCurrentPrice = Math.abs(level.priceLevel - risk.currentPrice) < risk.currentPrice * 0.02;
-                                    return (
-                                        <div key={level.priceLevel} className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)] items-center">
-                                            <div className="text-sm text-slate-400">{formatCurrency(level.priceLevel, 0)}</div>
-                                            <div className="relative h-10 overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/70">
-                                                <div
-                                                    className="absolute inset-y-0 left-0 rounded-l-3xl"
-                                                    style={{
-                                                        width: `${maxLiquidations ? (level.liquidations / maxLiquidations) * 100 : 0}%`,
-                                                        backgroundColor: getHeatmapIntensity(level.liquidations, maxLiquidations),
-                                                    }}
-                                                />
-                                                <div className="relative z-10 flex h-full items-center justify-end pr-4 text-sm font-semibold text-white">
-                                                    {level.liquidations}
-                                                </div>
-                                                {isCurrentPrice && <div className="absolute inset-y-0 right-0 w-1 rounded-r-3xl bg-brand-500" />}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </Card>
-                    );
-                })}
-            </div>
-
-            <Card className="border-slate-800 bg-slate-950/95">
-                <h3 className="text-lg font-semibold text-white">Legend</h3>
-                <div className="grid gap-3 sm:grid-cols-2 mt-4">
-                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
-                        <span className="h-3 w-3 rounded-full bg-red-500"></span>
-                        <span className="text-sm text-slate-300">High Risk (distance &lt; 15%)</span>
-                    </div>
-                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
-                        <span className="h-3 w-3 rounded-full bg-amber-500"></span>
-                        <span className="text-sm text-slate-300">Medium Risk (distance 15-30%)</span>
-                    </div>
-                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
-                        <span className="h-3 w-3 rounded-full bg-emerald-500"></span>
-                        <span className="text-sm text-slate-300">Low Risk (distance &gt; 30%)</span>
-                    </div>
-                    <div className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
-                        <span className="h-3 w-3 rounded-full bg-slate-500"></span>
-                        <span className="text-sm text-slate-300">Low liquidation volume</span>
-                    </div>
-                </div>
-            </Card>
-        </div>
-    );
+  return (
+    <Panel
+      title={`Realized liquidations (sampled) - ${coin(symbol)}`}
+      right={<SegTabs label="Heatmap window" tabs={WIN_TABS} active={win} onChange={(w) => { setWin(w); setHover(null); }} />}
+    >
+      {error && <p className="mb-2 text-xs text-amber-400">{error === 'no_market' ? 'No futures market for this symbol.' : 'Could not load liquidation history; showing live events only.'}</p>}
+      <div ref={wrap} className="relative">
+        <canvas ref={canvas} role="img" aria-label={label} onMouseMove={onMove} onMouseLeave={() => setHover(null)} className="block" />
+        {grid.count === 0 && (
+          <p className="pointer-events-none absolute inset-x-0 top-1/3 px-4 text-center text-sm text-slate-400">
+            No liquidations sampled in this window{since ? ` (history since ${fmtTime(since)})` : ''}.
+          </p>
+        )}
+        {hv && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs tabular-nums text-slate-200 shadow"
+            style={{ left: Math.min(hover.x + 12, hover.w - 190), top: Math.max(0, hover.y - 64) }}
+          >
+            <div>{hv.time}</div>
+            <div className="text-slate-400">{hv.price}</div>
+            <div className="text-emerald-400">Longs liquidated {fmtUsd(hv.long)}</div>
+            <div className="text-rose-400">Shorts liquidated {fmtUsd(hv.short)}</div>
+          </div>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+        <span><i className="mr-1 inline-block h-2 w-2 bg-emerald-400" />Left half of each cell: longs liquidated</span>
+        <span><i className="mr-1 inline-block h-2 w-2 bg-rose-400" />Right half: shorts liquidated</span>
+        <span className="inline-flex items-center gap-1">low<i className="inline-block h-2 w-16 bg-gradient-to-r from-slate-400/20 to-slate-100" />high USD</span>
+        <span><i className="mr-1 inline-block h-0.5 w-4 bg-slate-200 align-middle" />price <i className="ml-2 mr-1 inline-block h-0.5 w-4 border-t border-dashed border-amber-400 align-middle" />mark</span>
+      </div>
+      {partial && <p className="mt-1 text-[11px] text-amber-400">History only goes back to {fmtTime(since)}, so this window is only partly covered.</p>}
+    </Panel>
+  );
 };
 
 export default LiquidationHeatmap;

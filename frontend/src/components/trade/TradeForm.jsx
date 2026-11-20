@@ -1,108 +1,84 @@
-import React from 'react';
-import Button from '../ui/Button';
-import Input from '../ui/Input';
-import Select from '../ui/Select';
+import React, { useState } from 'react';
+import Panel from '../ui/Panel';
+import { fmtPrice } from '../ui/fmt';
 
-const TradeForm = ({
-  availableCoins,
-  selectedCoin,
-  tradeData,
-  onChange,
-  onTypeChange,
-  onSubmit,
-  message,
-  isSubmitting,
-}) => {
-  const total = Number(tradeData.amount || 0) * Number(tradeData.priceAtTrade || 0);
-  const formattedTotal = total ? `$${total.toFixed(2)}` : '$0.00';
+const inputCls =
+  'focus-ring h-8 w-full rounded-lg border border-slate-800 bg-slate-950 px-2.5 text-sm tabular-nums text-slate-100 placeholder:text-slate-600 disabled:text-slate-500';
+
+const Field = ({ id, label, ...props }) => (
+  <div>
+    <label htmlFor={id} className="mb-1 block text-[11px] text-slate-400">{label}</label>
+    <input id={id} className={inputCls} {...props} />
+  </div>
+);
+
+// Local form state; the parent keys this by coin so switching symbols resets it.
+// Market orders only: the server fills at its own mark price, so there is no client price or limit field.
+const TradeForm = ({ coin, onSubmit, message, isSubmitting, balance }) => {
+  const [side, setSide] = useState('buy');
+  const [amount, setAmount] = useState('');
+
+  const total = Number(amount || 0) * Number(coin?.price || 0);
+  const buy = side === 'buy';
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (await onSubmit({ type: side, amount })) setAmount('');
+  };
 
   return (
-    <div className="space-y-6 rounded-[1.1rem] border border-slate-800 bg-slate-950/95 p-6 shadow-soft backdrop-blur-sm">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Trade Form</p>
-          <h3 className="mt-2 text-2xl font-semibold text-white">Buy & Sell</h3>
-        </div>
-        <div className="flex items-center gap-2 rounded-3xl bg-slate-900/80 p-2">
-          <button
-            type="button"
-            onClick={() => onTypeChange('buy')}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${tradeData.type === 'buy' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}
-          >
-            Buy
-          </button>
-          <button
-            type="button"
-            onClick={() => onTypeChange('sell')}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${tradeData.type === 'sell' ? 'bg-red-500 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-          >
-            Sell
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-5">
-        <Select label="Trading Pair" name="cryptoSymbol" value={tradeData.cryptoSymbol} onChange={onChange}>
-          <option value="">Select pair</option>
-          {availableCoins.map((coin) => (
-            <option key={coin.symbol} value={coin.symbol}>
-              {coin.name} ({coin.symbol})
-            </option>
+    <Panel
+      title="Order"
+      className="h-fit"
+      right={
+        <span className="rounded border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-400">
+          Paper trading
+        </span>
+      }
+    >
+      <form onSubmit={submit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-900 p-0.5" role="group" aria-label="Side">
+          {[['buy', 'Buy', 'bg-emerald-500 text-slate-950'], ['sell', 'Sell', 'bg-rose-500 text-white']].map(([id, label, on]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={side === id}
+              onClick={() => setSide(id)}
+              className={`focus-ring h-7 rounded-md text-xs font-semibold transition-colors ${side === id ? on : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              {label}
+            </button>
           ))}
-        </Select>
-
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Input
-            label="Amount"
-            type="number"
-            name="amount"
-            value={tradeData.amount}
-            onChange={onChange}
-            placeholder="0.0000"
-            min="0"
-            step="0.000001"
-          />
-          <Input
-            label="Price (USD)"
-            type="number"
-            name="priceAtTrade"
-            value={tradeData.priceAtTrade}
-            onChange={onChange}
-            placeholder="0.00"
-            min="0"
-            step="0.01"
-          />
         </div>
 
-        {selectedCoin ? (
-          <div className="rounded-3xl bg-slate-900/80 p-4 text-sm text-slate-300">
-            <p className="font-medium text-white">{selectedCoin.name} · {selectedCoin.symbol}</p>
-            <p className="mt-2 text-sm text-slate-400">Current market price: <span className="font-semibold text-white">${selectedCoin.price.toLocaleString()}</span></p>
-          </div>
-        ) : null}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-400">Paper balance</span>
+          <span className="font-medium tabular-nums text-slate-100">{balance == null ? '--' : `$${fmtPrice(balance)}`}</span>
+        </div>
 
-        <div className="grid grid-cols-2 gap-3 rounded-3xl bg-slate-900/80 px-4 py-4 text-sm text-slate-300">
-          <div>
-            <p className="text-slate-400">Estimated total</p>
-            <p className="mt-1 text-lg font-semibold text-white">{formattedTotal}</p>
-          </div>
-          <div>
-            <p className="text-slate-400">Order type</p>
-            <p className="mt-1 text-lg font-semibold text-white">{tradeData.orderType || 'Market'}</p>
-          </div>
+        <Field id="order-amount" label={`Amount (${coin?.symbol || '--'})`} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.0000" min="0" step="any" />
+        <Field id="order-price" label="Price (USD)" value={coin ? `Market ~ ${fmtPrice(coin.price)}` : '--'} readOnly disabled />
+
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-400">Estimated total (fee 0.1% extra)</span>
+          <span className="font-medium tabular-nums text-slate-100">${fmtPrice(total)}</span>
         </div>
 
         {message.text ? (
-          <div className={`rounded-2xl px-4 py-3 text-sm ${message.type === 'error' ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20'}`}>
+          <div role="status" className={`rounded-lg border px-2.5 py-1.5 text-xs ${message.type === 'error' ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'}`}>
             {message.text}
           </div>
         ) : null}
 
-        <Button type="submit" variant={tradeData.type === 'sell' ? 'danger' : 'success'} className="w-full py-4 text-base" onClick={onSubmit} disabled={isSubmitting}>
-          {isSubmitting ? 'Submitting...' : tradeData.type === 'sell' ? 'Place Sell Order' : 'Place Buy Order'}
-        </Button>
-      </div>
-    </div>
+        <button
+          type="submit"
+          disabled={isSubmitting || !coin || !(Number(amount) > 0)}
+          className={`focus-ring h-9 w-full rounded-lg text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${buy ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-rose-500 text-white hover:bg-rose-400'}`}
+        >
+          {isSubmitting ? 'Submitting...' : `${buy ? 'Buy' : 'Sell'} ${coin?.symbol || ''}`}
+        </button>
+      </form>
+    </Panel>
   );
 };
 

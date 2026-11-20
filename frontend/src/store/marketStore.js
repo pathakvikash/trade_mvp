@@ -7,7 +7,6 @@ const useMarketStore = create((set) => ({
   lastUpdate: 0,
 
   setMarketData: (data) => set({ marketData: data, lastUpdate: Date.now() }),
-  setSocketStatus: (status) => set({ socketStatus: status }),
 
   initSocket: () => {
     const socket = getMarketSocket();
@@ -24,7 +23,7 @@ const useMarketStore = create((set) => ({
     };
 
     socket.on('connect', onConnect);
-    socket.on('reconnect_attempt', onConnecting);
+    socket.io.on('reconnect_attempt', onConnecting);
     socket.on('connect_error', onError);
     socket.on('disconnect', onDisconnect);
     socket.on('market:update', handleUpdate);
@@ -39,7 +38,7 @@ const useMarketStore = create((set) => ({
     // Return cleanup function to disconnect later
     return () => {
       socket.off('connect', onConnect);
-      socket.off('reconnect_attempt', onConnecting);
+      socket.io.off('reconnect_attempt', onConnecting);
       socket.off('connect_error', onError);
       socket.off('disconnect', onDisconnect);
       socket.off('market:update', handleUpdate);
