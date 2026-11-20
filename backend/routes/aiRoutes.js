@@ -40,7 +40,8 @@ const briefCache = new Map(); // "symbol|model" -> { exp, body } | { exp, p } in
 const fail = (res, err) => { if (err && err.retryAfter) res.set('Retry-After', String(err.retryAfter)); const m = ai.mapError(err); res.status(m.status).json(m.body); };
 
 router.get('/status', async (req, res) => {
-    res.json({ configured: await ai.configured(), model: ai.MODEL });
+    const provider = await ai.provider();
+    res.json({ configured: provider !== null, model: ai.resolveModel(await userModel(req.user.userId)), provider });
 });
 
 router.get('/brief/:symbol', async (req, res) => {

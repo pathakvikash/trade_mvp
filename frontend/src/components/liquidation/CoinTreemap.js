@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Notice, Panel, SortTh, coin, fmtUsd, useSort } from './shared';
 import { squarify } from './treemap';
+import { LoadingBlock } from '../ui/Skeleton';
 
 const W = 100;
 const H = 56;
@@ -14,17 +15,17 @@ const getters = {
   count: (r) => r.count,
 };
 
-const CoinTreemap = ({ bySymbol, selected, onSelect }) => {
+const CoinTreemap = ({ bySymbol, error, selected, onSelect }) => {
   const rows = useMemo(
     () => (bySymbol || []).map((r) => ({ ...r, total: r.longUsd + r.shortUsd, value: r.longUsd + r.shortUsd })),
     [bySymbol],
   );
   const cells = useMemo(() => squarify([...rows].sort((a, b) => b.value - a.value).slice(0, TOP), W, H), [rows]);
-  const { sorted, sort, toggle } = useSort(rows, getters, 'total');
+  const { sorted, sort, toggle } = useSort(rows, getters, 'total', 'desc', 'liquidation.treemap');
 
   return (
     <Panel title="Liquidations by coin, 24h (sampled)">
-      {rows.length === 0 ? <Notice>No liquidations sampled yet.</Notice> : (
+      {!bySymbol && error ? <Notice tone="error">Liquidation feed unavailable, retrying.</Notice> : !bySymbol ? <LoadingBlock height={220} /> : rows.length === 0 ? <Notice>No liquidations sampled yet.</Notice> : (
         <>
           <div className="relative h-[220px] w-full md:h-[300px]">
             {cells.map(({ item, x, y, w, h }) => {

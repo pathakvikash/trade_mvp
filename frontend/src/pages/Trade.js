@@ -1,24 +1,33 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import usePersistedState, { oneOf } from '../lib/usePersistedState';
 import useUserStore from '../store/userStore';
 import useMarketStore from '../store/marketStore';
 import usePolling from '../lib/usePolling';
 import usePortfolio from '../lib/usePortfolio';
-import { API, authed } from '../lib/api';
+import useFutures from '../lib/useFutures';
+import { buildChartLines, spotEntryFromTrades } from '../lib/chartLines';
+import { API, authed, errText } from '../lib/api';
 import { fmtPrice } from '../components/ui/fmt';
 import { FUT, coin as baseOf } from '../components/liquidation/shared';
 import useFuturesStore from '../store/futuresStore';
+import useAlertStore from '../store/alertStore';
 import SegTabs from '../components/ui/SegTabs';
 import SymbolHeader from '../components/trade/SymbolHeader';
 import MarketChartPanel from '../components/trade/MarketChartPanel';
 import OrderBookPanel from '../components/trade/OrderBookPanel';
 import TradesTapePanel from '../components/trade/TradesTapePanel';
-import TradeForm from '../components/trade/TradeForm';
+import OrderCard from '../components/trade/OrderCard';
 import BottomStrip from '../components/trade/BottomStrip';
+import MarketStatsPanel from '../components/trade/MarketStatsPanel';
+import SymbolLiquidations from '../components/trade/SymbolLiquidations';
 
+const SYMBOL_RE = /^[A-Z0-9]{2,20}$/;
 const MOBILE_TABS = [{ id: 'order', label: 'Order' }, { id: 'book', label: 'Book' }, { id: 'trades', label: 'Trades' }];
 
+// Below xl the page stacks and scrolls. At xl it fills the height under the header: the chart row and the
+// Positions/History/AI strip share the left, the book and tape the middle, the order form and stats the right.
 const Trade = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -27,10 +36,21 @@ const Trade = () => {
   const defaultTf = useUserStore((s) => s.user?.preferences?.defaultTimeframe) || '1m';
   const marketData = useMarketStore((s) => s.marketData);
   const account = usePortfolio(token);
+  const futures = useFutures(token);
 
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [mobileTab, setMobileTab] = useState('order');
+  const [ordersKey, setOrdersKey] = useState(1); // bump to refetch open orders now
+  const [cancellingId, setCancellingId] = useState(null);
+  const [cancelError, setCancelError] = useState('');
+  const [mobileTab, setMobileTab] = usePersistedState('trade.mobileTab', 'order', { validate: oneOf('order', 'book', 'trades') });
+  // ?alerts=1 forces the alerts view on first load only; afterwards the stored choice applies.
+  const [storedView, setView] = usePersistedState('trade.chartView', 'chart', { validate: oneOf('chart', 'alerts') });
+  const [forceAlerts, setForceAlerts] = useState(searchParams.get('alerts') === '1');
+  const view = forceAlerts ? 'alerts' : storedView;
+  const onView = (v) => { setForceAlerts(false); setView(v); };
+  const [storedSymbol, setStoredSymbol] = usePersistedState('trade.symbol', null, { validate: (v) => SYMBOL_RE.test(v) });
+  const unread = useAlertStore((s) => s.unread);
 
   const availableCoins = useMemo(
     () =>
@@ -43,15 +63,17 @@ const Trade = () => {
     [marketData]
   );
 
-  // The futures symbol comes from the URL, else the user's default pair (Settings), else BTC; CoinGecko data is only decoration when it has the coin.
+  // The futures symbol comes from the URL, else the last pick, else the user's default pair (Settings), else BTC; CoinGecko data is only decoration when it has the coin.
   const urlSymbol = searchParams.get('symbol')?.toUpperCase();
   const prefBase = prefSymbol?.replace(/USDT$/, '').toUpperCase();
-  const symbol = [urlSymbol, prefBase].find((s) => s && /^[A-Z0-9]{2,20}$/.test(s)) || 'BTC';
+  const symbol = [urlSymbol, storedSymbol, prefBase].find((s) => s && SYMBOL_RE.test(s)) || 'BTC';
   const futuresSymbol = `${symbol}USDT`;
   const cg = useMemo(() => availableCoins.find((c) => c.symbol === symbol), [availableCoins, symbol]);
 
+  const openOrders = usePolling(token ? `${API}/api/orders` : null, 5000, ordersKey, token);
   const ov = usePolling(`${FUT}/overview`, 15000);
   const overview = useMemo(() => (Array.isArray(ov.data) ? ov.data : []), [ov.data]);
+  const ovRow = useMemo(() => overview.find((r) => r.symbol === futuresSymbol) || null, [overview, futuresSymbol]);
   // base symbol -> futures last price, for position P&L (overview covers the top-40 perps only)
   const prices = useMemo(() => Object.fromEntries(overview.map((r) => [baseOf(r.symbol), r.lastPrice ?? r.markPrice])), [overview]);
   const symbols = useMemo(() => {
@@ -79,8 +101,22 @@ const Trade = () => {
   // Futures last price (last candle close, else mark); never the CoinGecko spot price.
   const lastPrice = ready ? (candles.length ? candles[candles.length - 1].close : mark?.markPrice ?? null) : null;
 
-  // The server fills at its own mark price; only {cryptoSymbol, type, amount} is sent (the user comes from the token).
-  const handleSubmit = async ({ type, amount }) => {
+  const spotOrders = useMemo(() => (Array.isArray(openOrders.data?.orders) ? openOrders.data.orders : []), [openOrders.data]);
+  const lines = useMemo(
+    () => buildChartLines({
+      symbol: futuresSymbol,
+      positions: futures.positions,
+      futuresOrders: futures.orders,
+      spotOrders,
+      spotEntry: spotEntryFromTrades(account.trades, symbol),
+      mark: lastPrice,
+    }),
+    [futuresSymbol, symbol, futures.positions, futures.orders, spotOrders, account.trades, lastPrice]
+  );
+
+  // Market: the server fills at its own mark price, so only {cryptoSymbol, type, amount} is sent. Limit adds
+  // orderType + limitPrice and the server only reserves funds. The user always comes from the token.
+  const handleSubmit = async ({ type, amount, orderType = 'market', limitPrice }) => {
     setMessage({ type: '', text: '' });
     if (!token) {
       setMessage({ type: 'error', text: 'Please login to trade.' });
@@ -90,12 +126,23 @@ const Trade = () => {
 
     setIsSubmitting(true);
     try {
-      const { data } = await axios.post(`${API}/api/trades`, { cryptoSymbol: symbol, type, amount: Number(amount) }, authed(token));
-      const f = data.fill;
-      setMessage({
-        type: 'success',
-        text: `${type === 'buy' ? 'Bought' : 'Sold'} ${f.amount} ${f.symbol} @ ${fmtPrice(f.price)}. Fee $${fmtPrice(f.fee)}. Balance $${fmtPrice(data.balance)}.`,
-      });
+      const limit = orderType === 'limit';
+      const body = { cryptoSymbol: symbol, type, amount: Number(amount), ...(limit ? { orderType, limitPrice: Number(limitPrice) } : {}) };
+      const { data } = await axios.post(`${API}/api/trades`, body, authed(token));
+      if (limit) {
+        const o = data.order;
+        setMessage({
+          type: 'success',
+          text: `Limit ${type} placed: ${o.amount} ${o.symbol} @ ${fmtPrice(o.limitPrice)}. Reserved ${type === 'buy' ? `$${fmtPrice(o.reserved)}` : `${o.reserved} ${o.symbol}`}. Balance $${fmtPrice(data.balance)}.`,
+        });
+        setOrdersKey((k) => k + 1);
+      } else {
+        const f = data.fill;
+        setMessage({
+          type: 'success',
+          text: `${type === 'buy' ? 'Bought' : 'Sold'} ${f.amount} ${f.symbol} @ ${fmtPrice(f.price)}. Fee $${fmtPrice(f.fee)}. Balance $${fmtPrice(data.balance)}.`,
+        });
+      }
       account.reload();
       return true;
     } catch (error) {
@@ -111,10 +158,30 @@ const Trade = () => {
     return false;
   };
 
+  const handleCancel = async (id) => {
+    setCancelError('');
+    setCancellingId(id);
+    try {
+      await axios.delete(`${API}/api/orders/${id}`, authed(token));
+    } catch (error) {
+      console.error(error.message);
+      setCancelError(error.response?.status === 429 ? 'Too many requests, slow down.' : error.response?.data?.message || 'Unable to cancel the order.');
+    } finally {
+      setCancellingId(null);
+      setOrdersKey((k) => k + 1); // also corrects the list after a 409 (already filled)
+      account.reload();
+    }
+  };
+
+  const onSymbol = (s) => {
+    setStoredSymbol(s);
+    setSearchParams({ symbol: s, ...(view === 'alerts' ? { alerts: '1' } : {}) }, { replace: true });
+  };
+
   const show = (tab) => (mobileTab === tab ? '' : 'hidden xl:flex');
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3 xl:h-full">
       <SymbolHeader
         symbols={symbols}
         symbol={symbol}
@@ -124,16 +191,21 @@ const Trade = () => {
         ready={ready}
         candles={candles}
         mark={mark}
-        onSymbol={(s) => setSearchParams({ symbol: s }, { replace: true })}
+        onSymbol={onSymbol}
       />
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px_300px] xl:grid-rows-[1fr_auto]">
+      <div className="grid gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_280px_300px] xl:grid-rows-[minmax(0,1fr)_minmax(140px,32%)]">
         <MarketChartPanel
-          className="h-[420px] xl:col-start-1 xl:row-start-1 xl:h-auto"
+          className="h-[420px] xl:col-start-1 xl:row-start-1 xl:h-auto xl:min-h-0"
           ticker={symbol}
+          view={view}
+          onView={onView}
+          alertsSymbol={futuresSymbol}
+          unread={unread}
           interval={interval}
           onInterval={setTimeframe}
           candles={candles}
+          lines={lines}
           reloadSeq={reloadSeq}
           error={futuresError}
           ready={ready}
@@ -142,27 +214,51 @@ const Trade = () => {
 
         <SegTabs tabs={MOBILE_TABS} active={mobileTab} onChange={setMobileTab} label="Trading panels" className="xl:hidden" />
 
-        <div className={`${mobileTab === 'order' ? 'hidden xl:flex' : 'flex'} flex-col gap-3 xl:col-start-2 xl:row-span-2 xl:row-start-1`}>
+        <div className={`${mobileTab === 'order' ? 'hidden xl:flex' : 'flex'} min-h-0 flex-col gap-3 xl:col-start-2 xl:row-span-2 xl:row-start-1`}>
           <OrderBookPanel
-            className={show('book')}
+            className={`${show('book')} xl:min-h-0 xl:flex-[3_1_0]`}
             book={book}
             loading={ready && !book && !futuresError}
           />
-          <TradesTapePanel className={`${show('trades')} flex-1`} trades={trades} />
+          <TradesTapePanel className={`${show('trades')} flex-1 xl:min-h-0 xl:flex-[2_1_0]`} trades={trades} loading={ready && !futuresError && trades.length === 0} />
         </div>
 
-        <div className={`${mobileTab === 'order' ? '' : 'hidden xl:block'} xl:col-start-3 xl:row-span-2 xl:row-start-1`}>
-          <TradeForm
+        <div className={`${mobileTab === 'order' ? 'flex' : 'hidden xl:flex'} min-h-0 min-w-0 flex-col gap-3 xl:col-start-3 xl:row-span-2 xl:row-start-1`}>
+          <OrderCard
             key={symbol}
-            coin={{ symbol, price: lastPrice }}
-            balance={account.balance}
-            onSubmit={handleSubmit}
-            message={message}
-            isSubmitting={isSubmitting}
+            className="xl:max-h-[75%] xl:min-h-[200px] xl:flex-[0_1_auto] xl:overflow-y-auto"
+            spot={{
+              coin: { symbol, price: lastPrice },
+              symbols,
+              overview,
+              onSymbol,
+              balance: account.balance,
+              balanceLoading: account.loading,
+              onSubmit: handleSubmit,
+              message,
+              isSubmitting,
+            }}
+            futures={{ coin: { symbol, price: lastPrice }, symbols, overview, onSymbol, token, futures, account }}
           />
+          <MarketStatsPanel className="xl:min-h-0 xl:flex-[0_1_auto] xl:overflow-y-auto" row={ovRow} mark={ready ? mark : null} />
+          <SymbolLiquidations className="min-h-[160px] flex-1 xl:min-h-[110px] xl:[@media(max-height:760px)]:hidden" symbol={futuresSymbol} />
         </div>
 
-        <BottomStrip className="xl:col-start-1 xl:row-start-2" symbol={futuresSymbol} account={account} prices={prices} />
+        <BottomStrip
+          className="xl:col-start-1 xl:row-start-2"
+          symbol={futuresSymbol}
+          account={account}
+          futures={futures}
+          prices={prices}
+          orders={{
+            rows: Array.isArray(openOrders.data?.orders) ? openOrders.data.orders : [],
+            loading: openOrders.loading,
+            fetching: !!openOrders.fetching,
+            error: cancelError || (openOrders.error ? errText(openOrders.error) : ''),
+            cancellingId,
+            onCancel: handleCancel,
+          }}
+        />
       </div>
     </div>
   );

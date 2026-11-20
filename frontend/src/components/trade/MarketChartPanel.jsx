@@ -2,33 +2,71 @@ import React from 'react';
 import Panel from '../ui/Panel';
 import SegTabs from '../ui/SegTabs';
 import CandleChart from './CandleChart';
+import AlertsPanel from '../alerts/AlertsPanel';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id }));
+
+const LEGEND = [['entry', 'Entry', '#22d3ee'], ['liq', 'Liq', '#f43f5e'], ['tp', 'TP', '#34d399'], ['sl', 'SL', '#fb923c']];
 
 const Message = ({ tone = 'text-slate-400', children }) => (
   <div className={`absolute inset-0 flex items-center justify-center text-sm ${tone}`}>{children}</div>
 );
 
-const MarketChartPanel = ({ ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry, className = '' }) => (
-  <Panel
-    title="Chart"
-    className={className}
-    right={<SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />}
-    bodyClassName="relative min-h-[320px] p-1.5 pt-0"
-  >
-    {error === 'no_market' ? (
-      <Message>No perpetual futures market for {ticker}</Message>
-    ) : error ? (
-      <Message tone="text-rose-300">
-        <span>Unable to load futures data.</span>
-        <button type="button" onClick={onRetry} className="ml-3 rounded-md border border-rose-300/40 px-2 py-0.5 text-xs hover:bg-rose-300/10">Retry</button>
-      </Message>
-    ) : !ready || candles.length === 0 ? (
-      <Message tone="text-slate-500">Loading candles…</Message>
-    ) : (
-      <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} />
-    )}
-  </Panel>
-);
+const MarketChartPanel = ({
+  ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry,
+  view = 'chart', onView, alertsSymbol, unread = 0, className = '', lines,
+}) => {
+  const alertsView = view === 'alerts';
+  const legend = LEGEND.filter(([k]) => (lines || []).some((l) => l.kind === k)).map(([k, t, fb]) => [k, t, lines.find((l) => l.kind === k).color || fb]);
+  return (
+    <Panel
+      title={alertsView ? 'Alerts' : 'Chart'}
+      className={className}
+      right={
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-pressed={alertsView}
+            onClick={() => onView?.(alertsView ? 'chart' : 'alerts')}
+            className={`focus-ring rounded-md border px-2 py-1 text-xs font-medium min-h-[36px] sm:min-h-0 ${
+              alertsView ? 'border-cyan-400/60 text-cyan-300' : 'border-slate-700 text-slate-300 hover:bg-slate-900'
+            }`}
+          >
+            Alerts
+            {unread > 0 && (
+              <span className="ml-1.5 rounded-full bg-rose-400 px-1 text-[10px] font-semibold tabular-nums text-slate-950" aria-label={`${unread} unread`}>{unread}</span>
+            )}
+          </button>
+          <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" className="[&_button]:min-h-[36px] sm:[&_button]:min-h-0" />
+        </div>
+      }
+      bodyClassName={alertsView ? 'relative min-h-[320px] xl:min-h-0 p-0' : 'relative min-h-[320px] xl:min-h-0 p-1.5 pt-0'}
+    >
+      {alertsView ? (
+        <AlertsPanel symbol={alertsSymbol} />
+      ) : error === 'no_market' ? (
+        <Message>No perpetual futures market for {ticker}</Message>
+      ) : error ? (
+        <Message tone="text-rose-300">
+          <span>Unable to load futures data.</span>
+          <button type="button" onClick={onRetry} className="ml-3 rounded-md border border-rose-300/40 px-2 py-0.5 text-xs hover:bg-rose-300/10">Retry</button>
+        </Message>
+      ) : !ready || candles.length === 0 ? (
+        <Message tone="text-slate-500">Loading candles…</Message>
+      ) : (
+        <>
+          {legend.length > 0 && (
+            <div className="pointer-events-none absolute right-16 top-1 z-10 hidden gap-x-3 text-[10px] text-slate-400 sm:flex" aria-label="Chart line legend">
+              {legend.map(([k, t, c]) => (
+                <span key={k} className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: c }} />{t}</span>
+              ))}
+            </div>
+          )}
+          <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} lines={lines} />
+        </>
+      )}
+    </Panel>
+  );
+};
 
 export default MarketChartPanel;

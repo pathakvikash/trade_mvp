@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Trade = require('../models/Trade');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const config = require('../config/config');
 const logger = require('../config/logger');
 const BaseController = require('./BaseController');
@@ -73,6 +74,10 @@ exports.registerUser = BaseController.wrap(async (req, res) => {
 // Demo guest (opt-in). Never seeds an admin; the password comes from env, never from source.
 exports.initializeDefaultUsers = async () => {
   if (process.env.SEED_DEMO_USERS !== 'true') return;
+  if (process.env.NODE_ENV === 'production') { // config already refuses this at boot; belt and braces
+    logger.error('SEED_DEMO_USERS=true is refused in production; demo guest not seeded');
+    return;
+  }
   const password = process.env.DEMO_GUEST_PASSWORD;
   if (!password || password.length < 12) {
     logger.warn('SEED_DEMO_USERS=true but DEMO_GUEST_PASSWORD is missing or shorter than 12 chars; demo guest not seeded');
@@ -211,4 +216,82 @@ exports.changePassword = BaseController.wrap(async (req, res) => {
 
   logger.info(`Password changed for user: ${user.username}`);
   res.status(200).json({ success: true, token: sign(user) });
+});
+
+// DEV ONLY: delete when hosted. Demo credentials for the local test-login box; served only when every gate holds.
+const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+exports.devHint = (req, res) => {
+  const password = process.env.DEMO_GUEST_PASSWORD;
+  const allowed = process.env.NODE_ENV === 'development'
+    && process.env.SEED_DEMO_USERS === 'true'
+    && (password || '').length >= 12
+    && LOOPBACK.includes(req.socket && req.socket.remoteAddress);
+  if (!allowed) return res.status(404).json({ success: false });
+  res.status(200).json({ email: GUEST_EMAIL, password });
+};
+
+// Public, not secret: the browser needs the client ID to render the Google button.
+exports.authConfig = (req, res) => {
+  res.status(200).json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+};
+
+// Google sign-in (Identity Services ID token). The email comes only from the verified token, never from the body.
+let oauthClient = null;
+const GOOGLE_REFUSED = { success: false, message: 'This account cannot be used with Google sign-in' };
+
+// First free username from the email local part: lowercase [a-z0-9_], random 4-digit suffix while taken.
+const usernameFor = async (email) => {
+  const local = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+  const base = (local.length >= 3 ? local : `user${local}`).slice(0, 24);
+  let name = base;
+  while (await User.findOne({ username: name })) name = `${base}${crypto.randomInt(1000, 10000)}`;
+  return name;
+};
+
+exports.googleLogin = BaseController.wrap(async (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) return res.status(503).json({ success: false, message: 'Google sign-in is not configured' });
+
+  let payload;
+  try {
+    oauthClient = oauthClient || new OAuth2Client(clientId);
+    const ticket = await oauthClient.verifyIdToken({ idToken: req.body.credential, audience: clientId });
+    payload = ticket.getPayload();
+  } catch (e) {
+    return res.status(401).json({ success: false, message: 'Invalid Google credential' });
+  }
+  if (!payload || payload.email_verified !== true || !payload.email) {
+    return res.status(401).json({ success: false, message: 'Google account email is not verified' });
+  }
+  const email = payload.email.toLowerCase();
+
+  let user = (await User.findOne({ googleId: payload.sub })) || (await User.findOne({ email }));
+  if (user && (user.lockedAt || (user.googleId && user.googleId !== payload.sub))) {
+    return res.status(401).json(GOOGLE_REFUSED);
+  }
+  if (user) {
+    if (!user.googleId) {
+      user.googleId = payload.sub; // link the existing account on its first Google sign-in
+      await user.save();
+    }
+  } else {
+    const name = (payload.name || email.split('@')[0]).trim().slice(0, 60) || 'Google user';
+    try {
+      user = await User.create({
+        username: await usernameFor(email),
+        email,
+        name,
+        password: crypto.randomBytes(32).toString('hex'), // unguessable; the pre-save hook hashes it
+        googleId: payload.sub,
+        role: 'user',
+      });
+    } catch (e) {
+      if (e && e.code === 11000) return res.status(409).json({ success: false, message: 'Please try Google sign-in again' });
+      throw e;
+    }
+    logger.info(`User created via Google: ${user.username}`);
+  }
+
+  logger.info(`User logged in via Google: ${user.username}`);
+  res.status(200).json({ success: true, token: sign(user), user: publicUser(user) });
 });

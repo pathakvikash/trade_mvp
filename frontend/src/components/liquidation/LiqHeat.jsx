@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
+import usePersistedState from '../../lib/usePersistedState';
 import usePolling from '../../lib/usePolling';
-import LiqHeatmap from './LiqHeatmap';
+import LiqHeatmap, { RANGES } from './LiqHeatmap';
 import { KeyLevels, Overview } from './LiqSide';
 import { FUT } from './shared';
 
 // First section of the page: predicted heatmap + side panels (stacked below 1280px).
 const LiqHeat = ({ symbol }) => {
-  const [range, setRange] = useState('24h');
+  const [range, setRange] = usePersistedState('liquidation.heatRange', '24h', { validate: (v) => RANGES.some((r) => r.id === v) });
   const [tick, setTick] = useState(0); // bumping it refetches without clearing the current picture
   const [highlight, setHighlight] = useState(null);
   const { data, error, loading, fetching } = usePolling(`${FUT}/liqheat/${symbol}?range=${range}`, 60000, tick);

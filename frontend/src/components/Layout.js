@@ -3,11 +3,12 @@ import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
 import Toasts from './alerts/Toasts';
+import usePersistedState from '../lib/usePersistedState';
 import useUserStore from '../store/userStore';
 import useAlertStore from '../store/alertStore';
 
 const Layout = () => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = usePersistedState('sidebar.collapsed', false, { validate: (v) => typeof v === 'boolean' });
   const [mobileOpen, setMobileOpen] = useState(false);
   const token = useUserStore((s) => s.token);
 
@@ -22,7 +23,7 @@ const Layout = () => {
   }, [mobileOpen]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#070b14] text-slate-200">
+    <div className="flex h-screen h-dvh overflow-hidden bg-[#070b14] text-slate-200">
       {mobileOpen && <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />}
       <Sidebar
         collapsed={collapsed}
@@ -33,7 +34,7 @@ const Layout = () => {
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onMenu={() => setMobileOpen(true)} />
         <main className="min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="mx-auto w-full max-w-[1920px]">
+          <div className="mx-auto w-full max-w-[1920px] xl:h-full">
             <Outlet />
           </div>
         </main>

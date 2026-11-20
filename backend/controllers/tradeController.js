@@ -1,77 +1,18 @@
-const mongoose = require('mongoose');
 const Trade = require('../models/Trade');
 const User = require('../models/User');
 const logger = require('../config/logger');
 const BaseController = require('./BaseController');
 const futuresRest = require('../services/futuresRest');
-const futuresService = require('../services/futuresService');
+const Order = require('../models/Order');
+const { EPS, SYMBOL_RE, holdKey, userIdOf, fillPrice, ensureHoldings, executeFill } = require('../services/tradeFill');
 
 const { MIN_NOTIONAL_CENTS, DUST, round8, quote, avgCost } = require('../services/tradeMath');
 
 const MAX_AMOUNT = 1e9; // base-asset units per order
-const WS_MAX_AGE_MS = 3000;
-const OVERVIEW_MAX_AGE_MS = 10000;
-const EPS = 1e-9; // float dust tolerated when comparing a sell against the held amount
-const SYMBOL_RE = /^[A-Z0-9]{2,20}$/; // also guarantees no '.' or '$' reaches a Mongo update path
+const MAX_OPEN_ORDERS = 20;
 
 const r2 = (x) => Math.round(x * 100) / 100;
 const bad = (res, message, status = 400) => res.status(status).json({ success: false, message });
-const holdKey = (sym) => {
-  if (!SYMBOL_RE.test(sym)) throw new Error('invalid symbol for holdings key');
-  return `holdings.${sym}`;
-};
-
-// The only price an order is ever filled at: the server's own mark price, never older than it says.
-// Order: websocket mark (<= 3s) -> futuresRest.markPrice (cached ~2s) -> overview row (<= 10s) -> null (caller: 503).
-// -> { price, ageMs } | null. ageMs is null only for an overview row that carries no timestamp (its cache TTL is 10s).
-async function fillPrice(futuresSymbol) {
-  const m = futuresService.getMark(futuresSymbol);
-  if (m && m.markPrice > 0 && Date.now() - m.ts <= WS_MAX_AGE_MS) return { price: m.markPrice, ageMs: Math.max(0, Date.now() - m.ts) };
-  if (typeof futuresRest.markPrice === 'function') {
-    try {
-      const r = await futuresRest.markPrice(futuresSymbol);
-      if (r && r.markPrice > 0 && Number.isFinite(r.ts) && Date.now() - r.ts <= OVERVIEW_MAX_AGE_MS) {
-        return { price: r.markPrice, ageMs: Math.max(0, Date.now() - r.ts) };
-      }
-    } catch (e) {
-      logger.warn(`trade: rest mark failed for ${futuresSymbol} (${e.message})`);
-    }
-  }
-  try {
-    const row = (await futuresRest.overview()).find((r) => r.symbol === futuresSymbol);
-    if (row && row.markPrice > 0) {
-      const ageMs = Number.isFinite(row.ts) ? Math.max(0, Date.now() - row.ts) : null;
-      if (ageMs === null || ageMs <= OVERVIEW_MAX_AGE_MS) return { price: row.markPrice, ageMs };
-    }
-  } catch (e) {
-    logger.warn(`trade: no mark price for ${futuresSymbol} (${e.message})`);
-  }
-  return null;
-}
-
-// Holdings live on the User document. A user without holdingsSyncedAt gets them computed once from Trade history
-// (clamped at >= 0). The conditional update means two concurrent migrations cannot both write. -> false if no such user.
-async function ensureHoldings(userId) {
-  const u = await User.findById(userId).select('holdingsSyncedAt').lean();
-  if (!u) return false;
-  if (u.holdingsSyncedAt) return true;
-  const isBuy = { $eq: ['$type', 'buy'] };
-  const rows = await Trade.aggregate([
-    { $match: { userId: new mongoose.Types.ObjectId(userId) } },
-    { $group: { _id: '$cryptoSymbol', net: { $sum: { $cond: [isBuy, '$amount', { $multiply: ['$amount', -1] }] } } } },
-  ]);
-  const map = {};
-  for (const r of rows) {
-    if (!SYMBOL_RE.test(r._id)) {
-      logger.warn(`trade: skipped legacy holding with invalid symbol (user=${userId})`);
-      continue;
-    }
-    const net = round8(r.net);
-    if (net > DUST) map[r._id] = net;
-  }
-  await User.updateOne({ _id: userId, holdingsSyncedAt: { $exists: false } }, { $set: { holdings: map, holdingsSyncedAt: new Date() } });
-  return true;
-}
 
 // [{ symbol, amount, avgCost }] from the User doc's holdings (dust dropped); avgCost walks that symbol's trades.
 async function positions(userId, holdingsMap) {
@@ -87,10 +28,46 @@ async function positions(userId, holdingsMap) {
   }));
 }
 
-const userIdOf = (req) => (req.user && mongoose.isValidObjectId(req.user.userId) ? String(req.user.userId) : null);
+// Limit order: nothing fills now. The funds are reserved with one conditional update (buy: USD incl. fee; sell: the coins,
+// so they cannot be sold twice) and an open Order is stored; services/orderMatcher fills it at the limit price.
+async function placeLimit(res, { userId, cryptoSymbol, type, amount, limitPrice }) {
+  if (typeof limitPrice !== 'number' || !Number.isFinite(limitPrice) || limitPrice <= 0 || limitPrice > MAX_AMOUNT) {
+    return bad(res, 'limitPrice must be a number greater than 0', 422);
+  }
+  const q = quote(type, amount, limitPrice);
+  if (q.notional < MIN_NOTIONAL_CENTS) return bad(res, 'Order too small: the minimum order value is $5');
+  if (!(await ensureHoldings(userId))) return bad(res, 'User not found', 404);
+  // ponytail: count-then-insert, so parallel requests can overshoot the cap by a few; the 30/min limiter bounds it.
+  if ((await Order.countDocuments({ userId, status: 'open' })) >= MAX_OPEN_ORDERS) return bad(res, `You can have at most ${MAX_OPEN_ORDERS} open orders`);
 
-// POST /api/trades  body: { cryptoSymbol, type, amount }. The user comes from the JWT only; a body userId,
-// price or anything else is ignored.
+  const buy = type === 'buy';
+  const key = holdKey(cryptoSymbol);
+  const reserved = buy ? q.total / 100 : amount;
+  const inc = buy ? { balance: -reserved } : { [key]: -amount };
+  const user = await User.findOneAndUpdate(
+    buy ? { _id: userId, balance: { $gte: reserved } } : { _id: userId, [key]: { $gte: amount - EPS } },
+    { $inc: inc },
+    { new: true, projection: { balance: 1 } },
+  );
+  if (!user) return bad(res, buy ? 'Insufficient balance' : 'Cannot sell more than you hold');
+  let order;
+  try {
+    order = await Order.create({ userId, symbol: cryptoSymbol, side: type, type: 'limit', amount, limitPrice, reserved });
+  } catch (e) {
+    try {
+      await User.updateOne({ _id: userId }, { $inc: { [buy ? 'balance' : key]: reserved } });
+    } catch (e2) {
+      logger.error(`order: COMPENSATION FAILED user=${userId} ${type} ${cryptoSymbol} reserved=${reserved}: ${e2.message}`);
+    }
+    throw e;
+  }
+  logger.info(`order: limit ${type} ${amount} ${cryptoSymbol} @ ${limitPrice} user=${userId}`);
+  res.status(201).json({ success: true, order, balance: r2(user.balance) });
+}
+
+// POST /api/trades  body: { cryptoSymbol, type, amount, orderType?: 'market' (default) | 'limit', limitPrice? (limit only) }.
+// The user comes from the JWT only; a body userId or anything else is ignored. Market orders fill now at the server's mark
+// price; limit orders are reserved and filled later (see placeLimit).
 exports.placeTrade = BaseController.wrap(async (req, res) => {
   const userId = userIdOf(req);
   if (!userId) return bad(res, 'Invalid token', 401);
@@ -104,8 +81,12 @@ exports.placeTrade = BaseController.wrap(async (req, res) => {
   }
   const amount = round8(b.amount);
   if (!(amount > 0)) return bad(res, 'amount must be a number greater than 0');
+  const orderType = b.orderType === undefined ? 'market' : b.orderType;
+  if (orderType !== 'market' && orderType !== 'limit') return bad(res, "orderType must be 'market' or 'limit'", 422);
   const futuresSymbol = `${cryptoSymbol}USDT`;
   if (!(await futuresRest.isKnownSymbol(futuresSymbol))) return bad(res, `Unknown market ${futuresSymbol}`);
+
+  if (orderType === 'limit') return placeLimit(res, { userId, cryptoSymbol, type, amount, limitPrice: b.limitPrice });
 
   const fill = await fillPrice(futuresSymbol);
   if (!fill) return bad(res, 'No price available for this market right now, try again shortly', 503);
@@ -113,39 +94,17 @@ exports.placeTrade = BaseController.wrap(async (req, res) => {
 
   const q = quote(type, amount, price);
   if (q.notional < MIN_NOTIONAL_CENTS) return bad(res, 'Order too small: the minimum order value is $5');
-  const fee = q.fee / 100;
-  const total = q.total / 100; // buy: debited, sell: credited
-  const record = { userId, cryptoSymbol, type, amount, priceAtTrade: price, fee };
-  const key = holdKey(cryptoSymbol);
-
   if (!(await ensureHoldings(userId))) return bad(res, 'User not found', 404);
 
-  // One conditional update moves balance and holding together, so concurrent orders cannot overdraw or oversell.
-  const buy = type === 'buy';
-  const user = await User.findOneAndUpdate(
-    buy ? { _id: userId, balance: { $gte: total } } : { _id: userId, [key]: { $gte: amount - EPS } },
-    { $inc: buy ? { balance: -total, [key]: amount } : { balance: total, [key]: -amount } },
-    { new: true, projection: { balance: 1 } },
-  );
-  if (!user) return bad(res, buy ? 'Insufficient balance' : 'Cannot sell more than you hold');
-  try {
-    await Trade.create(record);
-  } catch (e) {
-    try {
-      await User.updateOne({ _id: userId }, { $inc: buy ? { balance: total, [key]: -amount } : { balance: -total, [key]: amount } });
-    } catch (e2) {
-      logger.error(`trade: COMPENSATION FAILED user=${userId} ${type} ${cryptoSymbol} amount=${amount} total=${total}: ${e2.message}`);
-    }
-    logger.error(`trade: insert failed after ${type} update, reversed (user=${userId}): ${e.message}`);
-    throw e;
-  }
+  const done = await executeFill({ userId, symbol: cryptoSymbol, type, amount, price });
+  if (!done) return bad(res, type === 'buy' ? 'Insufficient balance' : 'Cannot sell more than you hold');
 
   logger.info(`trade: ${type} ${amount} ${cryptoSymbol} @ ${price} user=${userId}`);
   res.status(201).json({
     success: true,
     message: 'Trade successful',
-    fill: { symbol: cryptoSymbol, type, amount, price, priceAgeMs: ageMs, fee, total },
-    balance: r2(user.balance),
+    fill: { symbol: cryptoSymbol, type, amount, price, priceAgeMs: ageMs, fee: done.fee, total: done.total },
+    balance: r2(done.balance),
   });
 });
 

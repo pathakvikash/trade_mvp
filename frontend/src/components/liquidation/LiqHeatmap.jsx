@@ -3,6 +3,8 @@ import useCanvas from './useCanvas';
 import SegTabs from '../ui/SegTabs';
 import { Notice, Panel, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
 import { cellAt, heatColor, heatCss, niceTicks, scaleT, timeTicks } from './heat';
+import { LoadingBlock } from '../ui/Skeleton';
+import { Updating } from '../ui/Spinner';
 
 export const RANGES = ['12h', '24h', '3d', '1w'].map((id) => ({ id, label: id }));
 const PAD = { l: 8, r: 66, t: 10, b: 22 };
@@ -143,6 +145,7 @@ const LiqHeatmap = ({ symbol, range, onRange, data, loading, error, onRefresh, r
         <div className="flex flex-wrap items-center gap-2">
           <SegTabs label="Heatmap range" tabs={RANGES} active={range} onChange={(r) => { setHover(null); onRange(r); }} />
           {ok && <span className="text-[11px] tabular-nums text-slate-500">Updated {hhmm(data.generatedAt)} · refreshes every 60s</span>}
+          <Updating show={!!refreshing} />
           <button type="button" onClick={onRefresh} disabled={refreshing} aria-label="Refresh heatmap" className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:text-slate-100">
             {refreshing && <span aria-hidden="true" className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />}
             Refresh
@@ -154,12 +157,14 @@ const LiqHeatmap = ({ symbol, range, onRange, data, loading, error, onRefresh, r
         Estimated model. Exchanges do not publish liquidation prices; levels are inferred from open-interest increases, a leverage mix of 5x–125x and 0.4% maintenance margin. Not financial advice.
       </p>
       {!ok ? (
-        <Notice tone={error ? 'error' : 'muted'}>
-          {loading ? 'Loading heatmap...' : is404(error) ? `No perpetual futures market for ${symbol}.` : error ? 'Heatmap unavailable right now, retrying.' : 'Not enough data to estimate a heatmap.'}
-        </Notice>
+        loading ? <LoadingBlock height={H} /> : (
+          <Notice tone={error ? 'error' : 'muted'}>
+            {is404(error) ? `No perpetual futures market for ${symbol}.` : error ? 'Heatmap unavailable right now, retrying.' : 'Not enough data to estimate a heatmap.'}
+          </Notice>
+        )
       ) : (
         <>
-          <div ref={wrap} className="relative" style={{ height: H }}>
+          <div ref={wrap} className={`relative transition-opacity ${refreshing ? 'opacity-60' : ''}`} style={{ height: H }}>
             <canvas ref={canvas} role="img" aria-label={label} className="block" />
             <div
               aria-hidden="true"

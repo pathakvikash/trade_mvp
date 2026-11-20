@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema({
     trim: true 
   },
   password: { type: String, required: true },
+  googleId: { type: String, unique: true, sparse: true }, // Google account "sub"; set on first Google sign-in
   name: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   balance: { type: Number, default: 100000 }, // paper USD
@@ -25,6 +26,8 @@ const userSchema = new mongoose.Schema({
   holdings: { type: Map, of: Number, default: {} },
   // set once when holdings were first computed from Trade history; absent = not migrated yet. No default on purpose.
   holdingsSyncedAt: { type: Date },
+  // per-op idempotency markers for futures ledger ops: key = FuturesOp _id hex, value 1. Absent = not applied / cleaned up.
+  futuresOps: { type: Map, of: Number },
   lockedAt: { type: Date }, // set on retired public accounts; their password is unusable
   // user-editable settings (PATCH /api/auth/me); profile has no defaults, preferences do
   profile: {
@@ -44,6 +47,8 @@ const userSchema = new mongoose.Schema({
   passwordChangedAt: { type: Date }, // tokens issued before this are rejected by middleware/auth
   createdAt: { type: Date, default: Date.now }
 });
+
+userSchema.index({ futuresOps: 1 }, { sparse: true }); // marker sweep: users that ever had a futures op
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
+import usePersistedState from '../lib/usePersistedState';
 import usePolling from '../lib/usePolling';
 import LiquidationHeatmap from '../components/LiquidationHeatmap';
 import Summary from '../components/liquidation/Summary';
@@ -15,9 +16,10 @@ const SYMBOL_RE = /^[A-Z0-9]{2,20}USDT$/;
 const Liquidation = () => {
   const { data, error } = usePolling(`${FUT}/liquidations`, 5000);
   const [params, setParams] = useSearchParams();
+  const [saved, setSaved] = usePersistedState('liquidation.symbol', 'BTCUSDT', { validate: (v) => SYMBOL_RE.test(v) });
   const raw = (params.get('symbol') || '').toUpperCase();
-  const symbol = SYMBOL_RE.test(raw) ? raw : 'BTCUSDT';
-  const setSymbol = (s) => setParams({ symbol: s });
+  const symbol = SYMBOL_RE.test(raw) ? raw : saved; // ?symbol= wins over the remembered pick
+  const setSymbol = (s) => { setSaved(s); setParams({ symbol: s }); };
 
   return (
     <div className="space-y-3">
@@ -32,7 +34,7 @@ const Liquidation = () => {
       </div>
       <LiqHeat symbol={symbol} />
       <Summary data={data} error={error} />
-      <CoinTreemap bySymbol={data?.bySymbol} selected={symbol} onSelect={setSymbol} />
+      <CoinTreemap bySymbol={data?.bySymbol} error={error} selected={symbol} onSelect={setSymbol} />
       <LiquidationHeatmap symbol={symbol} />
       <LiqMap symbol={symbol} />
       <LiveFeed recent={data?.recent} error={error} />

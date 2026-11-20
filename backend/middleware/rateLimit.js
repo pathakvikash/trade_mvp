@@ -1,7 +1,6 @@
 // In-memory sliding-window limiter shared by auth, trades, alerts and AI routes.
 // ponytail: single process, per-instance counters; use Redis if this ever runs multi-instance.
-// NOTE: app.set('trust proxy') is NOT set in server.js, so req.ip is the socket peer. Behind a reverse proxy every
-// client would share the proxy's IP (one bucket) until trust proxy is configured to the proxy's hop count.
+// Keys come from req.ip, which honours app.set('trust proxy') (env TRUST_PROXY, applied in server.js).
 const net = require('net');
 const logger = require('../config/logger');
 

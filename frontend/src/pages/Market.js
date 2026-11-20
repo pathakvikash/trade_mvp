@@ -1,467 +1,150 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import useMarketStore from '../store/marketStore';
-import { Line } from 'react-chartjs-2';
-import axios from 'axios';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-} from 'chart.js';
-import Card from '../components/ui/Card';
-import Button from '../components/ui/Button';
-import Input from '../components/ui/Input';
-import Select from '../components/ui/Select';
-import CandlestickChart from '../CandlestickChart';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import usePersistedState from '../lib/usePersistedState';
+import useUserStore from '../store/userStore';
+import useFuturesStore from '../store/futuresStore';
+import usePolling from '../lib/usePolling';
+import { FUT, coin } from '../components/liquidation/shared';
+import Panel from '../components/ui/Panel';
+import { fmtPct, fmtUsd } from '../components/ui/fmt';
+import SymbolHeader from '../components/trade/SymbolHeader';
+import KeyStats from '../components/trade/KeyStats';
+import SymbolLiquidations from '../components/trade/SymbolLiquidations';
+import MarketList from '../components/market/MarketList';
+import MarketChart from '../components/market/MarketChart';
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-);
+const SYMBOL_RE = /^[A-Z0-9]{2,20}USDT$/;
+const DEFAULT_SYMBOL = 'BTCUSDT';
+const NO_ROWS = [];
+const normalise = (s) => {
+  const v = (s || '').toUpperCase();
+  return SYMBOL_RE.test(v) ? v : null;
+};
 
+// Markets: live futures list (left) and the selected symbol's chart, stats, liquidations and links (right).
+// At xl the page fills the height under the header: the list runs full height, the right column splits into
+// chart and a row of three panels. Data: Binance futures overview (REST, polled) for the list and stats;
+// futuresStore (socket + klines) for the chart, as on the Trade page.
 const Market = () => {
-  const [timeframe, setTimeframe] = useState('1'); // Default to 1 day for OHLC
-  const [selectedCoin, setSelectedCoin] = useState('bitcoin');
-  const [chartData, setChartData] = useState(null);
-  const [candlestickData, setCandlestickData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [showAlertForm, setShowAlertForm] = useState(false);
-  const [alerts, setAlerts] = useState([]);
-  const [newAlert, setNewAlert] = useState({
-    coin: '',
-    type: 'price',
-    condition: 'above',
-    value: '',
-  });
-  const [chartType, setChartType] = useState('line'); // 'line' or 'candlestick'
+  const [searchParams, setSearchParams] = useSearchParams();
+  const prefSymbol = useUserStore((s) => s.user?.preferences?.defaultSymbol);
+  const defaultTf = useUserStore((s) => s.user?.preferences?.defaultTimeframe) || '1m';
+  const [retryKey, setRetryKey] = useState(0);
+  const ov = usePolling(`${FUT}/overview`, 15000, retryKey);
+  const rows = useMemo(() => (Array.isArray(ov.data) ? ov.data : null), [ov.data]);
 
-  // Subscribe to market store
-  const marketData = useMarketStore((state) => state.marketData);
-  const socketStatus = useMarketStore((state) => state.socketStatus);
-  const lastUpdate = useMarketStore((state) => state.lastUpdate);
+  // Selection lives in ?symbol=BTCUSDT; falls back to the remembered pick, then the user's default pair, then BTCUSDT.
+  const [saved, setSaved] = usePersistedState('market.symbol', null, { validate: (v) => v === null || SYMBOL_RE.test(v) });
+  const symbol = normalise(searchParams.get('symbol')) || saved || normalise(prefSymbol) || DEFAULT_SYMBOL;
+  const base = coin(symbol);
+  const current = useMemo(() => rows?.find((r) => r.symbol === symbol) || null, [rows, symbol]);
+  const symbols = useMemo(() => {
+    const list = (rows || []).map((r) => coin(r.symbol));
+    return list.includes(base) ? list : [base, ...list];
+  }, [rows, base]);
 
-  // CoinGecko /ohlc endpoint only supports 1, 7, 14, 30, 90, 180, 365, max days
-  const availableTimeframes = [
-    { label: '24h', value: '1' },
-    { label: '7d', value: '7' },
-    { label: '14d', value: '14' },
-    { label: '30d', value: '30' },
-    { label: '90d', value: '90' },
-    { label: '180d', value: '180' },
-    { label: '1y', value: '365' },
-    { label: 'Max', value: 'max' },
-  ];
-
-  const fetchMarketData = useCallback(async () => {
-    try {
-      const response = await axios.get(
-        'https://api.coingecko.com/api/v3/coins/markets',
-        {
-          params: {
-            vs_currency: 'usd',
-            order: 'market_cap_desc',
-            per_page: 20,
-            sparkline: false,
-          },
-        }
-      );
-      useMarketStore.getState().setMarketData(response.data);
-    } catch (err) {
-      setError('Failed to fetch market data');
-      console.error(err);
-    }
-  }, []);
-
-  const fetchChartData = useCallback(async () => {
-    try {
-      const response = await axios.get(
-        `https://api.coingecko.com/api/v3/coins/${selectedCoin}/market_chart`,
-        {
-          params: {
-            vs_currency: 'usd',
-            days: timeframe,
-          },
-        }
-      );
-
-      const prices = response.data.prices;
-      const labels = prices.map((price) =>
-        new Date(price[0]).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: timeframe === '1' ? 'numeric' : undefined,
-        })
-      );
-
-      setChartData({
-        labels,
-        datasets: [
-          {
-            label: selectedCoin.charAt(0).toUpperCase() + selectedCoin.slice(1),
-            data: prices.map((price) => price[1]),
-            borderColor: '#2563eb',
-            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHitRadius: 20,
-          },
-        ],
-      });
-      setLoading(false);
-    } catch (err) {
-      setError('Failed to fetch chart data');
-      console.error(err);
-    }
-  }, [selectedCoin, timeframe]);
-
-  const fetchCandlestickData = useCallback(async () => {
-    try {
-      const response = await axios.get(
-        `https://api.coingecko.com/api/v3/coins/${selectedCoin}/ohlc`,
-        {
-          params: {
-            vs_currency: 'usd',
-            days: timeframe, // Use the selected timeframe directly
-          },
-        }
-      );
-
-      const ohlcData = response.data.map((d) => ({
-        date: new Date(d[0]),
-        open: d[1],
-        high: d[2],
-        low: d[3],
-        close: d[4],
-      }));
-      setCandlestickData(ohlcData);
-    } catch (err) {
-      setError('Failed to fetch candlestick data');
-      console.error(err);
-    }
-  }, [selectedCoin, timeframe]);
+  const candles = useFuturesStore((s) => s.candles);
+  const mark = useFuturesStore((s) => s.mark);
+  const interval = useFuturesStore((s) => s.interval);
+  const futuresError = useFuturesStore((s) => s.error);
+  const storeSymbol = useFuturesStore((s) => s.symbol);
+  const reloadSeq = useFuturesStore((s) => s.reloadSeq);
+  const subscribe = useFuturesStore((s) => s.subscribe);
+  const unsubscribe = useFuturesStore((s) => s.unsubscribe);
+  const setTimeframe = useFuturesStore((s) => s.setTimeframe);
+  const ready = storeSymbol === symbol;
 
   useEffect(() => {
-    // Fallback to polling if socket disconnects or stops sending updates
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const stale = now - lastUpdate > 35000;
-      if (socketStatus !== 'connected' || stale) {
-        fetchMarketData();
-      }
-    }, 30000);
+    subscribe(symbol, defaultTf);
+  }, [symbol, subscribe, defaultTf]);
+  useEffect(() => unsubscribe, [unsubscribe]);
 
-    return () => clearInterval(interval);
-  }, [fetchMarketData, socketStatus, lastUpdate]);
+  const select = (s) => { setSaved(s); setSearchParams({ symbol: s }, { replace: true }); };
 
-  useEffect(() => {
-    fetchMarketData();
-    fetchChartData();
-    if (chartType === 'candlestick') {
-      fetchCandlestickData();
-    }
-  }, [selectedCoin, timeframe, chartType, fetchMarketData, fetchChartData, fetchCandlestickData]);
-
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: false,
-      },
-      tooltip: {
-        mode: 'index',
-        intersect: false,
-        callbacks: {
-          label: (context) => `$${context.parsed.y.toLocaleString()}`,
-        },
-      },
-    },
-    scales: {
-      x: {
-        grid: {
-          display: false,
-        },
-      },
-      y: {
-        grid: {
-          color: 'rgba(0, 0, 0, 0.05)',
-        },
-        ticks: {
-          callback: (value) => `$${value.toLocaleString()}`,
-        },
-      },
-    },
-    interaction: {
-      intersect: false,
-      mode: 'index',
-    },
-  };
-
-  const handleCreateAlert = (e) => {
-    e.preventDefault();
-    setAlerts([...alerts, { ...newAlert, id: Date.now() }]);
-    setNewAlert({
-      coin: '',
-      type: 'price',
-      condition: 'above',
-      value: '',
-    });
-    setShowAlertForm(false);
-  };
-
-  const handleRemoveAlert = (alertId) => {
-    setAlerts(alerts.filter((alert) => alert.id !== alertId));
-  };
-
-  const handleTimeframeClick = (tf) => {
-    setTimeframe(tf);
-  };
-
-  useEffect(() => {
-    if (!showAlertForm) {
-      return undefined;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [showAlertForm]);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-950">
-        <Card className="text-center">
-          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent mx-auto"></div>
-          <p className="text-slate-300">Loading market data...</p>
-        </Card>
-      </div>
-    );
-  }
+  const rate = current?.fundingRate;
+  const fundingHours = current?.fundingIntervalHours;
+  const apr = rate == null ? null : rate * (24 / (fundingHours || 8)) * 365 * 100;
+  const markPx = (ready && mark?.markPrice) || current?.markPrice;
+  const indexPx = (ready && mark?.indexPrice) || current?.indexPrice;
+  const basis = markPx && indexPx ? (markPx / indexPx - 1) * 100 : null;
 
   return (
-    <div className="min-h-0 bg-slate-950 p-4 md:p-6">
-      {error && (
-        <Card className="mb-6 border-red-800/50 bg-red-950/20">
-          <p className="text-red-300">{error}</p>
-        </Card>
-      )}
+    <div className="flex flex-col gap-3 xl:h-full">
+      <div className="xl:shrink-0">
+        <h1 className="text-lg font-semibold text-slate-200">Markets</h1>
+        <p className="text-xs text-slate-400">Binance USD-M perpetuals: live prices, candles and funding.</p>
+      </div>
 
-      <Card className="mb-6">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white">Crypto Market</h1>
-            <div className="flex items-center gap-2">
-              <div className={`h-2 w-2 rounded-full ${socketStatus === 'connected'
-                ? 'bg-emerald-400'
-                : socketStatus === 'connecting'
-                  ? 'bg-yellow-400'
-                  : 'bg-red-400'
-                }`}></div>
-              <span className="text-sm text-slate-400 capitalize">{socketStatus}</span>
-            </div>
+      <div className="grid gap-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
+        <MarketList
+          className="xl:min-h-0"
+          rows={rows}
+          error={ov.error}
+          onRetry={() => setRetryKey((k) => k + 1)}
+          selected={symbol}
+          onSelect={select}
+        />
+
+        <div className="flex min-w-0 flex-col gap-3 xl:min-h-0">
+          <SymbolHeader
+            symbols={symbols}
+            symbol={base}
+            futuresSymbol={symbol}
+            overview={rows || NO_ROWS}
+            ready={ready}
+            candles={candles}
+            mark={mark}
+            onSymbol={(b) => select(`${b}USDT`)}
+          />
+
+          <MarketChart
+            className="h-[420px] max-xl:[@media(min-height:1100px)]:h-[620px] xl:h-auto xl:min-h-0 xl:flex-[3_1_0]"
+            ticker={symbol}
+            interval={interval}
+            onInterval={setTimeframe}
+            candles={candles}
+            reloadSeq={reloadSeq}
+            error={futuresError}
+            ready={ready}
+            onRetry={() => subscribe(symbol, interval)}
+          />
+
+          <div className="grid gap-3 md:grid-cols-2 xl:min-h-[240px] xl:flex-[2_1_0] xl:grid-cols-3">
+            <Panel title={`${base} key stats`} className="min-h-0">
+              <KeyStats
+                items={[
+                  { label: 'Open interest', value: fmtUsd(current?.openInterestUsd) },
+                  { label: 'Funding rate', value: rate == null ? '--' : `${(rate * 100).toFixed(4)}%` },
+                  { label: 'Funding APR', value: fmtPct(apr, 1) },
+                  { label: 'Funding interval', value: fundingHours ? `${fundingHours}h` : '--' },
+                  { label: 'Mark vs index', value: fmtPct(basis, 3) },
+                  { label: '24h volume', value: fmtUsd(current?.quoteVolume) },
+                ]}
+              />
+            </Panel>
+
+            <SymbolLiquidations symbol={symbol} className="min-h-[240px] xl:min-h-0" />
+
+            <Panel title="Go to" className="min-h-0">
+              <ul className="space-y-3 text-xs">
+                <li>
+                  <Link to={`/trade?symbol=${base}`} className="focus-ring block rounded-md bg-cyan-400 px-3 py-1.5 text-center font-semibold text-slate-950 hover:bg-cyan-300">Trade</Link>
+                  <p className="mt-1 text-slate-500">Place a paper market order on {base}.</p>
+                </li>
+                <li>
+                  <Link to={`/trade?symbol=${symbol}&alerts=1`} className="focus-ring block rounded-md border border-slate-700 px-3 py-1.5 text-center text-slate-200 hover:bg-slate-800">Set alert</Link>
+                  <p className="mt-1 text-slate-500">Get notified when price, funding or liquidations cross a level.</p>
+                </li>
+                <li>
+                  <Link to={`/liquidation?symbol=${symbol}`} className="focus-ring block rounded-md border border-slate-700 px-3 py-1.5 text-center text-slate-200 hover:bg-slate-800">Liquidations</Link>
+                  <p className="mt-1 text-slate-500">Estimated liquidation map and sampled history.</p>
+                </li>
+              </ul>
+            </Panel>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-2xl border border-slate-800 bg-slate-900/50 p-1">
-              {availableTimeframes.map((tf) => (
-                <button
-                  key={tf.value}
-                  onClick={() => handleTimeframeClick(tf.value)}
-                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${timeframe === tf.value
-                    ? 'bg-brand-600 text-white'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                >
-                  {tf.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex rounded-2xl border border-slate-800 bg-slate-900/50 p-1">
-              <button
-                onClick={() => setChartType('line')}
-                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${chartType === 'line'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  }`}
-              >
-                Line
-              </button>
-              <button
-                onClick={() => setChartType('candlestick')}
-                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${chartType === 'candlestick'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  }`}
-              >
-                Candlestick
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end">
-          <Button onClick={() => setShowAlertForm(true)}>
-            + Create Alert
-          </Button>
-        </div>
-
-        {showAlertForm && createPortal(
-          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
-            <Card className="z-[121] w-full max-w-md border-slate-700 bg-slate-900/95 shadow-2xl">
-              <h3 className="mb-4 text-lg font-semibold text-white">Create Price Alert</h3>
-              <form onSubmit={handleCreateAlert} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Cryptocurrency</label>
-                  <Select
-                    value={newAlert.coin}
-                    onChange={(e) => setNewAlert({ ...newAlert, coin: e.target.value })}
-                    required
-                  >
-                    <option value=''>Select Coin</option>
-                    {marketData.map((coin) => (
-                      <option key={coin.id} value={coin.symbol}>
-                        {coin.name} ({coin.symbol.toUpperCase()})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Alert Type</label>
-                  <Select
-                    value={newAlert.type}
-                    onChange={(e) => setNewAlert({ ...newAlert, type: e.target.value })}
-                  >
-                    <option value="price">Price Alert</option>
-                    <option value="change">Percentage Change</option>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Condition</label>
-                  <Select
-                    value={newAlert.condition}
-                    onChange={(e) => setNewAlert({ ...newAlert, condition: e.target.value })}
-                  >
-                    <option value="above">Above</option>
-                    <option value="below">Below</option>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Value</label>
-                  <Input
-                    type="number"
-                    value={newAlert.value}
-                    onChange={(e) => setNewAlert({ ...newAlert, value: e.target.value })}
-                    placeholder={newAlert.type === 'price' ? 'Enter price' : 'Enter percentage'}
-                    required
-                  />
-                </div>
-
-                <div className="flex gap-3">
-                  <Button type="submit" className="flex-1">
-                    Create Alert
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setShowAlertForm(false)}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </Card>
-          </div>,
-          document.body
-        )}
-
-        {alerts.length > 0 && (
-          <Card>
-            <h4 className="mb-4 text-lg font-semibold text-white">Active Alerts</h4>
-            <div className="space-y-2">
-              {alerts.map((alert) => (
-                <div key={alert.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
-                  <span className="text-sm text-slate-300">
-                    {alert.coin.toUpperCase()} {alert.condition} {alert.value}
-                    {alert.type === 'change' && '%'}
-                  </span>
-                  <button
-                    onClick={() => handleRemoveAlert(alert.id)}
-                    className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <Card>
-            <div className="h-96">
-              {chartType === 'line' && chartData && (
-                <Line data={chartData} options={chartOptions} />
-              )}
-              {chartType === 'candlestick' && candlestickData && (
-                <CandlestickChart data={candlestickData} />
-              )}
-            </div>
-          </Card>
-        </div>
-
-        <div className="hide-scrollbar space-y-2 max-h-[38rem] overflow-y-auto pr-1">
-          {marketData.map((coin) => (
-            <div
-              key={coin.id}
-              onClick={() => setSelectedCoin(coin.id)}
-              className={`cursor-pointer rounded-2xl border p-4 transition hover:bg-slate-900/50 ${selectedCoin === coin.id
-                ? 'border-brand-500 bg-brand-950/20'
-                : 'border-slate-800 bg-slate-900/50'
-                }`}
-            >
-              <div className="flex items-center gap-3">
-                <img src={coin.image} alt={coin.name} className="h-10 w-10 rounded-full" />
-                <div className="flex-1">
-                  <div className="font-medium text-white">{coin.name}</div>
-                  <div className="text-sm text-slate-400">{coin.symbol.toUpperCase()}</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-medium text-white">
-                    ${coin.current_price?.toFixed(2)}
-                  </div>
-                  <div className={`text-sm ${coin.price_change_percentage_24h >= 0 ? 'text-emerald-400' : 'text-red-400'
-                    }`}>
-                    {coin.price_change_percentage_24h?.toFixed(2)}%
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
-    </div >
+    </div>
   );
 };
 

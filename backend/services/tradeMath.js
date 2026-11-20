@@ -39,4 +39,4 @@ function avgCost(trades) {
   return qty > 0 ? cost / qty : 0;
 }
 
-module.exports = { MIN_NOTIONAL_CENTS, DUST, round8, quote, avgCost };
+module.exports = { MIN_NOTIONAL_CENTS, DUST, round8, quote, avgCost, notionalCents };

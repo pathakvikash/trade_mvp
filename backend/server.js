@@ -15,8 +15,10 @@ const { Server } = require('socket.io');
 
 const app = express();
 
-// ponytail: 'trust proxy' is deliberately NOT set, so req.ip (used by the login/register rate limits) is the socket
-// peer. Behind a reverse proxy that is the proxy's IP for everyone; set app.set('trust proxy', <hops>) there.
+// Behind a reverse proxy req.ip must come from X-Forwarded-For or every client shares one rate-limit bucket. Set before
+// any limiter/middleware. Default 0 (off). Socket.IO has no IP-keyed limits (its origin check uses headers only).
+app.set('trust proxy', config.trustProxy);
+config.warnings.forEach((w) => logger.warn(w));
 
 // Middleware
 // API only (no HTML served): helmet defaults; CORP cross-origin so the SPA on another localhost port can read responses.
@@ -27,8 +29,11 @@ app.use(cors({ origin: config.corsOrigins }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
 // Routes
+app.use('/api/health', require('./routes/healthRoutes'));
 app.use('/api/auth', authRoutes);
 app.use('/api/trades', tradeRoutes);
+app.use('/api/orders', require('./routes/orderRoutes'));
+app.use('/api/futures', require('./routes/futuresRoutes'));
 
 // Market proxy routes (optional)
 const marketRoutes = require('./routes/marketRoutes');
@@ -49,7 +54,11 @@ mongoose
     await initializeDefaultUsers(); // no-op unless SEED_DEMO_USERS=true
     await warnAboutAdmins();
   })
-  .catch((err) => logger.error(err));
+  .catch((err) => {
+    logger.error(err);
+    // A server that never reached Mongo would report healthy but fail every request: exit so the supervisor restarts it.
+    if (process.env.NODE_ENV !== 'test') process.exit(1);
+  });
 
 // Create HTTP server and attach socket.io
 const httpServer = http.createServer(app);
@@ -101,12 +110,34 @@ try {
   logger.error('Failed to start alert service', err);
 }
 
+// Limit-order matcher (fills open orders when the mark price crosses their limit)
+const orderMatcher = require('./services/orderMatcher');
+try {
+  orderMatcher.start();
+} catch (err) {
+  logger.error('Failed to start order matcher', err);
+}
+
+// Futures risk engine (liquidation / SL / TP / limit entries; first pass runs ledger.recoverAll() for crashed ops, only for
+// ops older than 15s). DEPLOYS MUST BE STOP-THEN-START: let the old process drain (SIGTERM waits up to 5s for in-flight
+// settles) before the new one boots; two live engines would race on recovery and could roll back an op mid-flight.
+const riskEngine = require('./services/riskEngine');
+try {
+  riskEngine.start();
+} catch (err) {
+  logger.error('Failed to start risk engine', err);
+}
+
 // Stop services on shutdown
-const shutdown = () => {
+const shutdown = async () => {
   try {
+    const matcherDone = orderMatcher.stop();
+    const riskDone = riskEngine.stop();
     require('./services/marketService').stop();
     alertService.stop();
     futuresService.stop();
+    const timeout = new Promise((r) => setTimeout(r, 5000).unref()); // let an in-flight settle finish, but never hang
+    await Promise.race([Promise.all([matcherDone, riskDone]), timeout]);
   } finally {
     process.exit(0);
   }
@@ -115,6 +146,6 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 // Start Server
-// Loopback only by default: set HOST=0.0.0.0 only behind auth hardening.
-const host = process.env.HOST || '127.0.0.1';
+// HOST default: loopback in development, 0.0.0.0 in production (see config).
+const host = config.host;
 httpServer.listen(config.port, host, () => logger.info(`Server running on ${host}:${config.port}`));

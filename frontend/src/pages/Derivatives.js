@@ -1,10 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
+import usePersistedState from '../lib/usePersistedState';
 import usePolling from '../lib/usePolling';
 import MarketTable from '../components/derivatives/MarketTable';
 import FundingStrip from '../components/derivatives/FundingStrip';
 import StatChart from '../components/derivatives/StatChart';
 import { readouts } from '../components/derivatives/signals';
 import SegTabs from '../components/ui/SegTabs';
+import { LoadingBlock } from '../components/ui/Skeleton';
+import { Updating } from '../components/ui/Spinner';
 import { FUT, Notice, Panel, coin, is404 } from '../components/liquidation/shared';
 
 const PERIODS = ['5m', '15m', '1h', '4h'].map((id) => ({ id, label: id }));
@@ -32,9 +35,15 @@ const ChartCard = ({ title, series, note, label }) => (
 
 const lastOf = (a, f) => (a && a.length ? f(a[a.length - 1]) : null);
 
+const ChartsSkeleton = () => (
+  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2" aria-busy="true">
+    {[0, 1, 2, 3, 4].map((i) => <Panel key={i}><LoadingBlock height={180} /></Panel>)}
+  </div>
+);
+
 const Derivatives = () => {
-  const [symbol, setSymbol] = useState('BTCUSDT');
-  const [period, setPeriod] = useState('1h');
+  const [symbol, setSymbol] = usePersistedState('derivatives.symbol', 'BTCUSDT', { validate: (v) => /^[A-Z0-9]{2,20}USDT$/.test(v) });
+  const [period, setPeriod] = usePersistedState('derivatives.period', '1h', { validate: (v) => PERIODS.some((p) => p.id === v) });
   const ov = usePolling(`${FUT}/overview`, 15000);
   const st = usePolling(`${FUT}/stats/${symbol}?period=${period}`, 60000);
   const kl = usePolling(`${FUT}/klines/${symbol}?interval=${period}&limit=200`, 60000);
@@ -64,16 +73,16 @@ const Derivatives = () => {
         <p className="text-xs text-slate-400">Binance USD-M perpetuals: funding, open interest and positioning.</p>
       </div>
       <MarketTable rows={rows} error={ov.error} selected={symbol} onSelect={setSymbol} />
-      <FundingStrip rows={rows} selected={symbol} onSelect={setSymbol} />
+      <FundingStrip rows={rows} error={ov.error} selected={symbol} onSelect={setSymbol} />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-200">{coin(symbol)} positioning</h2>
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">{coin(symbol)} positioning <Updating show={!!st.fetching} /></h2>
         <SegTabs label="Period" tabs={PERIODS} active={period} onChange={setPeriod} />
       </div>
       {st.error && !s && <Notice tone="error">{is404(st.error) ? `No perpetual market for ${coin(symbol)}.` : `Stats unavailable for ${coin(symbol)} right now.`}</Notice>}
-      {st.loading && <Notice>Loading...</Notice>}
+      {!s && st.loading && <ChartsSkeleton />}
       {s && (
-        <>
+        <div className={`space-y-3 transition-opacity ${st.fetching ? 'opacity-60' : ''}`}>
           <Panel title="Read-outs" right={<span className="text-[11px] text-slate-500">Rule-based signal, not advice</span>}>
             {signals.length ? <ul className="space-y-1 text-sm text-slate-200">{signals.map((t) => <li key={t}>{t}</li>)}</ul> : <p className="text-sm text-slate-400">Not enough data for a read-out.</p>}
           </Panel>
@@ -84,7 +93,7 @@ const Derivatives = () => {
             <ChartCard title="Taker buy/sell ratio" series={c.taker} note={ratio(s.takerBuySell)} />
             <ChartCard title="Funding rate history (%)" series={c.funding} note={lastOf(s.funding, (p) => `${(p.rate * 100).toFixed(4)}%`)} />
           </div>
-        </>
+        </div>
       )}
     </div>
   );

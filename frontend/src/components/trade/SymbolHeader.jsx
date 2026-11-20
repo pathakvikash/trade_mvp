@@ -34,7 +34,7 @@ const SymbolHeader = ({ symbols, symbol, futuresSymbol, ready, candles, mark, ov
   const money = (v) => (v == null ? '--' : `$${fmtPrice(v)}`);
 
   return (
-    <section className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-800/80 bg-slate-950/60 px-3 py-2.5" aria-label="Market summary">
+    <section className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-800/80 bg-slate-950/60 px-3 py-2.5 [@media(max-height:760px)]:gap-y-1 [@media(max-height:760px)]:py-1.5" aria-label="Market summary">
       <div className="flex items-center gap-3">
         <select
           value={symbol}

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import React, { Suspense, useEffect } from 'react';
@@ -11,12 +11,11 @@ const Trade = React.lazy(() => import('./pages/Trade'));
 const Portfolio = React.lazy(() => import('./pages/Portfolio'));
 const Derivatives = React.lazy(() => import('./pages/Derivatives'));
 const Liquidation = React.lazy(() => import('./pages/Liquidation'));
-const Alerts = React.lazy(() => import('./pages/Alerts'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 const Login = React.lazy(() => import('./pages/Login'));
 const Register = React.lazy(() => import('./pages/register'));
 const Market = React.lazy(() => import('./pages/Market'));
-const CandlestickChart = React.lazy(() => import('./CandlestickChart'));
+const NotFound = React.lazy(() => import('./pages/NotFound'));
 
 function App() {
   // Start market socket on app load, stays connected throughout the app
@@ -30,6 +29,7 @@ function App() {
     { path: '/login', element: <Login /> },
     { path: '/register', element: <Register /> },
     { path: '/market', element: <Market /> },
+    { path: '/markets', element: <Navigate to="/market" replace /> },
   ];
 
   const protectedRoutes = [
@@ -38,9 +38,8 @@ function App() {
     { path: '/derivatives', element: <Derivatives /> },
     { path: '/portfolio', element: <Portfolio /> },
     { path: '/liquidation', element: <Liquidation /> },
-    { path: '/alerts', element: <Alerts /> },
+    { path: '/alerts', element: <Navigate to="/trade?alerts=1" replace /> },
     { path: '/settings', element: <Settings /> },
-    { path: '/candlestick-chart', element: <CandlestickChart /> },
   ];
   return (
     <BrowserRouter>
@@ -69,6 +68,16 @@ function App() {
                 }
               />
             ))}
+
+            {/* Unknown paths: signed-out users go to login (as protected routes do), others see NotFound */}
+            <Route
+              path='*'
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary><NotFound /></ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
           </Route>
         </Routes>
       </Suspense>

@@ -95,3 +95,17 @@ test('resolveModel: allow-listed ids pass through, anything else falls back to t
     expect(ai.resolveModel('gpt-4o')).toBe(ai.MODEL);
     expect(ai.resolveModel(null)).toBe(ai.MODEL);
 });
+
+test('GET /api/ai/status returns configured plus the signed-in user\'s effective model', async () => {
+    const User = require('../models/User');
+    const router = require('../routes/aiRoutes');
+    jest.spyOn(User, 'findById').mockReturnValue({ select: () => ({ lean: async () => ({ ai: { model: 'claude-sonnet-5-5' } }) }) });
+    const layer = router.stack.find((l) => l.route && l.route.path === '/status');
+    const res = { json: jest.fn() };
+    await layer.route.stack[layer.route.stack.length - 1].handle({ user: { userId: 'u1' } }, res, () => {});
+    const body = res.json.mock.calls[0][0];
+    expect(body).toMatchObject({ configured: expect.any(Boolean), model: 'claude-sonnet-5-5' });
+    expect([null, 'api', 'cli']).toContainEqual(body.provider);
+    expect(body.configured).toBe(body.provider !== null);
+    jest.restoreAllMocks();
+});

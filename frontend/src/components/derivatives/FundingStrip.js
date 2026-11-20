@@ -1,17 +1,22 @@
 import React, { useMemo } from 'react';
 import { Notice, Panel, coin } from '../liquidation/shared';
+import Skeleton from '../ui/Skeleton';
 
 const SCALE = 0.0005; // +-0.05% per interval saturates the colour
 
 // Diverging: emerald (longs pay) / rose (shorts pay), faint near zero.
-const FundingStrip = ({ rows, selected, onSelect }) => {
+const FundingStrip = ({ rows, error, selected, onSelect }) => {
   const top = useMemo(
     () => [...(rows || [])].filter((r) => Number.isFinite(r.fundingRate)).sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 20),
     [rows],
   );
   return (
     <Panel title="Funding heatmap, top 20 by volume" right={<span className="text-[11px] text-slate-500">green: longs pay, red: shorts pay</span>}>
-      {top.length === 0 ? <Notice>No funding data yet.</Notice> : (
+      {!rows && error ? <Notice tone="error">Funding data unavailable, retrying.</Notice> : !rows ? (
+        <div className="grid grid-cols-4 gap-1 sm:grid-cols-5 lg:grid-cols-10" aria-busy="true">
+          {Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-[46px]" />)}
+        </div>
+      ) : top.length === 0 ? <Notice>No funding data yet.</Notice> : (
         <div className="grid grid-cols-4 gap-1 sm:grid-cols-5 lg:grid-cols-10">
           {top.map((r) => {
             const a = Math.min(1, Math.abs(r.fundingRate) / SCALE);

@@ -20,6 +20,9 @@ const registerRules = () => [
   passwordRule('password'),
 ];
 
+// Google ID token (a JWT, a few hundred chars). The bounds only keep junk out before the real check in the controller.
+const googleRules = () => [body('credential').isString().isLength({ min: 20, max: 4096 }).withMessage('Google credential is required')];
+
 const passwordChangeRules = () => [
   body('currentPassword').isString().isLength({ min: 1, max: 128 }).withMessage('Current password is required'),
   passwordRule('newPassword'),
@@ -54,6 +57,48 @@ const updateMeRules = () => [
   body('ai.model').optional({ values: 'undefined' }).custom((v) => v === null || AI_MODELS.some((m) => m.id === v)).withMessage(`AI model must be null or one of ${AI_MODELS.map((m) => m.id).join(', ')}`),
 ];
 
+// POST /api/trades extras: orderType is 'market' (default) or 'limit'; a limit order needs limitPrice > 0.
+// The rest of the body (type, amount, symbol) is checked by the controller.
+const placeTradeRules = () => [
+  body('orderType').optional().custom((v) => v === 'market' || v === 'limit').withMessage("orderType must be 'market' or 'limit'"),
+  body('limitPrice')
+    .if(body('orderType').equals('limit'))
+    .custom((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 1e9)
+    .withMessage('limitPrice must be a number greater than 0'),
+];
+
+// ---- /api/futures (spec docs/phase2-leverage.md section 5). Strict JSON types: numbers must be numbers, unknown keys 422.
+const isPrice = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 1e9;
+const isSize = (v) => isPrice(v) && Math.round(v * 1e8) / 1e8 > 0; // round8 must stay > 0
+const tpslField = (f) => body(f).optional({ values: 'undefined' }).custom((v) => v === null || isPrice(v)).withMessage(`${f} must be a price greater than 0 or null`);
+const optionalObjectWithKeys = (keys) => (v) => v === undefined || plainObjectWithKeys(keys)(v);
+
+const futuresOrderRules = () => [
+  body().custom(plainObjectWithKeys(['symbol', 'side', 'type', 'size', 'leverage', 'limitPrice', 'tp', 'sl'])),
+  body('symbol').isString().matches(/^[A-Z0-9]{2,20}$/).withMessage('Invalid symbol'),
+  body('side').isIn(['long', 'short']).withMessage("side must be 'long' or 'short'"),
+  body('type').isIn(['market', 'limit']).withMessage("type must be 'market' or 'limit'"),
+  body('size').custom(isSize).withMessage('size must be a number greater than 0'),
+  body('leverage').custom((v) => Number.isInteger(v) && v >= 1 && v <= 50).withMessage('leverage must be an integer from 1 to 50'),
+  body('limitPrice')
+    .custom((v, { req }) => (req.body.type === 'limit' ? isPrice(v) : v === undefined))
+    .withMessage('limitPrice is required (a number greater than 0) for limit orders and not allowed for market orders'),
+  tpslField('tp'),
+  tpslField('sl'),
+];
+
+const futuresCloseRules = () => [
+  body().custom(optionalObjectWithKeys(['size'])),
+  body('size').optional({ values: 'undefined' }).custom(isSize).withMessage('size must be a number greater than 0'),
+];
+
+const futuresTpslRules = () => [
+  body().custom(plainObjectWithKeys(['tp', 'sl'])),
+  body().custom((v) => v && ('tp' in v || 'sl' in v)).withMessage('Provide tp and/or sl'),
+  tpslField('tp'),
+  tpslField('sl'),
+];
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (errors.isEmpty()) {
@@ -73,5 +118,10 @@ module.exports = {
   registerRules,
   passwordChangeRules,
   updateMeRules,
+  googleRules,
+  placeTradeRules,
+  futuresOrderRules,
+  futuresCloseRules,
+  futuresTpslRules,
   validate,
 };

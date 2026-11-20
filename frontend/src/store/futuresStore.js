@@ -2,11 +2,17 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { getFuturesSocket } from '../lib/socket';
 import { INTERVAL_SEC, foldTick } from '../components/trade/candleSync';
+import { API } from '../lib/apiBase';
+import { readPersisted, writePersisted, oneOf } from '../lib/usePersistedState';
 
-const API = process.env.REACT_APP_API_URL || '';
 const MAX_CANDLES = 1500;
 const MAX_LIQ = 2000; // client-side cap (the backend per-symbol buffer holds up to 5000; we keep the newest 2000)
 const MAX_TRADES = 60;
+
+export const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
+const validTf = oneOf(...TIMEFRAMES);
+// Shared by Trade and Market: the user's last pick (stored `trade.timeframe`) wins over the preference, then 1m.
+const startTf = (pref) => readPersisted('trade.timeframe', validTf(pref) ? pref : '1m', validTf);
 
 const empty = { candles: [], book: null, mark: null, trades: [], liquidations: [], since: null, error: null, interval: '1m', reloadSeq: 0 };
 
@@ -71,9 +77,10 @@ const useFuturesStore = create((set, get) => {
     symbol: null, // e.g. 'BTCUSDT'
     ...empty,
 
-    // interval: the timeframe to open with (the user's default); defaults to 1m.
-    subscribe: async (symbol, interval = '1m') => {
+    // interval: fallback timeframe (the user's preference); a stored pick wins over it.
+    subscribe: async (symbol, pref = '1m') => {
       if (get().symbol === symbol && get().error !== 'load_failed') return;
+      const interval = startTf(pref);
       const socket = getFuturesSocket();
       wire(socket);
       const prev = get().symbol;
@@ -120,6 +127,7 @@ const useFuturesStore = create((set, get) => {
 
     setTimeframe: (interval) => {
       if (!get().symbol || interval === get().interval || get().error === 'no_market') return;
+      writePersisted('trade.timeframe', interval);
       set({ interval, candles: [] }); // clear first so another timeframe's candles are never shown
       get().reloadKlines();
     },

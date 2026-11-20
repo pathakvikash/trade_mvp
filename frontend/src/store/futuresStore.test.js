@@ -55,3 +55,29 @@ test('first socket connect does not refetch klines; a reconnect does; futures:er
   mockHandlers['futures:error']({ message: 'x' });
   expect(useFuturesStore.getState().error).toBe('load_failed');
 });
+
+describe('persisted timeframe', () => {
+  const open = async (pref) => {
+    axios.get.mockResolvedValue({ data: [candle(60, 1)] });
+    useFuturesStore.getState().unsubscribe();
+    await useFuturesStore.getState().subscribe('BTCUSDT', pref);
+  };
+  beforeEach(() => localStorage.clear());
+
+  test('setTimeframe persists; it survives unsubscribe/subscribe and beats the preference', async () => {
+    await open('1h');
+    expect(useFuturesStore.getState().interval).toBe('1h'); // nothing stored: preference
+    useFuturesStore.getState().setTimeframe('15m');
+    await new Promise((r) => setTimeout(r, 0));
+    await open('1h');
+    expect(useFuturesStore.getState().interval).toBe('15m');
+  });
+
+  test('an invalid stored value falls back to the preference, then 1m', async () => {
+    localStorage.setItem('tm:v1:anon:trade.timeframe', JSON.stringify('3m'));
+    await open('4h');
+    expect(useFuturesStore.getState().interval).toBe('4h');
+    await open('bogus');
+    expect(useFuturesStore.getState().interval).toBe('1m');
+  });
+});

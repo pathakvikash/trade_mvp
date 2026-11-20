@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../store/userStore';
+import { API } from '../lib/api';
+import Spinner from '../components/ui/Spinner';
+import GoogleButton from '../components/auth/GoogleButton';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -49,6 +52,7 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return; // one request in flight at a time
 
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
@@ -72,14 +76,14 @@ const Register = () => {
       const { name, username, email, password } = formData;
       const registrationData = { name, username, email, password };
       const registerResponse = await axios.post(
-        `${process.env.REACT_APP_API_URL}/api/auth/register`,
+        `${API}/api/auth/register`,
         registrationData,
       );
 
       if (registerResponse.data && registerResponse.data.success) {
         try {
           const loginResponse = await axios.post(
-            `${process.env.REACT_APP_API_URL}/api/auth/login`,
+            `${API}/api/auth/login`,
             {
               email: formData.email,
               password: formData.password,
@@ -121,7 +125,7 @@ const Register = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
+    <div className="flex min-h-[calc(100dvh-4.25rem)] items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
       <div className="w-full max-w-md rounded-[1.25rem] border border-slate-800 bg-slate-900/90 p-6 shadow-soft backdrop-blur-sm sm:p-8">
         <div className="mb-8 text-center">
           <h2 className="bg-gradient-to-r from-blue-400 to-brand-500 bg-clip-text text-4xl font-bold text-transparent">
@@ -223,12 +227,22 @@ const Register = () => {
           <button
             type='submit'
             disabled={loading}
-            className={`w-full rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
+            aria-busy={loading}
+            className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
               loading ? 'cursor-not-allowed opacity-70' : ''
             }`}
           >
+            {loading && <Spinner size={14} />}
             {loading ? 'Creating Account...' : 'Create Account'}
           </button>
+
+          <div className="relative py-1">
+            <div className="h-px w-full bg-slate-800" />
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-900 px-3 text-xs text-slate-500">
+              or
+            </span>
+          </div>
+          <GoogleButton />
 
           <div className="space-y-4 pt-1 text-center">
             <div className="relative py-1">

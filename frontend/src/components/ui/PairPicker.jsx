@@ -1,10 +1,11 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import usePolling from '../../lib/usePolling';
+import { API } from '../../lib/apiBase';
 import { fmtCompact, fmtPct } from './fmt';
 import { filterPairs } from './pairs';
 
-const FUT = `${process.env.REACT_APP_API_URL || ''}/api/market/futures`;
+const FUT = `${API}/api/market/futures`;
 // Symbol list: fetched once per page load (a failure clears the cache so the next open retries).
 let symbolsP = null;
 const loadSymbols = () => {

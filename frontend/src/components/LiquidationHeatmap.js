@@ -1,9 +1,11 @@
+import usePersistedState from '../lib/usePersistedState';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import useFuturesStore from '../store/futuresStore';
 import usePolling from '../lib/usePolling';
 import useCanvas from './liquidation/useCanvas';
 import { bucketLiquidations } from './liquidation/bucket';
 import SegTabs from './ui/SegTabs';
+import { LoadingBlock } from './ui/Skeleton';
 import { FUT, Panel, coin, fmtPrice, fmtTime, fmtUsd } from './liquidation/shared';
 
 // Window -> kline interval and column count (one column per candle).
@@ -30,7 +32,7 @@ const LiquidationHeatmap = ({ symbol }) => {
   const mark = useFuturesStore((s) => s.mark);
   const since = useFuturesStore((s) => s.since);
   const error = useFuturesStore((s) => s.error);
-  const [win, setWin] = useState('24h');
+  const [win, setWin] = usePersistedState('liquidation.window', '24h', { validate: (v) => Object.prototype.hasOwnProperty.call(WINDOWS, v) });
   const [hover, setHover] = useState(null);
   const cfg = WINDOWS[win];
 
@@ -151,6 +153,8 @@ const LiquidationHeatmap = ({ symbol }) => {
   })();
 
   const label = `${coin(symbol)} liquidation heatmap, last ${win}: ${grid.count} sampled events, longs liquidated ${fmtUsd(grid.longUsd)}, shorts liquidated ${fmtUsd(grid.shortUsd)}`;
+  const loading = kl.loading && !klines.length;
+  const klErr = kl.error && !klines.length;
   const partial = since && since > grid.t0;
 
   return (
@@ -161,7 +165,9 @@ const LiquidationHeatmap = ({ symbol }) => {
       {error && <p className="mb-2 text-xs text-amber-400">{error === 'no_market' ? 'No futures market for this symbol.' : 'Could not load liquidation history; showing live events only.'}</p>}
       <div ref={wrap} className="relative">
         <canvas ref={canvas} role="img" aria-label={label} onMouseMove={onMove} onMouseLeave={() => setHover(null)} className="block" />
-        {grid.count === 0 && (
+        {loading && <div className="absolute inset-0 bg-slate-950"><LoadingBlock height={H} label="Loading liquidations…" /></div>}
+        {klErr && !loading && <p className="pointer-events-none absolute inset-x-0 top-1/2 px-4 text-center text-sm text-amber-400">Could not load price history. Retrying automatically.</p>}
+        {!loading && !klErr && grid.count === 0 && (
           <p className="pointer-events-none absolute inset-x-0 top-1/3 px-4 text-center text-sm text-slate-400">
             No liquidations sampled in this window{since ? ` (history since ${fmtTime(since)})` : ''}.
           </p>

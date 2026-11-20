@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
+import usePersistedState from '../../lib/usePersistedState';
+import { API } from '../../lib/apiBase';
 
-export const FUT = `${process.env.REACT_APP_API_URL || ''}/api/market/futures`;
+export const FUT = `${API}/api/market/futures`;
 
 export { fmtPrice, fmtPct, fmtUsd, fmtTime } from '../ui/fmt';
 export { default as Panel } from '../ui/Panel';
@@ -13,8 +15,11 @@ export const Notice = ({ children, tone = 'muted' }) => (
 );
 
 // Sorting for tables: cols map key -> value getter; returns sorted rows plus header props.
-export function useSort(rows, getters, initialKey, initialDir = 'desc') {
-  const [sort, setSort] = useState({ key: initialKey, dir: initialDir });
+// persistKey names the remembered choice; a stored column that no longer exists is ignored.
+export function useSort(rows, getters, initialKey, initialDir = 'desc', persistKey = 'default') {
+  const [sort, setSort] = usePersistedState(`sort.${persistKey}`, { key: initialKey, dir: initialDir }, {
+    validate: (v) => v && Object.prototype.hasOwnProperty.call(getters, v.key) && (v.dir === 'asc' || v.dir === 'desc'),
+  });
   const sorted = useMemo(() => {
     const g = getters[sort.key];
     const m = sort.dir === 'asc' ? 1 : -1;

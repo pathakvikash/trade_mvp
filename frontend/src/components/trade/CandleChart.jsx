@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart } from 'lightweight-charts';
+import { createChart, LineStyle } from 'lightweight-charts';
 import { needsFullReload } from './candleSync';
 import { fmtCompact, fmtPrice } from '../ui/fmt';
 
@@ -9,11 +9,18 @@ const toVolume = (c) => ({ time: c.time, value: c.volume, color: c.close >= c.op
 const precisionFor = (p) => (p >= 1000 ? 2 : p >= 1 ? 4 : 6);
 
 // Candlestick + volume chart with an OHLC readout. Remount (key) when symbol or timeframe changes.
-const CandleChart = ({ candles, reloadSeq, label }) => {
+// Price lines never feed lightweight-charts' autoscale (4.2.x only reads series data), so a far-off liq line can't squash candles.
+const lineOpts = (l) => ({
+  price: l.price, color: l.color, title: l.title, lineWidth: l.kind === 'entry' ? 2 : 1,
+  lineStyle: l.style === 'dashed' ? LineStyle.Dashed : LineStyle.Solid, axisLabelVisible: true,
+});
+
+const CandleChart = ({ candles, reloadSeq, label, lines }) => {
   const el = useRef(null);
   const series = useRef(null); // { candle, volume }
   const count = useRef(0);
   const seq = useRef(reloadSeq);
+  const priceLines = useRef(new Map()); // id -> { line, sig }
   const byTime = useRef(new Map()); // time -> candle, for the crosshair readout
   const [hover, setHover] = useState(null);
 
@@ -35,8 +42,10 @@ const CandleChart = ({ candles, reloadSeq, label }) => {
     });
     series.current = { candle, volume };
     count.current = 0;
+    const pl = priceLines.current;
     return () => {
       chart.remove();
+      pl.clear();
       series.current = null;
     };
   }, []);
@@ -66,6 +75,23 @@ const CandleChart = ({ candles, reloadSeq, label }) => {
     }
     count.current = candles.length;
   }, [candles, reloadSeq]);
+
+  // Reconcile by id: create / applyOptions in place (no recreate, no zoom reset) / remove.
+  useEffect(() => {
+    if (!series.current) return;
+    const { candle } = series.current;
+    const map = priceLines.current;
+    const next = new Map((lines || []).map((l) => [l.id, l]));
+    map.forEach(({ line }, id) => {
+      if (!next.has(id)) { candle.removePriceLine(line); map.delete(id); }
+    });
+    next.forEach((l, id) => {
+      const sig = JSON.stringify(lineOpts(l));
+      const cur = map.get(id);
+      if (!cur) map.set(id, { line: candle.createPriceLine(lineOpts(l)), sig });
+      else if (cur.sig !== sig) { cur.line.applyOptions(lineOpts(l)); cur.sig = sig; }
+    });
+  }, [lines]);
 
   const last = candles[candles.length - 1];
   const shown = hover || last;

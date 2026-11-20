@@ -3,22 +3,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import useMarketStore from '../store/marketStore';
 import useUserStore from '../store/userStore';
 import { fmtPct, fmtPrice } from './ui/fmt';
+import ConnectionChip from './ui/ConnectionChip';
 import CommandPalette from './shell/CommandPalette';
 import { Icon, ICONS } from './shell/nav';
-
-const STATUS = {
-  connected: { dot: 'bg-emerald-400', label: 'Live' },
-  connecting: { dot: 'animate-pulse bg-amber-400', label: 'Connecting' },
-  disconnected: { dot: 'bg-rose-400', label: 'Offline' },
-  error: { dot: 'bg-rose-400', label: 'Offline' },
-};
 
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
 const Header = ({ onMenu }) => {
   const navigate = useNavigate();
   const marketData = useMarketStore((s) => s.marketData);
-  const socketStatus = useMarketStore((s) => s.socketStatus);
   const user = useUserStore((s) => s.user);
   const setLogout = useUserStore((s) => s.setLogout);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -54,8 +47,6 @@ const Header = ({ onMenu }) => {
     navigate('/login');
   };
 
-  const status = STATUS[socketStatus] || STATUS.error;
-
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-800/80 bg-[#070b14] px-3">
       <button type="button" onClick={onMenu} className="focus-ring rounded-md p-1.5 text-slate-400 hover:text-slate-100 lg:hidden" aria-label="Open menu">
@@ -66,7 +57,7 @@ const Header = ({ onMenu }) => {
         {marketData.slice(0, 8).map((c) => {
           const up = (c.price_change_percentage_24h ?? 0) >= 0;
           return (
-            <Link key={c.id} to={`/trade?symbol=${c.symbol.toUpperCase()}`} className="focus-ring flex shrink-0 items-baseline gap-1.5 rounded tabular-nums">
+            <Link key={c.id} to={`/trade?symbol=${c.symbol.toUpperCase()}`} className="focus-ring flex shrink-0 items-baseline gap-1.5 rounded tabular-nums max-sm:min-h-9 max-sm:items-center">
               <span className="font-medium text-slate-300">{c.symbol.toUpperCase()}</span>
               <span className="text-slate-400">{fmtPrice(c.current_price)}</span>
               <span className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(c.price_change_percentage_24h)}</span>
@@ -87,11 +78,7 @@ const Header = ({ onMenu }) => {
         <kbd className="ml-auto hidden rounded border border-slate-700 px-1 text-[10px] sm:inline">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
       </button>
 
-      <span className="flex items-center gap-1.5 text-[11px] text-slate-400" title={`Market feed: ${status.label}`}>
-        <span className={`h-2 w-2 rounded-full ${status.dot}`} aria-hidden="true" />
-        <span className="hidden md:inline">{status.label}</span>
-        <span className="sr-only">Market feed {status.label}</span>
-      </span>
+      <ConnectionChip />
 
       {user ? (
         <div className="relative" ref={menuRef}>

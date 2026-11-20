@@ -1,7 +1,9 @@
 import axios from 'axios';
 import useUserStore from '../store/userStore';
+import { API } from './apiBase';
 
-export const API = process.env.REACT_APP_API_URL || '';
+// Backend base URL (no trailing slash). Empty = same origin (e.g. behind a proxy/rewrite).
+export { API };
 export const authed = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
 export const errStatus = (e) => e?.response?.status;
 export const errText = (e) => (errStatus(e) === 401 ? 'Session expired, sign in again.' : null) || (errStatus(e) === 429 ? 'Too many requests, slow down.' : null) || e?.response?.data?.error || e?.response?.data?.reason || e?.message || 'Request failed';

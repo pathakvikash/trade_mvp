@@ -21,3 +21,11 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# logs, secrets, OS junk
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

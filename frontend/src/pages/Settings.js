@@ -20,6 +20,20 @@ const field = 'focus-ring w-full rounded-md border border-slate-800 bg-slate-950
 const label = 'mb-1 block text-xs text-slate-400';
 const primary = 'focus-ring rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40';
 const EMPTY_NOTICE = { tab: null, type: '', text: '' };
+// The server's own message when it sent one; otherwise the shared mapping.
+const serverMsg = (e) => e.response?.data?.message || e.response?.data?.error || errText(e);
+
+const SaveButton = ({ saving, disabled, onClick, type = 'button' }) => (
+  <button type={type} className={`${primary} inline-flex items-center gap-1.5`} disabled={disabled} onClick={onClick}>
+    {saving && (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3 w-3 motion-safe:animate-spin" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    )}
+    {saving ? 'Saving…' : 'Save'}
+  </button>
+);
 
 // Form state seeded from the saved values; re-seeded whenever they change (after load or a save).
 const useDraft = (saved) => {
@@ -43,6 +57,13 @@ const Settings = () => {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(EMPTY_NOTICE);
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+  // Success clears itself after 4s; errors stay until the next action (every action resets the notice).
+  useEffect(() => {
+    if (notice.type !== 'success') return undefined;
+    const id = setTimeout(() => setNotice(EMPTY_NOTICE), 4000);
+    return () => clearTimeout(id);
+  }, [notice]);
 
   const profileSaved = {
     name: user.name || '',
@@ -81,7 +102,7 @@ const Settings = () => {
       setUser(r.data.user);
       setNotice({ tab: tabId, type: 'success', text: 'Saved.' });
     } catch (e) {
-      setNotice({ tab: tabId, type: 'error', text: errText(e) });
+      setNotice({ tab: tabId, type: 'error', text: serverMsg(e) });
     }
     setSaving(false);
   };
@@ -109,7 +130,7 @@ const Settings = () => {
   const aiOptions = [{ id: null, label: 'Server default', note: "The server's configured model." }, ...aiModels];
 
   return (
-    <div className="space-y-3">
+    <div className="mx-auto max-w-4xl space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-sm font-semibold text-slate-200">Settings</h1>
         <SegTabs tabs={TABS} active={tab} onChange={pick} label="Settings sections" />
@@ -151,7 +172,7 @@ const Settings = () => {
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <button type="submit" className={primary} disabled={saving || !dirty(profile, profileKey) || !profile.name.trim()}>Save</button>
+                <SaveButton type="submit" saving={saving} disabled={saving || !dirty(profile, profileKey) || !profile.name.trim()} />
               </div>
             </form>
           </div>
@@ -174,8 +195,9 @@ const Settings = () => {
                 );
               })}
             </fieldset>
+            <p className="text-xs text-slate-400" aria-live="polite">Currently saved: <span className="text-slate-200">{aiOptions.find((o) => o.id === aiSaved.model)?.label || aiSaved.model}</span></p>
             <p className="text-xs text-slate-400">AI runs only when you click an AI button, and it uses the model selected here. Cheaper models cost less per call.</p>
-            <button type="button" className={primary} disabled={saving || !dirty(ai, aiKey)} onClick={() => patch('ai', { ai: { model: ai.model } })}>Save</button>
+            <SaveButton saving={saving} disabled={saving || !dirty(ai, aiKey)} onClick={() => patch('ai', { ai: { model: ai.model } })} />
           </div>
         )}
 
@@ -199,7 +221,7 @@ const Settings = () => {
                 Play a sound when an alert triggers
               </label>
             </div>
-            <button type="button" className={primary} disabled={saving || !dirty(prefs, prefsKey)} onClick={() => patch('prefs', { preferences: prefs })}>Save</button>
+            <SaveButton saving={saving} disabled={saving || !dirty(prefs, prefsKey)} onClick={() => patch('prefs', { preferences: prefs })} />
           </div>
         )}
 
@@ -235,9 +257,16 @@ const Settings = () => {
           </div>
         )}
 
-        {notice.tab === tab && notice.text && (
-          <p role={notice.type === 'error' ? 'alert' : 'status'} className={`mt-3 text-sm ${notice.type === 'error' ? 'text-amber-400' : 'text-emerald-400'}`}>{notice.text}</p>
-        )}
+        {notice.tab === tab && notice.text && (notice.type === 'error' ? (
+          <p role="alert" className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-sm text-amber-400">{notice.text}</p>
+        ) : (
+          <p role="status" className="mt-3 flex items-center gap-2 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm font-medium text-emerald-300">
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="currentColor">
+              <path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.8 3.8 6.8-6.8a1 1 0 0 1 1.4 0Z" clipRule="evenodd" />
+            </svg>
+            {notice.text}
+          </p>
+        ))}
       </Panel>
     </div>
   );

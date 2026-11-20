@@ -26,25 +26,25 @@ const redact = winston.format((info) => {
 });
 
 const isTest = process.env.NODE_ENV === 'test';
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(redact(), winston.format.json()),
-  // Under jest no log files are created in the cwd, and the console stays quiet.
-  transports: isTest
-    ? [new winston.transports.Console({ silent: true })]
-    : [
-        new winston.transports.File({ filename: 'error.log', level: 'error' }),
-        new winston.transports.File({ filename: 'combined.log' }),
-      ],
-});
+const isProd = process.env.NODE_ENV === 'production';
+const { logToFiles } = require('./config');
 
-if (process.env.NODE_ENV !== 'production' && !isTest) {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.simple(),
-    }),
+// Console always (host log viewers read stdout): JSON in production, readable text in development. Under jest it is silent
+// and no files are written. Files (error.log/combined.log in the cwd) only when LOG_TO_FILES allows.
+const transports = [
+  new winston.transports.Console(isTest ? { silent: true } : isProd ? {} : { format: winston.format.simple() }),
+];
+if (logToFiles && !isTest) {
+  transports.push(
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
   );
 }
 
-// Export the logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(redact(), winston.format.json()),
+  transports,
+});
+
 module.exports = logger;

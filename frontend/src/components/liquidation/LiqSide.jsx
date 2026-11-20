@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import usePolling from '../../lib/usePolling';
 import { FUT, Panel, fmtPct, fmtPrice, fmtUsd } from './shared';
+import Skeleton from '../ui/Skeleton';
 
 const share = (a, b) => (a + b > 0 ? Math.round((a / (a + b)) * 100) : 0);
 
@@ -68,7 +69,7 @@ export const Overview = ({ data, symbol }) => {
         <div className="border-t border-slate-800 pt-2">
           <dt className="text-slate-400">Liquidated 24h (sampled)</dt>
           <dd className="mt-0.5 flex justify-between">
-            {error && !liq ? <span className="text-slate-500">unavailable</span> : <><span className="text-emerald-400">Longs {fmtUsd(sampled.long)}</span><span className="text-rose-400">Shorts {fmtUsd(sampled.short)}</span></>}
+            {!liq && !error ? <><Skeleton className="h-3 w-20" /><Skeleton className="h-3 w-20" /></> : error && !liq ? <span className="text-slate-500">unavailable</span> : <><span className="text-emerald-400">Longs {fmtUsd(sampled.long)}</span><span className="text-rose-400">Shorts {fmtUsd(sampled.short)}</span></>}
           </dd>
           <p className="mt-0.5 text-[11px] text-slate-500">Realized, sampled by the exchange feed: real totals are higher.</p>
         </div>

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import usePersistedState from '../../lib/usePersistedState';
 import { Notice, Panel, SortTh, coin, fmtPct, fmtPrice, fmtUsd, useSort } from '../liquidation/shared';
 import { fmtCountdown } from '../ui/fmt';
+import Skeleton from '../ui/Skeleton';
 
 const getters = {
   symbol: (r) => r.symbol,
@@ -15,7 +17,7 @@ const getters = {
 const cls = (v) => (v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-400');
 
 const MarketTable = ({ rows, error, selected, onSelect }) => {
-  const [q, setQ] = useState('');
+  const [q, setQ] = usePersistedState('derivatives.search', '', { validate: (v) => typeof v === 'string' && v.length <= 40 });
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -25,14 +27,22 @@ const MarketTable = ({ rows, error, selected, onSelect }) => {
     const t = q.trim().toUpperCase();
     return (rows || []).filter((r) => r.symbol.includes(t));
   }, [rows, q]);
-  const { sorted, sort, toggle } = useSort(filtered, getters, 'vol');
+  const { sorted, sort, toggle } = useSort(filtered, getters, 'vol', 'desc', 'derivatives.table');
 
   return (
     <Panel
       title="Perpetual futures market"
       right={<input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter symbol" aria-label="Filter symbols" className="w-36 rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-200 placeholder-slate-500 focus:border-cyan-400 focus:outline-none" />}
     >
-      {!rows ? <Notice tone={error ? 'error' : 'muted'}>{error ? 'Market data unavailable, retrying.' : 'Loading...'}</Notice> : (
+      {!rows && error ? <Notice tone="error">Market data unavailable, retrying.</Notice> : !rows ? (
+        <div className="space-y-2 py-1" aria-busy="true" aria-label="Loading market table">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <div key={i} className="flex justify-between gap-3">
+              {[0, 1, 2, 3, 4, 5, 6].map((j) => <Skeleton key={j} className="h-3 flex-1" />)}
+            </div>
+          ))}
+        </div>
+      ) : (
         <div className="max-h-96 overflow-auto">
           <table className="w-full min-w-[640px] text-xs tabular-nums">
             <thead className="sticky top-0 bg-slate-950 text-[11px] text-slate-500">

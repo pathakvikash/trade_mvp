@@ -1,5 +1,6 @@
 import React from 'react';
 import { Notice, Panel, fmtTime, fmtUsd } from './shared';
+import Skeleton from '../ui/Skeleton';
 
 const Bar = ({ longUsd, shortUsd }) => {
   const t = longUsd + shortUsd;
@@ -13,7 +14,17 @@ const Bar = ({ longUsd, shortUsd }) => {
 
 const Summary = ({ data, error }) => (
   <Panel title="Rekt summary (sampled)" right={data?.since ? <span className="text-[11px] text-slate-500">history since {fmtTime(data.since)}</span> : null}>
-    {!data ? <Notice tone={error ? 'error' : 'muted'}>{error ? 'Liquidation feed unavailable, retrying.' : 'Loading...'}</Notice> : (
+    {!data && error ? <Notice tone="error">Liquidation feed unavailable, retrying.</Notice> : !data ? (
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" aria-busy="true">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-lg border border-slate-800/80 p-3">
+            <Skeleton className="h-3 w-10" />
+            <Skeleton className="mt-3 h-5 w-24" />
+            <Skeleton className="mt-3 h-2 w-full" />
+          </div>
+        ))}
+      </div>
+    ) : (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {['1h', '4h', '24h'].map((k) => {
           const w = data.windows?.[k] || { longUsd: 0, shortUsd: 0, count: 0 };

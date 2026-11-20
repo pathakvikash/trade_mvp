@@ -1,8 +1,11 @@
 // src/pages/Login.js
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../store/userStore';
+import { API } from '../lib/api';
+import Spinner from '../components/ui/Spinner';
+import GoogleButton from '../components/auth/GoogleButton';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -14,23 +17,33 @@ const Login = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [devHint, setDevHint] = useState(null); // DEV ONLY: remove with /api/auth/dev-hint when hosted
+
+  // DEV ONLY: remove with /api/auth/dev-hint when hosted. Only the local dev server answers with credentials.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return; // dead-code-eliminated from production builds
+    axios
+      .get(`${API}/api/auth/dev-hint`)
+      .then((r) => { if (r.data?.email && r.data?.password) setDevHint(r.data); })
+      .catch(() => {}); // not local, or seeding is off: no card
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const signIn = async (email, password) => {
+    if (loading) return; // one request in flight at a time
     setLoading(true);
     setError('');
-    
+
     try {
       const response = await axios.post(
-        `${process.env.REACT_APP_API_URL}/api/auth/login`,
+        `${API}/api/auth/login`,
         {
-          email: formData.email.toLowerCase(),
-          password: formData.password
+          email: email.toLowerCase(),
+          password
         }
       );
 
@@ -45,7 +58,7 @@ const Login = () => {
         setLogin(response.data.token, userData);
 
         try {
-          await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/verify`, {
+          await axios.get(`${API}/api/auth/verify`, {
             headers: { Authorization: `Bearer ${response.data.token}` }
           });
           navigate('/dashboard');
@@ -69,8 +82,13 @@ const Login = () => {
     }
   };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    signIn(formData.email, formData.password);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
+    <div className="flex min-h-[calc(100dvh-4.25rem)] items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
       <div className="w-full max-w-md rounded-[1.25rem] border border-slate-800 bg-slate-900/90 p-6 shadow-soft backdrop-blur-sm sm:p-8">
         <div className="mb-8 text-center">
           <h2 className="bg-gradient-to-r from-blue-400 to-brand-500 bg-clip-text text-4xl font-bold text-transparent">
@@ -80,6 +98,33 @@ const Login = () => {
             Login to access your crypto portfolio
           </p>
         </div>
+
+        {/* DEV ONLY: remove with /api/auth/dev-hint when hosted */}
+        {process.env.NODE_ENV === 'development' && devHint && (
+          <div className="mb-6 rounded-2xl border border-amber-500/60 bg-amber-950/40 p-4 text-sm text-amber-200">
+            <p className="font-semibold text-amber-300">Dev test login (local only)</p>
+            <p className="mt-2 break-all">Email: <span className="font-mono">{devHint.email}</span></p>
+            <p className="break-all">Password: <span className="font-mono">{devHint.password}</span></p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => setFormData({ email: devHint.email, password: devHint.password })}
+                className="flex-1 rounded-xl border border-amber-500/60 px-3 py-2 text-xs font-semibold text-amber-200 transition hover:bg-amber-900/40 disabled:opacity-60"
+              >
+                Fill form
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => signIn(devHint.email, devHint.password)}
+                className="flex-1 rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-60"
+              >
+                Sign in as test user
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
@@ -119,12 +164,22 @@ const Login = () => {
           <button
             type='submit'
             disabled={loading}
-            className={`w-full rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
+            aria-busy={loading}
+            className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
               loading ? 'cursor-not-allowed opacity-70' : ''
             }`}
           >
+            {loading && <Spinner size={14} />}
             {loading ? 'Logging in...' : 'Login'}
           </button>
+
+          <div className="relative py-1">
+            <div className="h-px w-full bg-slate-800" />
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-900 px-3 text-xs text-slate-500">
+              or
+            </span>
+          </div>
+          <GoogleButton />
 
           <div className="space-y-4 pt-1 text-center">
             <Link to='/forgot-password' className="text-sm text-brand-300 transition hover:text-brand-200">

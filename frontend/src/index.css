@@ -84,3 +84,13 @@ code {
   width: 0;
   height: 0;
 }
+
+/* phones: keep controls at a comfortable tap size (range/checkbox/radio keep native size) */
+@media (max-width: 639px) {
+  button,
+  select,
+  input:not([type='range'], [type='checkbox'], [type='radio']) {
+    min-height: 36px;
+  }
+  header button { min-width: 36px; }
+}
