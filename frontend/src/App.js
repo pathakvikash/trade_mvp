@@ -39,7 +39,7 @@ function App() {
     { path: '/portfolio', element: <Portfolio /> },
     { path: '/liquidation', element: <Liquidation /> },
     { path: '/alerts', element: <Navigate to="/trade?alerts=1" replace /> },
-    { path: '/settings', element: <Settings /> },
+    { path: '/settings/*', element: <Settings /> },
   ];
   return (
     <BrowserRouter>

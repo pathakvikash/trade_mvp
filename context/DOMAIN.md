@@ -55,6 +55,7 @@ Isolated-margin, USDT-margined **linear** perpetuals. Margin comes out of the sa
 | Tiers (notional USD <=) -> maxLev, mmr | 50k -> 50x, 0.4%; 250k -> 20x, 0.5%; 1M -> 10x, 1.0%; 5M -> 5x, 2.5%; above -> 2x, 5.0% |
 | Limits | min notional $5; max 20 open positions; max 20 open futures orders; `size` round8 > 0, <= 1e9 |
 | Positions | One isolated position per user + symbol + side (`activeKey = userId:symbol:side`, unique sparse index). A long and a short on the same symbol may coexist. |
+| Leverage change | `PATCH /positions/:id {leverage}` on an open position: new margin = `ceil(notional(size, entry) / newLev)` cents (the open rule, on the ENTRY notional); `delta = oldMargin - newMargin` credited (+) or debited (-, guarded, 400 `INSUFFICIENT_BALANCE`). mmr kept; liq recomputed. 400 `LIQ_BREACH` if the new liq is at/through the mark (long `liq >= mark`, short `liq <= mark`); 400 `LEVERAGE_TOO_HIGH` above the cap for `size*entry`; same leverage = no-op. One `leverage` ledger op; tp/sl in the same PATCH go into its frozen `post` (atomic), and the SL in force (new or kept) is checked against the NEW liq. Pending same-side limit orders at the old leverage are rejected + refunded when they fill (`LEVERAGE_MISMATCH`). |
 | Add to position | Same leverage required (409 `LEVERAGE_MISMATCH`); size-weighted entry; margin sums; mmr/liq recomputed on the combined notional; tier cap checked on the combined notional. |
 
 ### Formulas
@@ -86,7 +87,7 @@ Check vectors (backend `tests/futuresMath.test.js`, frontend `lib/futuresMath.te
 
 ### TP / SL
 
-Optional at entry (market and limit) and editable via PATCH (`null` clears). Bounds vs the reference price (mark for market/edit, limit price for a limit entry): long `liq < sl < ref < tp`; short `tp < ref < sl < liq` (else 400 `BAD_TPSL`). On a limit fill they are copied to the position (on an add, non-null values overwrite). Triggered on the **mark** by the risk engine and executed as a market close of the whole position at the mark. Precedence per pass: liquidation, then SL, then TP.
+Optional at entry (market and limit) and editable via PATCH on the position or on an open limit order (`PATCH /orders/:id`, bounds vs the limit price and its quoted liq; the risk engine pins the order's tp/sl in its fill lock filter so an edit racing a fill is never lost) (`null` clears). Bounds vs the reference price (mark for market/edit, limit price for a limit entry): long `liq < sl < ref < tp`; short `tp < ref < sl < liq` (else 400 `BAD_TPSL`). On a limit fill they are copied to the position (on an add, non-null values overwrite). Triggered on the **mark** by the risk engine and executed as a market close of the whole position at the mark. Precedence per pass: liquidation, then SL, then TP.
 
 ### Limit entries and reservations
 
@@ -114,8 +115,12 @@ Rules that follow:
 - In-process `serial(opId)` prevents `recover()` interleaving with the `run()` still executing the same op. Cross-process safety rests on the recovery **age gate (15 s)** and on deploys being stop-then-start.
 - Balance guard tolerates float drift `DUST = 1e-6` USD.
 - The engine and the API both call `ledger.run`; a user close racing a TP/SL/liquidation: the lock is the claim, the loser gets `POSITION_BUSY` (API retries show 409; the controller turns it into `NOT_OPEN` if the position closed meanwhile).
-- TP/SL edits do not use the ledger (no money moves) but do honour `lockOp` and bump `rev`.
+- TP/SL edits do not use the ledger (no money moves) but do honour `lockOp` and bump `rev`. A PATCH that also changes leverage is a `leverage` ledger op (margin moves) carrying tp/sl in its `post`.
 - `rev` on Position is a monotonic version bumped by every mutation; lock filters pin `{status, size, rev}` so an A-B-A snapshot cannot match.
+
+## Account deletion
+
+`DELETE /api/auth/me` is refused (409 `OPEN_FUTURES`) while any position is `opening`/`open`, any futures order is `placing`/`open`, or any `FuturesOp` is `pending`/`error`, so no ledger money is orphaned. Paper balance is simply deleted with the user.
 
 ## Alerts (units)
 

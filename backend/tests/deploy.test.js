@@ -4,7 +4,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { initializeDefaultUsers, devHint } = require('../controllers/authController'); // loaded under NODE_ENV=test
 
-const KEYS = ['NODE_ENV', 'TRUST_PROXY', 'HOST', 'LOG_TO_FILES', 'CORS_ORIGINS', 'SEED_DEMO_USERS', 'JWT_SECRET', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+const KEYS = ['NODE_ENV', 'TRUST_PROXY', 'HOST', 'LOG_TO_FILES', 'CORS_ORIGINS', 'SEED_DEMO_USERS', 'JWT_SECRET', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ENCRYPTION_KEY'];
 const GOOD_SECRET = 'Zq8vK2mP9xLw4TnB7sYc1dRf6HgJ3aUe5oNi0VtXkQbE';
 const saved = {};
 beforeAll(() => KEYS.forEach((k) => { saved[k] = process.env[k]; }));
@@ -14,13 +14,13 @@ afterEach(() => KEYS.forEach((k) => { if (saved[k] === undefined) delete process
 const load = (env = {}) => {
     const out = {};
     jest.isolateModules(() => {
-        ['TRUST_PROXY', 'HOST', 'LOG_TO_FILES', 'CORS_ORIGINS', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'].forEach((k) => delete process.env[k]);
+        ['TRUST_PROXY', 'HOST', 'LOG_TO_FILES', 'CORS_ORIGINS', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ENCRYPTION_KEY'].forEach((k) => delete process.env[k]);
         Object.assign(process.env, { NODE_ENV: 'development', SEED_DEMO_USERS: 'false' }, env);
         try { out.cfg = require('../config/config'); } catch (e) { out.err = e; }
     });
     return out;
 };
-const PROD = { NODE_ENV: 'production', CORS_ORIGINS: 'https://app.example.org', JWT_SECRET: GOOD_SECRET, ANTHROPIC_API_KEY: 'sk-test-dummy' };
+const PROD = { NODE_ENV: 'production', CORS_ORIGINS: 'https://app.example.org', JWT_SECRET: GOOD_SECRET, ANTHROPIC_API_KEY: 'sk-test-dummy', ENCRYPTION_KEY: 'ab'.repeat(32) };
 
 describe('TRUST_PROXY', () => {
     test('parses false (default), hop counts and true; rejects junk', () => {
@@ -147,6 +147,23 @@ describe('production config safety', () => {
         expect(err).toBeUndefined();
         expect(cfg.warnings.join(' ')).toMatch(/ANTHROPIC_API_KEY.*DISABLED/);
         expect(load({ ...env, ANTHROPIC_AUTH_TOKEN: 't' }).cfg.warnings).toEqual([]);
+    });
+});
+
+describe('ENCRYPTION_KEY', () => {
+    test('64 hex or base64 of 32 bytes is accepted; anything else fails startup without echoing the value', () => {
+        expect(load({ ENCRYPTION_KEY: 'cd'.repeat(32) }).err).toBeUndefined();
+        expect(load({ ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') }).err).toBeUndefined();
+        const bad = load({ ENCRYPTION_KEY: 'tooshort-but-unique-marker' });
+        expect(bad.err).toBeTruthy();
+        expect(bad.err.message).not.toMatch(/tooshort/);
+        expect(load({ ENCRYPTION_KEY: 'zz'.repeat(32) }).err).toBeTruthy();
+    });
+    test('unset: exactly one startup warning about the JWT_SECRET fallback; set: none', () => {
+        const w = load({ JWT_SECRET: GOOD_SECRET }).cfg.warnings.filter((x) => /ENCRYPTION_KEY/.test(x));
+        expect(w).toHaveLength(1);
+        expect(w[0]).toMatch(/JWT_SECRET/);
+        expect(load({ JWT_SECRET: GOOD_SECRET, ENCRYPTION_KEY: 'ab'.repeat(32) }).cfg.warnings.filter((x) => /ENCRYPTION_KEY/.test(x))).toHaveLength(0);
     });
 });
 

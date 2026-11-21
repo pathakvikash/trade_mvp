@@ -23,6 +23,9 @@ config.warnings.forEach((w) => logger.warn(w));
 // Middleware
 // API only (no HTML served): helmet defaults; CORP cross-origin so the SPA on another localhost port can read responses.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+// Avatar upload only: a 150KB image is ~200KB of base64. Must come before the global parser, which would 413 it.
+// ponytail: parsed before auth, so an unauthenticated caller can make us parse up to 256kb on this one path.
+app.use('/api/auth/me/avatar', express.json({ limit: '256kb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(cors({ origin: config.corsOrigins }));
 // morgan 'combined' logs ip/method/url/status/referrer/UA only: never request bodies or the Authorization header.

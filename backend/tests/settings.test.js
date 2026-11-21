@@ -42,7 +42,8 @@ jest.mock('../models/User', () => {
         findByIdAndUpdate: (id, update) => query(async () => {
             const raw = store.get(String(id));
             if (!raw) return null;
-            for (const [path, v] of Object.entries(update.$set)) setPath(raw, path, v);
+            for (const [path, v] of Object.entries(update.$set || {})) setPath(raw, path, v);
+            for (const [path, v] of Object.entries(update.$inc || {})) setPath(raw, path, (raw[path] || 0) + v); // top-level counters only
             return docFor(id);
         }),
         __store: store,

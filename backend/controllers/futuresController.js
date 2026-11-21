@@ -335,23 +335,85 @@ exports.closePosition = handle(async (req, res, userId) => {
   });
 });
 
-// PATCH /api/futures/positions/:id  { tp?, sl? }  (null clears). No money moves, so no ledger op: one conditional update
-// that fails while an op holds the position (lockOp) or it is no longer open.
-exports.editTpsl = handle(async (req, res, userId) => {
+// PATCH /api/futures/positions/:id  { tp?, sl?, leverage? }  (tp/sl null clears).
+// TP/SL only: no money moves, so no ledger op: one conditional update that fails while an op holds the position (lockOp)
+// or it is no longer open. With a changed leverage: one 'leverage' ledger op that re-sizes the isolated margin
+// (ceil(entry notional / leverage), the open rule), credits/debits the difference and writes tp/sl in the same frozen
+// post, so both apply or neither does.
+exports.editPosition = handle(async (req, res, userId) => {
   const id = idParam(req);
   const pos = await ownPosition(userId, id);
   requireOpenUnlocked(pos);
   const { price } = await markNow(pos.symbol);
+  const b = req.body;
   const set = { updatedAt: new Date() };
-  for (const k of ['tp', 'sl']) if (req.body[k] !== undefined) set[k] = req.body[k];
-  const m = tpslError(pos.side, price, pos.liqPrice, set.tp, set.sl); // only the keys being changed are checked
-  if (m) fail(400, 'BAD_TPSL', m);
-  const updated = await Position.findOneAndUpdate({ _id: id, userId, status: 'open', lockOp: null }, { $set: set, $inc: { rev: 1 } }, { new: true }).lean();
-  if (!updated) {
-    const now = await Position.findOne({ _id: id, userId }).lean();
-    if (!now) fail(404, 'NOT_FOUND', 'Position not found');
-    if (now.status !== 'open') fail(409, 'NOT_OPEN', `Position is already ${now.status}`);
-    fail(409, 'POSITION_BUSY', 'Position is being updated, retry in a moment');
+  for (const k of ['tp', 'sl']) if (b[k] !== undefined) set[k] = b[k];
+  const lev = b.leverage !== undefined && b.leverage !== pos.leverage ? b.leverage : null; // same leverage = no-op
+
+  if (lev == null) {
+    if (!('tp' in set) && !('sl' in set)) return res.json({ success: true, position: publicPos(pos), balance: await balanceOf(userId), marginDelta: 0 });
+    const m = tpslError(pos.side, price, pos.liqPrice, set.tp, set.sl); // only the keys being changed are checked
+    if (m) fail(400, 'BAD_TPSL', m);
+    const updated = await Position.findOneAndUpdate({ _id: id, userId, status: 'open', lockOp: null }, { $set: set, $inc: { rev: 1 } }, { new: true }).lean();
+    if (!updated) {
+      const now = await Position.findOne({ _id: id, userId }).lean();
+      if (!now) fail(404, 'NOT_FOUND', 'Position not found');
+      if (now.status !== 'open') fail(409, 'NOT_OPEN', `Position is already ${now.status}`);
+      fail(409, 'POSITION_BUSY', 'Position is being updated, retry in a moment');
+    }
+    return res.json({ success: true, position: publicPos(updated), balance: await balanceOf(userId), marginDelta: 0 });
   }
-  res.json({ success: true, position: publicPos(updated) });
+
+  checkLeverage(pos.symbol, pos.size * pos.entryPrice, lev);
+  const lq = fm.leverageQuote(pos, lev);
+  const long = pos.side === 'long';
+  if (long ? lq.liqPrice >= price : lq.liqPrice <= price) {
+    fail(400, 'LIQ_BREACH', `At ${lev}x the liquidation price ${lq.liqPrice} would be at or past the mark ${price}: the position would be liquidated at once`);
+  }
+  // The stop loss that will be in force (new or kept) must still sit between the new liq and the mark.
+  checkTpsl(pos.side, price, lq.liqPrice, set.tp, 'sl' in set ? set.sl : pos.sl);
+  const r = await ledger.run({
+    userId,
+    kind: 'leverage',
+    deltaCents: lq.delta,
+    targets: [{ model: 'Position', id: pos._id, expect: { status: 'open', size: pos.size, rev: pos.rev ?? null } }],
+    post: { [String(pos._id)]: { ...set, leverage: lev, margin: usd(lq.margin), liqPrice: lq.liqPrice } },
+  });
+  if (!r.ok) {
+    if (r.code === 'POSITION_BUSY') { // a close/TP/SL/liquidation may have won the claim
+      const now = await Position.findOne({ _id: id, userId }).lean();
+      if (now && now.status !== 'open') fail(409, 'NOT_OPEN', `Position is already ${now.status}`);
+    }
+    ledgerFail(r);
+  }
+  logger.info(`futures: leverage ${pos.leverage}x -> ${lev}x ${pos.symbol} ${pos.side} delta=${lq.delta}c user=${userId}`);
+  res.json({
+    success: true,
+    position: await Position.findOne({ _id: id, userId }).lean().then((p) => p && publicPos(p)),
+    balance: await balanceOf(userId),
+    marginDelta: usd(lq.delta),
+  });
+});
+
+// PATCH /api/futures/orders/:id  { tp?, sl? }  on an open limit order. The reservation depends only on price, size and
+// leverage, so no money moves: one conditional update while unlocked and open. The risk engine pins tp/sl in its fill
+// lock filter, so an edit racing a fill either lands before it (copied to the position) or makes the fill retry.
+exports.editOrderTpsl = handle(async (req, res, userId) => {
+  const id = idParam(req);
+  const order = await FuturesOrder.findOne({ _id: id, userId }).lean();
+  if (!order) fail(404, 'NOT_FOUND', 'Order not found');
+  if (order.status !== 'open') fail(409, 'NOT_OPEN', `Order is already ${order.status}`);
+  if (order.lockOp) fail(409, 'POSITION_BUSY', 'Order is being updated, retry in a moment');
+  const set = {};
+  for (const k of ['tp', 'sl']) if (req.body[k] !== undefined) set[k] = req.body[k];
+  const q = fm.openQuote(order.side, order.size, order.limitPrice, order.leverage);
+  // same rule as placement: vs the limit price and the quoted liq, with the values that will be in force
+  checkTpsl(order.side, order.limitPrice, q.liqPrice, 'tp' in set ? set.tp : order.tp, 'sl' in set ? set.sl : order.sl);
+  const updated = await FuturesOrder.findOneAndUpdate({ _id: id, userId, status: 'open', lockOp: null }, { $set: set }, { new: true }).lean();
+  if (!updated) {
+    const now = await FuturesOrder.findOne({ _id: id, userId }).lean();
+    if (now && now.status !== 'open') fail(409, 'NOT_OPEN', `Order is already ${now.status}`);
+    fail(409, 'POSITION_BUSY', 'Order is being updated, retry in a moment');
+  }
+  res.json({ success: true, order: updated });
 });

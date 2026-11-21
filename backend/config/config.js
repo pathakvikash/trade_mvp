@@ -1,6 +1,7 @@
 // Load environment variables and validation library
 const dotenv = require('dotenv');
 const Joi = require('joi');
+const { parseKey } = require('../services/secretBox');
 
 dotenv.config();
 
@@ -28,6 +29,8 @@ const envVarsSchema = Joi.object()
     TRUST_PROXY: Joi.string().empty('').pattern(/^(true|false|\d+)$/i).default('0'),
     // Log files (error.log/combined.log). Default: on outside production, off in production (console only).
     LOG_TO_FILES: Joi.boolean().empty(''),
+    // Optional AES-256 key for saved AI provider keys: 64 hex chars or base64 of 32 bytes. Format only; the value is never echoed.
+    ENCRYPTION_KEY: Joi.string().empty('').custom((v, h) => (parseKey(v) ? v : h.error('any.invalid'))),
   })
   .unknown();
 const { value: envVars, error } = envVarsSchema
@@ -55,6 +58,10 @@ const tp = envVars.TRUST_PROXY.toLowerCase();
 const warnings = [];
 if (isProd && !(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
   warnings.push('ANTHROPIC_API_KEY is not set: AI features are DISABLED in production (the dev-only CLI provider never runs here)');
+}
+
+if (!envVars.ENCRYPTION_KEY) {
+  warnings.push('ENCRYPTION_KEY is not set: saved AI provider keys are encrypted with a key derived from JWT_SECRET. Rotating JWT_SECRET will make them unreadable (users must re-enter them). Set ENCRYPTION_KEY to decouple.');
 }
 
 module.exports = {

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../store/userStore';
 import { API } from '../lib/api';
+import { landingPath } from '../lib/landing';
 import Spinner from '../components/ui/Spinner';
 import GoogleButton from '../components/auth/GoogleButton';
 
@@ -97,10 +98,12 @@ const Register = () => {
               name: loginResponse.data.user.name,
               username: loginResponse.data.user.username,
               role: loginResponse.data.user.role,
+              preferences: loginResponse.data.user.preferences,
+              profile: loginResponse.data.user.profile,
             };
             setLogin(loginResponse.data.token, userData);
 
-            navigate('/dashboard');
+            navigate(landingPath(loginResponse.data.user.preferences));
           } else {
             throw new Error('Invalid login response');
           }

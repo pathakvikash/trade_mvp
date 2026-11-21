@@ -41,7 +41,7 @@ const CoinTreemap = ({ bySymbol, error, selected, onSelect }) => {
                   aria-pressed={item.symbol === selected}
                   aria-label={`${coin(item.symbol)}: ${fmtUsd(item.total)} liquidated, ${(lp * 100).toFixed(0)} percent longs`}
                   title={`${coin(item.symbol)} ${fmtUsd(item.total)} (long ${fmtUsd(item.longUsd)} / short ${fmtUsd(item.shortUsd)})`}
-                  className={`absolute overflow-hidden border border-slate-950 p-1 text-left text-xs leading-tight text-slate-100 hover:brightness-125 ${item.symbol === selected ? 'ring-2 ring-inset ring-cyan-400' : ''}`}
+                  className={`focus-ring absolute overflow-hidden border border-slate-950 p-1 text-left text-xs leading-tight text-slate-100 transition hover:z-10 hover:brightness-125 hover:ring-1 hover:ring-inset hover:ring-slate-200/60 ${item.symbol === selected ? 'z-10 ring-2 ring-inset ring-cyan-300 brightness-110' : ''}`}
                   style={{
                     left: `${(x / W) * 100}%`,
                     top: `${(y / H) * 100}%`,
@@ -60,7 +60,7 @@ const CoinTreemap = ({ bySymbol, error, selected, onSelect }) => {
               );
             })}
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">Cell size = total USD; green = mostly longs liquidated, red = mostly shorts. Top {TOP} shown.</p>
+          <p className="mt-1 text-[11px] text-slate-500">Cell size = total USD; green = mostly longs liquidated, red = mostly shorts. Top {TOP} shown. Click a coin or row for details.</p>
           <div className="mt-3 max-h-64 overflow-auto overscroll-contain">
             <table className="w-full text-xs tabular-nums">
               <caption className="sr-only">Sampled 24h liquidations by coin</caption>

@@ -47,3 +47,23 @@ test('user missing or locked -> 401 even with a valid signature', async () => {
     User.findById.mockReturnValueOnce({ select: () => ({ lean: async () => ({ lockedAt: new Date() }) }) });
     expect((await run(token)).res.code).toBe(401);
 });
+
+test('tokenVersion: tv must match the stored value; a token without tv counts as 0 (survives the deploy that added it)', async () => {
+    const stored = (tokenVersion) => User.findById.mockReturnValue({ select: () => ({ lean: async () => ({ tokenVersion }) }) });
+    const sign = (claims) => jwt.sign({ userId: 'u1', ...claims }, SECRET, { algorithm: 'HS256', expiresIn: 60 });
+    stored(undefined);
+    expect((await run(sign({}))).passed).toBe(true);
+    expect((await run(sign({ tv: 0 }))).passed).toBe(true);
+    stored(2);
+    expect((await run(sign({ tv: 2 }))).passed).toBe(true);
+    expect((await run(sign({ tv: 1 }))).res.code).toBe(401);
+    expect((await run(sign({}))).res.code).toBe(401); // legacy token after a bump
+});
+
+test('alert socket auth goes through the same tokenVersion check', async () => {
+    const alerts = require('../services/alertService');
+    User.findById.mockReturnValue({ select: () => ({ lean: async () => ({ tokenVersion: 1 }) }) });
+    const attempt = (claims) => new Promise((resolve) => alerts._test.authSocket({ handshake: { auth: { token: jwt.sign({ userId: 'u1', ...claims }, SECRET, { algorithm: 'HS256' }) } } }, (e) => resolve(!e)));
+    expect(await attempt({ tv: 1 })).toBe(true);
+    expect(await attempt({ tv: 0 })).toBe(false);
+});

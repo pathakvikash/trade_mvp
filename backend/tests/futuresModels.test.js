@@ -153,8 +153,8 @@ describe('FuturesOp model', () => {
     }
   });
 
-  test('kind enum accepts all nine ops and rejects others', () => {
-    for (const kind of ['open', 'add', 'close', 'liquidate', 'tp', 'sl', 'place', 'cancel', 'fill']) {
+  test('kind enum accepts all ten ops and rejects others', () => {
+    for (const kind of ['open', 'add', 'close', 'liquidate', 'tp', 'sl', 'place', 'cancel', 'fill', 'leverage']) {
       expect(errPaths(new FuturesOp(validOp({ kind })))).toEqual([]);
     }
     expect(errPaths(new FuturesOp(validOp({ kind: 'modify' })))).toContain('kind');

@@ -264,6 +264,11 @@ describe('limit entry orders', () => {
     expect(balanceCents).toBe(101005);
   });
 
+  test('fill lock pins the order tp/sl: a PATCH /orders/:id after the read is never silently dropped', async () => {
+    const spec = await engine._test.fillSpec(limitOrder({ tp: 120 }));
+    expect(spec.targets[0]).toMatchObject({ model: 'FuturesOrder', expect: { status: 'open', tp: 120, sl: null } });
+  });
+
   test('a lost activeKey race re-builds the fill as an add through onDuplicate', async () => {
     const o = limitOrder();
     const spec = await engine._test.fillSpec(o);

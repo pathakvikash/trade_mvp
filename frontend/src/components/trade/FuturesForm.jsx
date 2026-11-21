@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import usePersistedState, { oneOf } from '../../lib/usePersistedState';
+import useUserStore from '../../store/userStore';
 import SegTabs from '../ui/SegTabs';
+import { Tip } from '../ui/Tooltip';
 import Skeleton from '../ui/Skeleton';
 import Spinner from '../ui/Spinner';
 import { fmtPrice, fmtQty } from '../ui/fmt';
@@ -37,10 +39,15 @@ const ERRORS = {
   LEVERAGE_MISMATCH: 'You already hold this position at a different leverage. Add with the same leverage.',
   NOT_OPEN: 'That position or order is no longer open.',
   POSITION_BUSY: 'The position is being updated. Retry in a moment.',
+  VALIDATION: 'Check the order fields and try again.',
+  BAD_SIZE: 'That size is larger than the open position.',
+  NOT_FOUND: 'That position or order was not found.',
+  OP_FAILED: 'The order could not be completed. Check your positions and balance, then try again.',
 };
 export const futuresErrorText = (e) => {
   const d = e?.response?.data;
   if (e?.response?.status === 429) return 'Too many orders, slow down.';
+  if (e?.response?.status === 401) return 'Your session has expired. Sign in again.';
   return ERRORS[d?.code] || d?.message || 'Unable to place the order at this time.';
 };
 
@@ -61,11 +68,15 @@ const FuturesForm = ({ coin, symbols = [], overview = [], onSymbol, token, futur
   const config = futures?.config;
   const balance = account?.balance;
   const [side, setSide] = useState('long');
-  const [orderType, setOrderType] = usePersistedState('trade.fut.orderType', 'market', { validate: oneOf('market', 'limit') });
+  // Settings defaults (order type, leverage) apply until the user picks here; those picks are persisted and win.
+  const prefs = useUserStore((st) => st.user?.preferences);
+  const defLev = Number.isInteger(prefs?.defaultLeverage) && prefs.defaultLeverage >= 1 ? prefs.defaultLeverage : 10;
+  const [orderType, setOrderType] = usePersistedState('trade.fut.orderType', prefs?.defaultOrderType === 'limit' ? 'limit' : 'market', { validate: oneOf('market', 'limit') });
   const [size, setSize] = useState('');
+  const sizeRef = useRef(null);
   const [limitPrice, setLimitPrice] = useState('');
   const [levBySym, setLevBySym] = usePersistedState('trade.fut.leverage', {}, { validate: validLevMap });
-  const [lev, setLev] = useState(() => Math.min(levBySym[sym] ?? 10, maxLeverage(sym, 0, config?.tiers ? config : undefined)));
+  const [lev, setLev] = useState(() => Math.min(levBySym[sym] ?? defLev, maxLeverage(sym, 0, config?.tiers ? config : undefined)));
   const [tpsl, setTpsl] = useState({ tp: null, sl: null });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -147,11 +158,13 @@ const FuturesForm = ({ coin, symbols = [], overview = [], onSymbol, token, futur
       const what = `${long ? 'long' : 'short'} ${L}x ${fmtQty(sizeN)} ${sym}`;
       setMessage({
         type: 'success',
-        text: data.fill
+        text: `${data.fill
           ? `${existing ? 'Added to' : 'Opened'} ${what} @ ${fmtPrice(data.fill.price)}. Fee $${fmtPrice(data.fill.fee)}. Balance $${fmtPrice(data.balance)}.`
-          : `Limit ${what} @ ${fmtPrice(ref)} placed. Reserved $${fmtPrice(data.order?.reserved)}. Balance $${fmtPrice(data.balance)}.`,
+          : `Limit ${what} @ ${fmtPrice(ref)} placed. Reserved $${fmtPrice(data.order?.reserved)}. Balance $${fmtPrice(data.balance)}.`} Enter a size for the next order.`,
       });
+      // Size is cleared on purpose (no accidental repeat fill); say so and put the cursor there for the next order.
       setSize('');
+      sizeRef.current?.focus();
       setTpsl({ tp: null, sl: null });
       futures?.reload?.();
       account?.reload?.();
@@ -195,13 +208,15 @@ const FuturesForm = ({ coin, symbols = [], overview = [], onSymbol, token, futur
 
       <div>
         <label htmlFor="fut-size" className="mb-1 block text-[11px] text-slate-400">Size ({sym || '--'})</label>
-        <input id="fut-size" className={inputCls} type="number" min="0" step="any" placeholder="0.0000" value={size} onChange={(e) => { clearMsg(); setSize(e.target.value); }} />
+        <input id="fut-size" ref={sizeRef} className={inputCls} type="number" min="0" step="any" placeholder="0.0000" value={size} onChange={(e) => { clearMsg(); setSize(e.target.value); }} />
         <div className="mt-1 flex items-center gap-1" role="group" aria-label="Size as share of available margin">
           {PCTS.map((p) => (
-            <button key={p} type="button" onClick={() => fillPct(p)} disabled={!hasRef || !(balance > 0)}
+            <Tip key={p} text={`Size so margin + fee use ${p}% of free balance`}>
+            <button type="button" onClick={() => fillPct(p)} disabled={!hasRef || !(balance > 0)}
               className="focus-ring h-6 flex-1 rounded-md border border-slate-800 bg-slate-950 text-[11px] tabular-nums text-slate-400 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
               {p}%
             </button>
+            </Tip>
           ))}
         </div>
       </div>
@@ -225,7 +240,7 @@ const FuturesForm = ({ coin, symbols = [], overview = [], onSymbol, token, futur
       {message.text ? (
         <div role={message.type === 'error' ? 'alert' : 'status'} aria-live={message.type === 'error' ? 'assertive' : 'polite'} className={`flex items-start justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${message.type === 'error' ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'}`}>
           <span>{message.text}</span>
-          <button type="button" onClick={clearMsg} aria-label="Dismiss message" className="focus-ring -mr-1 shrink-0 rounded px-1 leading-none opacity-70 hover:opacity-100"><span aria-hidden="true">×</span></button>
+          <Tip text="Dismiss"><button type="button" onClick={clearMsg} aria-label="Dismiss message" className="focus-ring -mr-1 shrink-0 rounded px-1 leading-none opacity-70 hover:opacity-100"><span aria-hidden="true">×</span></button></Tip>
         </div>
       ) : null}
 
@@ -240,7 +255,7 @@ const FuturesForm = ({ coin, symbols = [], overview = [], onSymbol, token, futur
         {busy && <Spinner size={14} />}
         {busy ? 'Submitting...' : label}
       </button>
-      {reason && !busy && <p id="fut-reason" className="text-center text-[11px] text-slate-500">{reason}</p>}
+      {reason && !busy && <p id="fut-reason" className="text-center text-[11px] text-slate-400">{reason}</p>}
       </div>
     </form>
   );

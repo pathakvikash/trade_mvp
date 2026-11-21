@@ -99,9 +99,14 @@ size round8 and <= 1e9, leverage integer.
   long: mark <= limit, short: mark >= limit, at the LIMIT price (as spot). Fill = `fill` op: open or add, delta 0
   (reservation equals the cost exactly). Cancel = `cancel` op, credit `reserved`.
 - **Add to position**: one isolated position per user+symbol+side. Adding requires the SAME leverage as the open
-  position (else 409 `LEVERAGE_MISMATCH`; changing leverage on an open position is out of scope). New entry =
+  position (else 409 `LEVERAGE_MISMATCH`; to change it, change the position's leverage first: see Leverage change). New entry =
   size-weighted average, margin = old + new, mmr/tier and liq recomputed; tier cap is checked on the combined notional.
   Long and short on the same symbol may coexist (hedge-style, separate isolated positions).
+- **Leverage change** (added 2026-11-21): `PATCH /positions/:id {leverage, tp?, sl?}`. New margin =
+  `ceil(notional(size, entryPrice) / newLev)` cents; the difference to the held margin is credited (lower margin) or
+  debited (higher margin, 400 `INSUFFICIENT_BALANCE`) by one `leverage` ledger op; mmr kept, liq recomputed. 400
+  `LIQ_BREACH` if the new liq is at/through the mark; 400 `LEVERAGE_TOO_HIGH` above the cap; same leverage = no-op.
+  tp/sl in the same request are written by the same op (atomic) and the SL in force is checked against the new liq.
 - **Close** (reduce-only by construction): `POST /positions/:id/close {size?}`; omit = full. Partial must leave
   remaining notional >= $5 at mark, else 400 `MIN_NOTIONAL` ("close all instead"). Liq price unchanged by partial
   close (margin/size ratio is preserved). Exit at mark, taker fee.
@@ -189,7 +194,8 @@ Responses keep `{success, message}` and add `code` on errors. Write routes:
 | DELETE `/orders/:id` | – | `{order, balance}` |
 | GET `/positions` | – | `{positions: open (incl. `busy: lockOp!=null`, `markPrice` snapshot or null), closed: last 20}` |
 | POST `/positions/:id/close` | `{size?}` | `{position, close:{size, price, pnl, fee, credit}, balance}` |
-| PATCH `/positions/:id` | `{tp?: number\|null, sl?: number\|null}` (at least one key) | `{position}` |
+| PATCH `/positions/:id` | `{tp?: number\|null, sl?: number\|null, leverage?: int 1..50}` (at least one key) | `{position, balance, marginDelta}` |
+| PATCH `/orders/:id` | `{tp?: number\|null, sl?: number\|null}` on an open limit order | `{order}` |
 
 Validation (`middleware/validator.js` `futuresOrderRules/closeRules/tpslRules`, express-validator, 422 on shape):
 symbol `/^[A-Z0-9]{2,20}$/` and `futuresRest.isKnownSymbol(sym+'USDT')`; size finite number 0<size<=1e9 (round8 >0);
@@ -199,7 +205,7 @@ keys rejected. `:id` 24-hex else 404.
 Error codes (status, code): 400 `INSUFFICIENT_BALANCE`, 400 `MIN_NOTIONAL`, 400 `LEVERAGE_TOO_HIGH` (message names
 the allowed max for this notional), 400 `MAX_POSITIONS`/`MAX_ORDERS`, 400 `BAD_TPSL` (message says which bound),
 400 `UNKNOWN_MARKET`, 401, 404 `NOT_FOUND` (other users' ids look the same), 409 `POSITION_BUSY` (locked, retry),
-409 `NOT_OPEN`, 409 `LEVERAGE_MISMATCH`, 422 validation, 429 limiter, 503 `NO_PRICE`.
+409 `NOT_OPEN`, 409 `LEVERAGE_MISMATCH`, 400 `LIQ_BREACH` (leverage change), 422 validation, 429 limiter, 503 `NO_PRICE`.
 
 ## 6. Frontend UX
 

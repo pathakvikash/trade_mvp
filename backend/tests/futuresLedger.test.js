@@ -154,6 +154,15 @@ const fillSpec = () => ({
   ],
   post: { [O1]: { status: 'filled', positionId: P2 }, [P2]: { status: 'open' } },
 });
+// leverage change on P1 (long 1 @100, margin 10): 10x -> 20x releases 500c, 10x -> 5x debits 1000c (futuresMath.leverageQuote)
+const leverageSpec = (lev = 20) => {
+  const margin = lev === 20 ? 5 : 20;
+  return {
+    userId: U, kind: 'leverage', deltaCents: (10 - margin) * 100,
+    targets: [{ model: 'Position', id: P1, expect: { status: 'open', size: 1, rev: null } }],
+    post: { [P1]: { leverage: lev, margin, liqPrice: lev === 20 ? 95.3815261 : 80.32128514, tp: 120 } },
+  };
+};
 
 test('open: debits once, position opens, claim and marker gone', async () => {
   const r = await ledger.run(openSpec());
@@ -217,6 +226,36 @@ test('two closes racing on one position: one settles, the other gets POSITION_BU
   expect(users[U].balance).toBeCloseTo(1019.94, 6);
 });
 
+test('leverage op: release credits, extra margin debits; balance + margin conserved', async () => {
+  positions.push(openPos({ leverage: 10 }));
+  expect((await ledger.run(leverageSpec(20))).ok).toBe(true);
+  expect(users[U].balance + positions[0].margin).toBeCloseTo(1010, 6);
+  expect(positions[0]).toMatchObject({ leverage: 20, margin: 5, rev: 1 });
+});
+
+test('leverage op short of balance: rolled_back, existing position untouched and unlocked (not voided)', async () => {
+  users[U].balance = 5;
+  positions.push(openPos({ leverage: 10 }));
+  const r = await ledger.run(leverageSpec(5));
+  expect(r).toMatchObject({ ok: false, code: 'INSUFFICIENT_BALANCE', op: { status: 'rolled_back' } });
+  expect(users[U].balance).toBe(5);
+  expect(positions[0]).toMatchObject({ status: 'open', leverage: 10, margin: 10, activeKey: `${U}:BTC:long` });
+  expect(positions[0].lockOp).toBeUndefined();
+});
+
+test.each([[20], [5]])('close racing a leverage change (%sx): one wins, the other POSITION_BUSY, money conserved', async (lev) => {
+  positions.push(openPos({ leverage: 10 }));
+  const [c, l] = await Promise.all([ledger.run(closeSpec(P1, 1000)), ledger.run(leverageSpec(lev))]);
+  expect([c.ok, l.ok].sort()).toEqual([false, true]);
+  expect([c, l].find((r) => !r.ok).code).toBe('POSITION_BUSY');
+  // closed: the 10 margin came back (credit 1000c here); changed: balance + held margin still 1010
+  const p = positions[0];
+  expect(users[U].balance + (p.status === 'open' ? p.margin : 0)).toBeCloseTo(1010, 6);
+  // the stale snapshot cannot be replayed after the winner bumped rev
+  const again = await ledger.run(c.ok ? leverageSpec(lev) : closeSpec(P1, 1000));
+  expect(again).toMatchObject({ ok: false, code: 'POSITION_BUSY' });
+});
+
 test('E11000 on activeKey: onDuplicate spec runs once as the add', async () => {
   positions.push(openPos());
   const r = await ledger.run({
@@ -246,6 +285,8 @@ const SCENARIOS = {
   open: { spec: openSpec, setup: () => {}, targets: 1, final: () => { expect(users[U].balance).toBeCloseTo(989.95, 6); expect(positions[0]).toMatchObject({ status: 'open' }); expect(positions[0].lockOp).toBeUndefined(); }, initial: () => { expect(users[U].balance).toBe(1000); expect(positions.every((p) => p.status === 'void' && !p.activeKey && !p.lockOp)).toBe(true); } },
   close: { spec: closeSpec, setup: () => positions.push(openPos()), targets: 1, final: () => { expect(users[U].balance).toBeCloseTo(1019.94, 6); expect(positions[0]).toMatchObject({ status: 'closed' }); expect(positions[0].activeKey).toBeUndefined(); expect(positions[0].lockOp).toBeUndefined(); }, initial: () => { expect(users[U].balance).toBe(1000); expect(positions[0]).toMatchObject({ status: 'open', size: 1 }); expect(positions[0].lockOp).toBeUndefined(); } },
   fill: { spec: fillSpec, setup: () => orders.push({ _id: O1, userId: U, status: 'open' }), targets: 2, final: () => { expect(users[U].balance).toBe(1000); expect(orders[0]).toMatchObject({ status: 'filled' }); expect(orders[0].lockOp).toBeUndefined(); expect(positions).toHaveLength(1); expect(positions[0]).toMatchObject({ status: 'open' }); expect(positions[0].lockOp).toBeUndefined(); }, initial: () => { expect(orders[0]).toMatchObject({ status: 'open' }); expect(orders[0].lockOp).toBeUndefined(); expect(positions.every((p) => p.status === 'void' && !p.activeKey && !p.lockOp)).toBe(true); } },
+  leverage_up: { spec: () => leverageSpec(20), setup: () => positions.push(openPos({ leverage: 10 })), targets: 1, final: () => { expect(users[U].balance).toBeCloseTo(1005, 6); expect(positions[0]).toMatchObject({ status: 'open', leverage: 20, margin: 5, tp: 120, rev: 1 }); expect(positions[0].lockOp).toBeUndefined(); }, initial: () => { expect(users[U].balance).toBe(1000); expect(positions[0]).toMatchObject({ status: 'open', leverage: 10, margin: 10 }); expect(positions[0].tp).toBeUndefined(); expect(positions[0].lockOp).toBeUndefined(); } },
+  leverage_down: { spec: () => leverageSpec(5), setup: () => positions.push(openPos({ leverage: 10 })), targets: 1, final: () => { expect(users[U].balance).toBeCloseTo(990, 6); expect(positions[0]).toMatchObject({ status: 'open', leverage: 5, margin: 20, rev: 1 }); expect(positions[0].lockOp).toBeUndefined(); }, initial: () => { expect(users[U].balance).toBe(1000); expect(positions[0]).toMatchObject({ status: 'open', leverage: 10, margin: 10 }); expect(positions[0].lockOp).toBeUndefined(); } },
   cancel: { spec: cancelSpec, setup: () => orders.push({ _id: O1, userId: U, status: 'open' }), targets: 1, final: () => { expect(users[U].balance).toBeCloseTo(1005, 6); expect(orders[0]).toMatchObject({ status: 'cancelled' }); }, initial: () => { expect(users[U].balance).toBe(1000); expect(orders[0]).toMatchObject({ status: 'open' }); expect(orders[0].lockOp).toBeUndefined(); } },
 };
 const POINTS = [];

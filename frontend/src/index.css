@@ -94,3 +94,22 @@ code {
   }
   header button { min-width: 36px; }
 }
+
+/* Preferences (set on <html> by lib/useApplyPreferences). The attribute + element selector beats Tailwind's single-class py-* utilities. */
+[data-compact="true"] table td,
+[data-compact="true"] table th { padding-top: 2px; padding-bottom: 2px; }
+
+[data-reduce-motion="true"] *,
+[data-reduce-motion="true"] *::before,
+[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Ticker marquee: two identical halves, so -50% loops seamlessly. TickerBar drops the class when motion is reduced. */
+@keyframes tm-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.tm-marquee { animation: tm-marquee var(--tm-marquee-s, 60s) linear infinite; }
+.tm-marquee-wrap:hover .tm-marquee, .tm-marquee-wrap:focus-within .tm-marquee { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .tm-marquee { animation: none; } }

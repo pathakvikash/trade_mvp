@@ -123,6 +123,12 @@ function start(io) {
     logger.info('alertService started');
 }
 
+// Drop every live socket of a user (password change, sign out everywhere, account deletion): the socket auth only runs at
+// connect time, so without this an existing connection would outlive its token. Best effort.
+function kick(userId) {
+    if (ns) ns.in(`user:${userId}`).disconnectSockets(true);
+}
+
 function stop() {
     clearInterval(evalTimer);
     clearInterval(refreshTimer);
@@ -132,4 +138,4 @@ function stop() {
     ns = null;
 }
 
-module.exports = { start, stop, refresh, shouldTrigger, statusOf, resetCooldown: (id) => resets.set(String(id), Date.now()), _test: { getActive: () => active, evaluate, reconcile, observe, authSocket, setActive: (v) => { active = v; }, held, fired, resets } };
+module.exports = { start, stop, kick, refresh, shouldTrigger, statusOf, resetCooldown: (id) => resets.set(String(id), Date.now()), _test: { getActive: () => active, evaluate, reconcile, observe, authSocket, setActive: (v) => { active = v; }, held, fired, resets } };

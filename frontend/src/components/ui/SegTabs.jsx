@@ -1,11 +1,12 @@
 import React from 'react';
+import { Tip } from './Tooltip';
 
 // Compact tab/segment switcher (timeframes, mobile panel tabs, bottom strip tabs).
 const SegTabs = ({ tabs, active, onChange, label, className = '' }) => (
   <div role="tablist" aria-label={label} className={`inline-flex gap-0.5 ${className}`}>
     {tabs.map((t) => (
+      <Tip key={t.id} text={t.title}>
       <button
-        key={t.id}
         type="button"
         role="tab"
         aria-selected={active === t.id}
@@ -16,6 +17,7 @@ const SegTabs = ({ tabs, active, onChange, label, className = '' }) => (
       >
         {t.label}
       </button>
+      </Tip>
     ))}
   </div>
 );

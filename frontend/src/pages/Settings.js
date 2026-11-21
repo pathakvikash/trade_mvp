@@ -1,273 +1,95 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Navigate, NavLink, useParams } from 'react-router-dom';
 import axios from 'axios';
-import Panel from '../components/ui/Panel';
-import SegTabs from '../components/ui/SegTabs';
-import PairPicker from '../components/ui/PairPicker';
+import { Icon } from '../components/shell/nav';
 import useUserStore from '../store/userStore';
+import usePersistedState, { oneOf } from '../lib/usePersistedState';
 import { API, authed, errText } from '../lib/api';
+import AiSection from './settings/AiSection';
+import PreferencesSection from './settings/PreferencesSection';
+import ProfileSection from './settings/ProfileSection';
+import SecuritySection from './settings/SecuritySection';
+import { Toast, useToast } from './settings/shared';
 
-const TABS = [
-  { id: 'profile', label: 'Profile' },
-  { id: 'ai', label: 'AI & model' },
-  { id: 'prefs', label: 'Preferences' },
-  { id: 'security', label: 'Security' },
+export const SECTIONS = [
+  { id: 'profile', label: 'Profile', d: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0', Component: ProfileSection },
+  { id: 'ai', label: 'AI & model', d: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z', Component: AiSection },
+  { id: 'preferences', label: 'Preferences', d: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4', Component: PreferencesSection },
+  { id: 'security', label: 'Security', d: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', Component: SecuritySection },
 ];
-const TF_TABS = ['1m', '5m', '15m', '1h', '4h', '1d'].map((t) => ({ id: t, label: t }));
-const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-const TIMEZONES = [...new Set([BROWSER_TZ, ...(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [])])];
+const IDS = SECTIONS.map((s) => s.id);
 
-const field = 'focus-ring w-full rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 disabled:opacity-50';
-const label = 'mb-1 block text-xs text-slate-400';
-const primary = 'focus-ring rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40';
-const EMPTY_NOTICE = { tab: null, type: '', text: '' };
-// The server's own message when it sent one; otherwise the shared mapping.
-const serverMsg = (e) => e.response?.data?.message || e.response?.data?.error || errText(e);
-
-const SaveButton = ({ saving, disabled, onClick, type = 'button' }) => (
-  <button type={type} className={`${primary} inline-flex items-center gap-1.5`} disabled={disabled} onClick={onClick}>
-    {saving && (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3 w-3 motion-safe:animate-spin" fill="none">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
-        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      </svg>
-    )}
-    {saving ? 'Saving…' : 'Save'}
-  </button>
-);
-
-// Form state seeded from the saved values; re-seeded whenever they change (after load or a save).
-const useDraft = (saved) => {
-  const key = JSON.stringify(saved);
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => setDraft(JSON.parse(key)), [key]);
-  return [draft, setDraft, key];
-};
-const dirty = (draft, key) => JSON.stringify(draft) !== key;
-
+// Shell for /settings/*: section nav on the left (a pill row below lg), one section on the right.
 const Settings = () => {
   const token = useUserStore((s) => s.token);
   const user = useUserStore((s) => s.user) || {};
   const setUser = useUserStore((s) => s.setUser);
-  const setLogin = useUserStore((s) => s.setLogin);
-  const setLogout = useUserStore((s) => s.setLogout);
-
-  const [tab, setTab] = useState('profile');
-  const [aiModels, setAiModels] = useState([]);
+  const splat = useParams()['*'] || '';
+  const section = splat.split('/')[0];
+  const [last, setLast] = usePersistedState('settings.section', 'profile', { validate: oneOf(...IDS) });
+  const { toast, notify, clear } = useToast();
+  const [meta, setMeta] = useState({});
+  const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState(EMPTY_NOTICE);
-  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
-  // Success clears itself after 4s; errors stay until the next action (every action resets the notice).
   useEffect(() => {
-    if (notice.type !== 'success') return undefined;
-    const id = setTimeout(() => setNotice(EMPTY_NOTICE), 4000);
-    return () => clearTimeout(id);
-  }, [notice]);
+    if (IDS.includes(section) && last !== section) setLast(section);
+  }, [section, last, setLast]);
 
-  const profileSaved = {
-    name: user.name || '',
-    bio: user.profile?.bio || '',
-    country: user.profile?.country || '',
-    timezone: user.profile?.timezone || BROWSER_TZ,
-  };
-  const p = user.preferences || {};
-  const prefsSaved = {
-    defaultSymbol: p.defaultSymbol || 'BTCUSDT',
-    defaultTimeframe: p.defaultTimeframe || '1m',
-    alertToasts: p.alertToasts !== false,
-    alertSound: p.alertSound === true,
-  };
-  const aiSaved = { model: user.ai?.model ?? null };
-  const [profile, setProfile, profileKey] = useDraft(profileSaved);
-  const [prefs, setPrefs, prefsKey] = useDraft(prefsSaved);
-  const [ai, setAi, aiKey] = useDraft(aiSaved);
+  // Below lg the nav is a horizontally scrolling pill row: bring the active pill into view (on a phone 'Security' starts
+  // off-screen). block 'nearest' keeps the page itself from jumping; motion follows the OS and the in-app setting.
+  const navRef = useRef(null);
+  useEffect(() => {
+    const el = navRef.current?.querySelector('[aria-current="page"]');
+    if (!el?.scrollIntoView) return;
+    const reduce = document.documentElement.dataset.reduceMotion === 'true' || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  }, [section]);
 
+  // Loaded once for all sections; the user store is the live copy, the rest is reference data.
   useEffect(() => {
     if (!token) return undefined;
     let live = true;
     axios.get(`${API}/api/auth/me`, authed(token)).then((r) => {
       if (!live) return;
       setUser(r.data.user);
-      setAiModels(Array.isArray(r.data.aiModels) ? r.data.aiModels : []);
-    }, (e) => { if (live) setLoadErr(errText(e)); });
+      setMeta({ aiModels: r.data.aiModels, aiProviders: r.data.aiProviders, aiDefaultPrompt: r.data.aiDefaultPrompt, aiServerRules: r.data.aiServerRules });
+      setLoaded(true);
+    }, (e) => { if (live) { setLoadErr(errText(e)); setLoaded(true); } });
     return () => { live = false; };
   }, [token, setUser]);
 
-  const patch = async (tabId, body) => {
-    setSaving(true);
-    setNotice(EMPTY_NOTICE);
-    try {
-      const r = await axios.patch(`${API}/api/auth/me`, body, authed(token));
-      setUser(r.data.user);
-      setNotice({ tab: tabId, type: 'success', text: 'Saved.' });
-    } catch (e) {
-      setNotice({ tab: tabId, type: 'error', text: serverMsg(e) });
-    }
-    setSaving(false);
-  };
-
-  const changePassword = async (e) => {
-    e.preventDefault();
-    const fail = (text) => setNotice({ tab: 'security', type: 'error', text });
-    if (pw.newPassword !== pw.confirmPassword) return fail('New passwords do not match.');
-    if (pw.newPassword.length < 8 || pw.newPassword.length > 72) return fail('New password must be 8-72 characters.');
-    setSaving(true);
-    setNotice(EMPTY_NOTICE);
-    try {
-      const r = await axios.post(`${API}/api/auth/password`, { currentPassword: pw.currentPassword, newPassword: pw.newPassword }, authed(token));
-      setLogin(r.data.token, user); // the server issues a fresh token; the old one stops working
-      setPw({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      setNotice({ tab: 'security', type: 'success', text: 'Password changed.' });
-    } catch (err) {
-      fail(err.response?.data?.message || err.response?.data?.error || 'Could not change password.');
-    }
-    setSaving(false);
-  };
-
-  const pick = (id) => { setTab(id); setNotice(EMPTY_NOTICE); };
-  const initials = (profile.name || user.username || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
-  const aiOptions = [{ id: null, label: 'Server default', note: "The server's configured model." }, ...aiModels];
+  if (!splat) return <Navigate to={`/settings/${last}`} replace />;
+  if (!IDS.includes(section)) return <Navigate to="/settings/profile" replace />;
+  const { Component } = SECTIONS.find((s) => s.id === section);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-sm font-semibold text-slate-200">Settings</h1>
-        <SegTabs tabs={TABS} active={tab} onChange={pick} label="Settings sections" />
-      </div>
-
-      {loadErr && <p className="text-sm text-amber-400" role="alert">Could not load your settings: {loadErr}</p>}
-
-      <Panel bodyClassName="p-4">
-        {tab === 'profile' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div aria-hidden="true" className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-cyan-500/40 bg-slate-900 text-lg font-semibold text-cyan-300">{initials}</div>
-              <dl className="grid flex-1 grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-                <div><dt className="text-slate-500">Username</dt><dd className="text-slate-200">{user.username || '-'}</dd></div>
-                <div><dt className="text-slate-500">Email</dt><dd className="break-all text-slate-200">{user.email || '-'}</dd></div>
-                <div><dt className="text-slate-500">Role</dt><dd className="text-slate-200">{user.role || '-'}</dd></div>
-                <div><dt className="text-slate-500">Member since</dt><dd className="text-slate-200">{user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'}</dd></div>
-              </dl>
-            </div>
-            <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (dirty(profile, profileKey) && profile.name.trim()) patch('profile', { name: profile.name.trim(), profile: { bio: profile.bio, country: profile.country, timezone: profile.timezone } }); }}>
-              <div className="sm:col-span-2">
-                <label htmlFor="set-name" className={label}>Full name</label>
-                <input id="set-name" className={field} value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
-                {!profile.name.trim() && <p className="mt-0.5 text-[11px] text-amber-400">Name is required.</p>}
-              </div>
-              <div className="sm:col-span-2">
-                <label htmlFor="set-bio" className={label}>Bio</label>
-                <textarea id="set-bio" rows={3} maxLength={160} className={field} value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} />
-                <p className="mt-0.5 text-right text-[11px] tabular-nums text-slate-500">{profile.bio.length}/160</p>
-              </div>
-              <div>
-                <label htmlFor="set-country" className={label}>Country</label>
-                <input id="set-country" className={field} value={profile.country} onChange={(e) => setProfile({ ...profile, country: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="set-tz" className={label}>Timezone</label>
-                <select id="set-tz" className={field} value={profile.timezone} onChange={(e) => setProfile({ ...profile, timezone: e.target.value })}>
-                  {[...new Set([profile.timezone, ...TIMEZONES])].map((z) => <option key={z} value={z}>{z}</option>)}
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <SaveButton type="submit" saving={saving} disabled={saving || !dirty(profile, profileKey) || !profile.name.trim()} />
-              </div>
-            </form>
-          </div>
-        )}
-
-        {tab === 'ai' && (
-          <div className="space-y-4">
-            <fieldset className="space-y-2">
-              <legend className="mb-2 text-xs text-slate-400">AI model</legend>
-              {aiOptions.map((o) => {
-                const on = ai.model === o.id;
-                return (
-                  <label key={o.id ?? 'default'} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${on ? 'border-cyan-500/60 bg-cyan-500/5' : 'border-slate-800 hover:border-slate-600'}`}>
-                    <input type="radio" name="ai-model" value={o.id ?? 'default'} checked={on} onChange={() => setAi({ model: o.id })} className="mt-1 accent-cyan-400 focus-ring" />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-slate-200">{o.label}</span>
-                      {o.note && <span className="block text-xs text-slate-400">{o.note}</span>}
-                    </span>
-                  </label>
-                );
-              })}
-            </fieldset>
-            <p className="text-xs text-slate-400" aria-live="polite">Currently saved: <span className="text-slate-200">{aiOptions.find((o) => o.id === aiSaved.model)?.label || aiSaved.model}</span></p>
-            <p className="text-xs text-slate-400">AI runs only when you click an AI button, and it uses the model selected here. Cheaper models cost less per call.</p>
-            <SaveButton saving={saving} disabled={saving || !dirty(ai, aiKey)} onClick={() => patch('ai', { ai: { model: ai.model } })} />
-          </div>
-        )}
-
-        {tab === 'prefs' && (
-          <div className="space-y-4">
-            <div>
-              <span className={label}>Default pair</span>
-              <PairPicker value={prefs.defaultSymbol} onChange={(s) => setPrefs({ ...prefs, defaultSymbol: s })} />
-            </div>
-            <div>
-              <span className={label}>Default timeframe</span>
-              <SegTabs tabs={TF_TABS} active={prefs.defaultTimeframe} onChange={(t) => setPrefs({ ...prefs, defaultTimeframe: t })} label="Default timeframe" />
-            </div>
-            <div className="space-y-2 text-sm text-slate-300">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input type="checkbox" checked={prefs.alertToasts} onChange={(e) => setPrefs({ ...prefs, alertToasts: e.target.checked })} className="accent-cyan-400 focus-ring" />
-                Show alert toasts
-              </label>
-              <label className="flex cursor-pointer items-center gap-3">
-                <input type="checkbox" checked={prefs.alertSound} onChange={(e) => setPrefs({ ...prefs, alertSound: e.target.checked })} className="accent-cyan-400 focus-ring" />
-                Play a sound when an alert triggers
-              </label>
-            </div>
-            <SaveButton saving={saving} disabled={saving || !dirty(prefs, prefsKey)} onClick={() => patch('prefs', { preferences: prefs })} />
-          </div>
-        )}
-
-        {tab === 'security' && (
-          <div className="space-y-4">
-            <form className="grid max-w-md gap-3" onSubmit={changePassword}>
-              <div>
-                <label htmlFor="set-pw-current" className={label}>Current password</label>
-                <input id="set-pw-current" type="password" autoComplete="current-password" className={field} value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="set-pw-new" className={label}>New password (8-72 characters)</label>
-                <input id="set-pw-new" type="password" autoComplete="new-password" className={field} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="set-pw-confirm" className={label}>Confirm new password</label>
-                <input id="set-pw-confirm" type="password" autoComplete="new-password" className={field} value={pw.confirmPassword} onChange={(e) => setPw({ ...pw, confirmPassword: e.target.value })} />
-              </div>
-              <p className="text-xs text-slate-400">Sessions on other devices stop working after a password change.</p>
-              <div>
-                <button type="submit" className={primary} disabled={saving || !pw.currentPassword || !pw.newPassword || !pw.confirmPassword}>Change password</button>
-              </div>
-            </form>
-            <div className="border-t border-slate-800 pt-4">
-              <button
-                type="button"
-                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-900"
-                onClick={() => { setLogout(); window.location.assign('/login'); }}
-              >
-                Sign out
-              </button>
-            </div>
-          </div>
-        )}
-
-        {notice.tab === tab && notice.text && (notice.type === 'error' ? (
-          <p role="alert" className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-sm text-amber-400">{notice.text}</p>
-        ) : (
-          <p role="status" className="mt-3 flex items-center gap-2 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm font-medium text-emerald-300">
-            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="currentColor">
-              <path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.8 3.8 6.8-6.8a1 1 0 0 1 1.4 0Z" clipRule="evenodd" />
-            </svg>
-            {notice.text}
-          </p>
+    <div className="mx-auto flex max-w-5xl flex-col gap-3 lg:flex-row lg:items-start lg:gap-6">
+      <nav ref={navRef} aria-label="Settings sections" className="hide-scrollbar flex gap-1.5 overflow-x-auto lg:sticky lg:top-0 lg:w-48 lg:shrink-0 lg:flex-col lg:gap-0.5 lg:overflow-visible">
+        {SECTIONS.map(({ id, label, d }) => (
+          <NavLink
+            key={id}
+            to={`/settings/${id}`}
+            className={({ isActive }) =>
+              `focus-ring flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors lg:rounded-lg lg:border-transparent lg:px-2.5 ${
+                isActive ? 'border-cyan-400/40 bg-cyan-400/10 text-cyan-300' : 'border-slate-800 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`
+            }
+          >
+            <Icon d={d} className="h-[16px] w-[16px]" />
+            {label}
+          </NavLink>
         ))}
-      </Panel>
+      </nav>
+
+      <div className="min-w-0 flex-1">
+        <h1 className="mb-2 text-sm font-semibold text-slate-200">Settings</h1>
+        {loadErr && <p className="mb-2 text-sm text-amber-400" role="alert">Could not load your settings: {loadErr}</p>}
+        {!loaded && <p className="mb-2 text-xs text-slate-500" aria-live="polite">Loading your settings…</p>}
+        <p className="mb-3 text-xs text-slate-500">CryptoZen is paper trading: no real money is ever used.</p>
+        <Component user={user} meta={meta} notify={notify} />
+      </div>
+      <Toast toast={toast} onClose={clear} />
     </div>
   );
 };

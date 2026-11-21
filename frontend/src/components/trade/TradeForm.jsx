@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import usePersistedState, { oneOf } from '../../lib/usePersistedState';
+import useUserStore from '../../store/userStore';
 import Panel from '../ui/Panel';
 import { fmtPrice } from '../ui/fmt';
 import Skeleton from '../ui/Skeleton';
@@ -24,7 +25,9 @@ const Field = ({ id, label, ...props }) => (
 // the order waits (funds reserved) until the mark crosses it.
 const TradeForm = ({ coin, symbols = [], overview = [], onSymbol, onSubmit, message, isSubmitting, balance, balanceLoading, className = '', header = null }) => {
   const [side, setSide] = useState('buy');
-  const [orderType, setOrderType] = usePersistedState('trade.spot.orderType', 'market', { validate: oneOf('market', 'limit') });
+  // The Settings default applies until the user picks a type here; that pick is persisted and wins from then on.
+  const defType = useUserStore((st) => (st.user?.preferences?.defaultOrderType === 'limit' ? 'limit' : 'market'));
+  const [orderType, setOrderType] = usePersistedState('trade.spot.orderType', defType, { validate: oneOf('market', 'limit') });
   const [amount, setAmount] = useState('');
   const [limitPrice, setLimitPrice] = useState('');
 

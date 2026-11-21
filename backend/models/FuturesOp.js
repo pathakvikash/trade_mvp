@@ -7,7 +7,7 @@ const futuresOpSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   kind: {
     type: String,
-    enum: ['open', 'add', 'close', 'liquidate', 'tp', 'sl', 'place', 'cancel', 'fill'],
+    enum: ['open', 'add', 'close', 'liquidate', 'tp', 'sl', 'place', 'cancel', 'fill', 'leverage'],
     required: true,
   },
   // Locked in this order. No _id per entry: the target id is the identity.

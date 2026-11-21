@@ -1,10 +1,12 @@
 import React from 'react';
 import Panel from '../ui/Panel';
 import SegTabs from '../ui/SegTabs';
+import { Tip } from '../ui/Tooltip';
 import CandleChart from './CandleChart';
 import AlertsPanel from '../alerts/AlertsPanel';
 
-const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id }));
+const TF_NAME = { m: 'minute', h: 'hour', d: 'day' };
+const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id, title: `${parseInt(id, 10)}-${TF_NAME[id.slice(-1)]} candles` }));
 
 const LEGEND = [['entry', 'Entry', '#22d3ee'], ['liq', 'Liq', '#f43f5e'], ['tp', 'TP', '#34d399'], ['sl', 'SL', '#fb923c']];
 
@@ -24,6 +26,7 @@ const MarketChartPanel = ({
       className={className}
       right={
         <div className="flex items-center gap-2">
+          <Tip text={alertsView ? 'Back to the chart' : 'Price alerts for this symbol'}>
           <button
             type="button"
             aria-pressed={alertsView}
@@ -37,6 +40,7 @@ const MarketChartPanel = ({
               <span className="ml-1.5 rounded-full bg-rose-400 px-1 text-[10px] font-semibold tabular-nums text-slate-950" aria-label={`${unread} unread`}>{unread}</span>
             )}
           </button>
+          </Tip>
           <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" className="[&_button]:min-h-[36px] sm:[&_button]:min-h-0" />
         </div>
       }

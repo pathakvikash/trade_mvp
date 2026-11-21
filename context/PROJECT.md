@@ -19,7 +19,7 @@ No real money, no exchange keys, no custody. Prices are real; fills are simulate
 | AI copilot (brief, ask, alert parse) | Done; Anthropic API, or dev-only Claude CLI provider |
 | Alerts (price/funding/liq, sockets, toasts) | Done |
 | Hosting | Not deployed yet. Deployment plan (Vercel + long-running Node host + Atlas) is in `../README.md`; `frontend/vercel.json` exists. Blockers listed in `TODO.md` (trust proxy, logging, single-instance deploys). |
-| Tests | Backend 430 passing; frontend 128 passing in 27 suites with 3 suites failing to load (axios ESM) at 2026-11-20. See `TODO.md`. |
+| Tests | Backend 705 passing; frontend 179 passing in 35 suites, none failing (2026-11-21). See `TODO.md`. |
 | Git | Last commit is behind; large uncommitted working tree (futures engine, spot orders, AI, alerts, UI work). Do not assume `git log` reflects the feature set. |
 
 ## Goals

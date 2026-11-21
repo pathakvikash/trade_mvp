@@ -38,7 +38,8 @@ AI agents and new engineers: start at [`context/README.md`](context/README.md) (
 - Market **brief** per symbol (structured output: headline, bias, confidence, drivers, risks, levels to watch; cached 5 min).
 - **Ask** a free-form question about a symbol's data.
 - **Alert parsing**: "tell me when BTC funding goes above 0.05%" becomes a validated alert draft you can save.
-- Per-user model choice (Opus 5.5, Sonnet 5.5, Haiku 5.5) in Settings.
+- Per-user model choice (Opus 5.5, Sonnet 5.5, Haiku 5.5) in Settings, or bring your own key (Anthropic, OpenAI, Gemini, OpenRouter, custom https endpoint), plus a personal style prompt, answer length and an opt-in to share your paper portfolio with the model.
+- Settings (`/settings/profile|ai|preferences|security`): avatar, preferences (ticker bar, compact tables, reduced motion, time format, landing page, alert sound/toasts), sign out everywhere, data export and account deletion.
 
 **Paper trading**
 - **Spot**: market and limit orders, holdings, average cost, 0.1% fee, $5 minimum, limit orders reserve funds and are filled by a background matcher.
@@ -195,6 +196,7 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 | `NODE_ENV` | yes | none | `development` / `production` / `test`. Gates dev-only features (CLI AI provider, `dev-hint`), the `HOST` default and production config checks (below). |
 | `MONGO_URI` | yes | none | MongoDB connection string. |
 | `JWT_SECRET` | yes | none | HS256 signing key, >= 32 chars (enforced in every environment); values that look like placeholders (`changeme`, `secret...`, `example`, `xxxxxx`...) are rejected at startup. |
+| `ENCRYPTION_KEY` | no | derived from `JWT_SECRET` | Key for saved BYO AI keys (AES-256-GCM): 64 hex chars or base64 of 32 bytes. Invalid value fails startup (the value is never printed). Unset: HKDF from `JWT_SECRET` with one startup warning. Rotating it (or `JWT_SECRET` when unset) makes saved AI keys unreadable: `ai_key_unreadable` 409, the user re-enters the key. |
 | `PORT` | no | `4000` | HTTP port. Hosts that inject `PORT` just work. Do not leave it set but empty. |
 | `HOST` | no | `127.0.0.1` (`0.0.0.0` when `NODE_ENV=production`) | Bind address. Set only to override the default. |
 | `TRUST_PROXY` | no | `0` | Reverse-proxy hops to trust for `req.ip` (rate-limit keys): `0`/`false`, a hop count (`1` on Render/Railway/Fly), or `true` (trusts every `X-Forwarded-For` entry, spoofable). Applied with `app.set('trust proxy', ...)` before any limiter. Invalid values fail startup. |
@@ -207,6 +209,11 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 | `ANTHROPIC_AUTH_TOKEN` | no | none | Alternative Anthropic credential (also enables AI). |
 | `AI_MODEL` | no | `claude-opus-5-5` | Server default model; users may pick another from the allow-list in Settings. |
 | `AI_MAX_CALLS_PER_HOUR` | no | `60` | Process-wide ceiling on billed AI calls per rolling hour (`0` blocks all). |
+| `LMSTUDIO_BASE_URL` | no | `http://localhost:1234/v1` | Default LM Studio base URL when a user leaves it empty. Must be `localhost`, `127.0.0.1` or `[::1]`. |
+| `LMSTUDIO_MODEL` | no | `qwen/qwen3.5-9b` | Default LM Studio model id when a user leaves it empty. |
+| `LMSTUDIO_MAX_TOKENS` | no | `4096` | `max_tokens` for LM Studio calls (never below 1500): reasoning models spend tokens thinking before the answer. |
+| `LMSTUDIO_REASONING_EFFORT` | no | `none` | `reasoning_effort` sent to LM Studio. `none` turns Qwen 3.5 thinking off (a thinking brief took minutes on a laptop); `low`/`medium`/`high` turn it on. |
+| `ALLOW_LOCAL_LLM` | no | off | `true` allows LM Studio (loopback URLs) when `NODE_ENV=production`. Off by default: on a shared server a user-controlled loopback URL is SSRF. |
 | `AI_PROVIDER` | no | unset | Code-only (not in `.env.example`). `api` forces the Anthropic API even in development, disabling the CLI provider. |
 | `CLAUDE_BIN` | no | `claude` | Code-only. Path of the Claude Code CLI used by the dev-only CLI provider. |
 | `BINANCE_FUTURES_REST` | no | `https://fapi.binance.com` | REST base URL (e.g. a proxy). |
@@ -229,6 +236,10 @@ The AI features (`/api/ai/*`) work with one of two providers, chosen at request 
 2. **Claude Code CLI (development only).** When `NODE_ENV=development`, no `ANTHROPIC_*` credential is set, `AI_PROVIDER` is not `api`, and `claude auth status` reports a login, the server spawns `claude -p` (no shell, prompt on stdin, tools disabled, `ANTHROPIC_*` stripped from the child env, 120 s timeout, 2 concurrent) on the signed-in claude.ai account. `provider` reports `"cli"`. This is a convenience for local work and **never activates when `NODE_ENV` is anything other than `development`**.
 
 Without either, AI endpoints answer `503 ai_not_configured` and the UI shows a setup hint.
+
+**Bring your own key.** In Settings -> AI a user can pick `anthropic`, `openai`, `gemini`, `openrouter`, `custom` (any https endpoint) or `lmstudio` (local, below) instead of `default` (the server path above). Keys are encrypted at rest (AES-256-GCM, see `ENCRYPTION_KEY`), never returned (only `keySet` and the last 4 chars), and dropped from the data export. Calls go out over plain `https.request` with no redirects. A custom base URL must be https (http allowed only when `NODE_ENV=development`) and may not point at localhost, `.internal`, private, loopback, CGNAT, link-local/metadata, multicast or mapped IPv6 ranges; hostnames are checked at connect time (DNS-rebinding safe). Temperature is never sent to Anthropic, nor to OpenAI `gpt-5*`/`o*` models. Your style prompt (<= 2000 chars) goes before the server rules; the rules (data only, scenarios not certainty, "sampled"/"estimate" wording, both cases, word cap 100/180/300) and the not-financial-advice disclaimer are always appended and enforced in code. Optional "include my portfolio" adds your paper cash, holdings and open futures positions to the context.
+
+**LM Studio (local models).** Pick `LM Studio (local)` in Settings -> AI. No key is needed (the field is hidden; a placeholder bearer is sent). Base URL defaults to `http://localhost:1234/v1` (`LMSTUDIO_BASE_URL`), model to `qwen/qwen3.5-9b` (`LMSTUDIO_MODEL`); "Fetch models" lists the chat models LM Studio has loaded (`GET /api/ai/lmstudio/models`, embedding models filtered out). The base URL may only be `localhost`, `127.0.0.1` or `[::1]` by literal text (http or https, optional port and path): userinfo, decimal/hex/mapped IP forms, other DNS names, private ranges and metadata IPs are refused, `localhost` must resolve to loopback at connect time, and redirects are not followed. It works when `NODE_ENV` is not `production`, or with `ALLOW_LOCAL_LLM=true`. Calls use a 180 s timeout, thinking off by default (`LMSTUDIO_REASONING_EFFORT`), a trimmed market-data block (the default loaded context is only 8192 tokens; overflow answers `502 ai_context_too_small`), and `max_tokens` of at least 1500 (`LMSTUDIO_MAX_TOKENS`, default 4096) because reasoning models (Qwen 3.5) think first; the Length setting still trims the visible answer. Thinking (`reasoning_content`, `<think>` blocks) is never shown; if the model spends the whole budget thinking, the API answers `502 ai_reasoning_budget`. LM Studio may forward to a model on another machine; this server only ever talks to loopback. The "include my portfolio" consent applies exactly as for other providers.
 
 Cost and abuse controls: 10 AI requests per user per minute, a process-wide hourly budget (`AI_MAX_CALLS_PER_HOUR`), a 5-minute brief cache per symbol+model (concurrent callers share one in-flight call), failures are never cached.
 
@@ -256,9 +267,14 @@ Base URL: `http://localhost:4000`. "Auth" = `Authorization: Bearer <jwt>`. Error
 | GET | `/config` | no | `{googleClientId}` | none |
 | GET | `/dev-hint` | no | Demo credentials; 404 unless development + seeding + loopback | 30/min |
 | GET | `/verify` | yes | Validate token, return user | none |
-| GET | `/me` | yes | User + AI model allow-list | none |
-| PATCH | `/me` | yes | Update `name`, `profile`, `preferences`, `ai.model` (unknown keys -> 422) | none |
-| POST | `/password` | yes | Change password, returns a fresh token, revokes older ones | 5/min |
+| GET | `/me` | yes | `{user, aiModels, aiProviders, aiDefaultPrompt, aiServerRules}` (never keys or hashes) | none |
+| PATCH | `/me` | yes | Update `name`, `profile`, `preferences`, `ai` (provider, model, systemPrompt, temperature, length, includePortfolio, providers model/baseUrl); keys are not settable here; unknown keys -> 422 | none |
+| PUT | `/me/avatar` | yes | `{avatar}`: `emoji:<emoji>` or `data:image/jpeg\|webp;base64,...` (<= 150KB decoded, magic bytes checked) | 20/min/user |
+| DELETE | `/me/avatar` | yes | Back to initials | 20/min/user |
+| POST | `/password` | yes | Change password (Google-created accounts may omit `currentPassword` within 10 min of sign-in, else `REAUTH_REQUIRED`); returns a fresh token, revokes older ones | 5/min |
+| POST | `/logout-all` | yes | Bump `tokenVersion`, return a fresh token for this session; other sessions and their `/alerts` sockets are dropped | 5/min/user |
+| GET | `/me/export` | yes | JSON download: profile, settings (no secrets), trades, orders, positions, futures orders, alerts | 5/min/user |
+| DELETE | `/me` | yes | `{confirmEmail}`: locks the account, then deletes all its data. 409 `OPEN_FUTURES` while positions are opening/open, futures orders placing/open, or ops pending/error. 500 on partial failure leaves the account locked for manual cleanup | 3/min/user |
 
 ### Spot trading
 
@@ -278,11 +294,12 @@ Base URL: `http://localhost:4000`. "Auth" = `Authorization: Bearer <jwt>`. Error
 | GET | `/positions` | `{positions: open (with busy, markPrice), closed: last 20}` | none |
 | GET | `/orders` | `{orders: open limit entries, closed: last 20}` | none |
 | POST | `/orders` | Open/add (market) or place limit entry `{symbol, side: long/short, type, size, leverage, limitPrice?, tp?, sl?}` | 30/min/user |
+| PATCH | `/orders/:id` | Set/clear `tp` / `sl` on an open limit entry (price/size/leverage: cancel and re-place) | 30/min/user |
 | DELETE | `/orders/:id` | Cancel a limit entry, credit the reservation | 30/min/user |
 | POST | `/positions/:id/close` | Close all, or `{size}` partially, at mark | 30/min/user |
-| PATCH | `/positions/:id` | Set/clear `tp` / `sl` (`null` clears) | 30/min/user |
+| PATCH | `/positions/:id` | Set/clear `tp` / `sl` (`null` clears) and/or change `leverage` (re-sizes isolated margin: releases or debits the difference); all applied together or none | 30/min/user |
 
-Futures error codes: `INSUFFICIENT_BALANCE`, `MIN_NOTIONAL`, `LEVERAGE_TOO_HIGH`, `LEVERAGE_MISMATCH`, `MAX_POSITIONS`, `MAX_ORDERS`, `BAD_TPSL`, `BAD_SIZE`, `UNKNOWN_MARKET`, `NOT_FOUND`, `NOT_OPEN`, `POSITION_BUSY` (retry), `NO_PRICE` (503), `OP_FAILED` (500), 422 validation, 429 limiter.
+Futures error codes: `INSUFFICIENT_BALANCE`, `MIN_NOTIONAL`, `LEVERAGE_TOO_HIGH`, `LEVERAGE_MISMATCH`, `MAX_POSITIONS`, `MAX_ORDERS`, `BAD_TPSL`, `LIQ_BREACH` (leverage change would put liq at/through the mark), `BAD_SIZE`, `UNKNOWN_MARKET`, `NOT_FOUND`, `NOT_OPEN`, `POSITION_BUSY` (retry), `NO_PRICE` (503), `OP_FAILED` (500), 422 validation, 429 limiter.
 
 ### Market data (`/api/market`, public, 120/min per IP for the whole router)
 
@@ -308,8 +325,12 @@ Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** 
 | GET | `/brief/:symbol` | Structured market brief (cached 5 min) |
 | POST | `/ask` | `{symbol, question (3..500 chars)}` -> `{answer}` |
 | POST | `/alerts/parse` | `{text (3..300 chars)}` -> `{draft}` or 422 |
+| PUT | `/keys/:provider` | `{apiKey}` (8..300 chars) -> `{provider, keySet, keyLast4}`; 20/min/user |
+| DELETE | `/keys/:provider` | Remove the saved key |
+| POST | `/test` | `{provider}` -> `{ok, provider, model, latencyMs}` using the saved key/model/baseUrl |
+| GET | `/lmstudio/models` | `{models: [id]}`: chat models loaded in the user's LM Studio (saved base URL or default) |
 
-Per user: 10 requests/min across brief/ask/parse. Process-wide: `AI_MAX_CALLS_PER_HOUR`.
+Per user: 10 requests/min across brief/ask/parse/test/lmstudio models. Process-wide hourly budget `AI_MAX_CALLS_PER_HOUR` applies only to the `default` provider. Error codes: `ai_no_key` 400, `ai_bad_base_url` 400, `ai_no_model` 400, `ai_local_disabled` 400 (LM Studio in production without `ALLOW_LOCAL_LLM`), `ai_key_unreadable` 409, `ai_rate_limited` 429, `ai_not_configured` 503, `ai_auth_failed` / `ai_unreachable` / `ai_upstream_error` / `ai_reasoning_budget` 502 (`ai_auth_failed` is 502 on purpose: the SPA signs out on any 401).
 
 ### Alerts (`/api/alerts`, authenticated, 60/min/user)
 
@@ -370,7 +391,7 @@ Dev-only gates (all depend on `NODE_ENV=development`): the `GET /api/auth/dev-hi
 
 | Where | Command | Notes |
 |---|---|---|
-| Backend | `cd backend && npm test` | Jest; `tests/setupEnv.js` injects dummy `NODE_ENV/MONGO_URI/JWT_SECRET` and ignores `backend/.env`. Tests use in-memory fakes of the Mongoose models, not a database, and no `supertest` (a small in-process dispatcher is used in `futuresApi.test.js`). 430 tests passing at last count (2026-11-20). |
+| Backend | `cd backend && npm test` | Jest; `tests/setupEnv.js` injects dummy `NODE_ENV/MONGO_URI/JWT_SECRET` and ignores `backend/.env`. Tests use in-memory fakes of the Mongoose models, not a database, and no `supertest` (a small in-process dispatcher is used in `futuresApi.test.js`). 705 tests passing at last count (2026-11-21); frontend 35 suites / 179 tests passing. |
 | Frontend | `cd frontend && CI=true npm test -- --watchAll=false` | react-scripts/Jest, DOM tests via `react-dom/test-utils` + `createRoot` (no React Testing Library). At last run 27 suites / 128 tests passed and 3 suites (`Market`, `Liquidation`, `SymbolLiquidations`) failed to load with `Cannot use import statement outside a module` (the ESM build of axios pulled in through `lib/api.js`); treat as a known open issue, see [`context/TODO.md`](context/TODO.md). |
 | Frontend build | `cd frontend && npm run build` | With `CI=true` (typical on Vercel and CI) **warnings are errors**: an unused import or hook-deps warning fails the build. |
 

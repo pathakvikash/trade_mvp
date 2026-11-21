@@ -125,6 +125,8 @@ describe('POST /api/auth/google', () => {
         expect(stored.googleId).toBe('google-sub-1');
         expect(typeof stored.password).toBe('string');
         expect(stored.password.length).toBe(64); // 32 random bytes, hex
+        expect(stored.passwordSet).toBe(false); // Settings offers set-a-password without a current one
+        expect(res.body.user.security).toEqual({ passwordSet: false, googleLinked: true });
 
         const claims = jwt.verify(res.body.token, SECRET, { algorithms: ['HS256'] });
         expect(claims).toMatchObject({ role: 'user' });

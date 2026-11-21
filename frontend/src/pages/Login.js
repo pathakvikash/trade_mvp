@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../store/userStore';
 import { API } from '../lib/api';
+import { landingPath } from '../lib/landing';
 import Spinner from '../components/ui/Spinner';
 import GoogleButton from '../components/auth/GoogleButton';
 
@@ -53,7 +54,9 @@ const Login = () => {
           email: response.data.user.email,
           name: response.data.user.name,
           username: response.data.user.username,
-          role: response.data.user.role
+          role: response.data.user.role,
+          preferences: response.data.user.preferences,
+          profile: response.data.user.profile,
         };
         setLogin(response.data.token, userData);
 
@@ -61,7 +64,7 @@ const Login = () => {
           await axios.get(`${API}/api/auth/verify`, {
             headers: { Authorization: `Bearer ${response.data.token}` }
           });
-          navigate('/dashboard');
+          navigate(landingPath(response.data.user.preferences));
         } catch (verifyError) {
           throw new Error('Token verification failed');
         }

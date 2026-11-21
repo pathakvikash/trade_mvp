@@ -32,13 +32,13 @@
 - **No supertest, no sockets.** Sandboxes may forbid binding ports. Route tests either call a controller/handler directly with a fake `res` (`auth.test.js`) or dispatch through the real Express router in-process with a hand-rolled `IncomingMessage`/`ServerResponse` pair (`futuresApi.test.js`, `settings.test.js`, `google.test.js`). `supertest` is in `devDependencies` but unused; do not start servers in tests.
 - Engines expose a `_test` object (`riskEngine._test`, `alertService._test`, `futuresService._test`, `orderMatcher._test`) for internals; add to it rather than exporting internals publicly.
 - Shared vectors: futures check vectors V1-V5 appear in both backend and frontend math tests; keep them in sync with `DOMAIN.md`.
-- New money/security logic needs a test that fails if the logic breaks. Run `cd backend && npm test` (430 passing at 2026-11-20).
+- New money/security logic needs a test that fails if the logic breaks. Run `cd backend && npm test` (705 passing at 2026-11-21; frontend 35 suites / 183 tests).
 
 ## Frontend
 
 | Topic | Convention |
 |---|---|
-| Structure | Pages in `pages/` own data fetching and layout; presentational pieces in `components/<area>/`; shared UI kit in `components/ui/` (`Panel`, `Card`, `Button`, `Input`, `Select`, `SegTabs`, `Skeleton`, `Spinner`); pure logic in small `.js` files next to components (`alertLogic.js`, `signals.js`, `stats.js`, `heat.js`) so it is unit-testable. Files are `.js` or `.jsx` mixed. |
+| Structure | Pages in `pages/` own data fetching and layout; presentational pieces in `components/<area>/`; shared UI kit in `components/ui/` (`Panel`, `Card`, `Button`, `IconButton` (icon-only, aria-label + tooltip), `Tooltip` (`<Tip text>` / `useTip`: the one tooltip, portal into `document.body`, fixed + flip/clamp, hover/focus, Esc/scroll hide; use it instead of `title=` on Trade controls; `placeFixed`/`useDismiss` also position the positions-table Close menu), `Input`, `Select`, `SegTabs`, `Skeleton`, `Spinner`); pure logic in small `.js` files next to components (`alertLogic.js`, `signals.js`, `stats.js`, `heat.js`) so it is unit-testable. Files are `.js` or `.jsx` mixed. |
 | State | zustand stores in `store/` for cross-page state (user, sockets-fed market/futures, alerts). Page-local state with hooks. |
 | Data | `usePolling(url, ms, refreshKey, token)` (pauses when the tab is hidden, keeps last good data, path change clears data, query change keeps it with `fetching`). One axios default instance; 401 handling lives in the interceptor in `lib/api.js`. Use `API`, `authed(token)`, `errText(e)` from `lib/api`. |
 | Never | Put the Authorization header or the whole axios error in `console` (`console.error(error.message)`). Send a price for a market fill. Trust client math: `lib/futuresMath.js` is preview only, the server decides. |

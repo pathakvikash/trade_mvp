@@ -69,7 +69,7 @@ test('stubbed client: brief maps refusal to a clean error, ask uses the stream f
     jest.spyOn(rest, 'liqmap').mockResolvedValue(null);
     jest.spyOn(rest, 'klines').mockResolvedValue([]);
     await expect(ai.brief('BTCUSDT')).rejects.toMatchObject({ status: 422, code: 'ai_refused' });
-    await expect(ai.ask('BTCUSDT', 'why?')).resolves.toBe('answer');
+    await expect(ai.ask('BTCUSDT', 'why?')).resolves.toBe(`answer\n\n${ai.DISCLAIMER}`);
     await expect(ai.parseAlert('x')).rejects.toMatchObject({ code: 'ai_refused' });
     ai._test.setClient(null);
     jest.restoreAllMocks();
@@ -108,4 +108,55 @@ test('GET /api/ai/status returns configured plus the signed-in user\'s effective
     expect([null, 'api', 'cli']).toContainEqual(body.provider);
     expect(body.configured).toBe(body.provider !== null);
     jest.restoreAllMocks();
+});
+
+test('buildContext adds precomputed trend facts and lists missing inputs', () => {
+    const c = (close, i) => ({ time: i, open: close, high: close + 1, low: close - 1, close });
+    const h = Array.from({ length: 48 }, (_, i) => c(100 + i, i));
+    const ctx = ai.buildContext({ symbol: 'BTCUSDT', overviewRow: null, stats: null, liqmap: null, candles: h, daily: [] });
+    expect(ctx.trend.shortTerm).toMatchObject({ last: 147, chg4hPct: pctOf(143, 147), chg24hPct: pctOf(123, 147), range48h: { high: 148, low: 99 } });
+    expect(ctx.trend.longTerm).toBeNull();
+    expect(ctx.missing).toEqual(expect.arrayContaining(['daily candles', 'liquidation map estimate']));
+    expect(ctx.missing.join()).not.toContain('1h candles');
+});
+function pctOf(a, b) { return Math.round((b / a - 1) * 1e4) / 100; }
+
+test('system prompt asks for both sides, both horizons, grounding and confidence', () => {
+    for (const s of ['long case and a short case', 'Short-term', 'Long-term', 'Never invent', 'confidence', 'invalidate', 'missing', '180 words']) expect(ai.SYSTEM).toContain(s);
+});
+
+test('shapeBrief clips long fields, caps data gaps and appends the disclaimer', () => {
+    const long = 'x'.repeat(500);
+    const side = { entry: long, invalidation: '1', target: '2' };
+    const b = ai.shapeBrief({ headline: long, bias: 'bullish', confidence: 'low', shortTerm: long, longTerm: 'up', long: side, short: side, invalidation: 'below 1', dataGaps: ['a', 'b', 'c', 'd'] });
+    expect(b.headline.length).toBeLessThanOrEqual(120);
+    expect(b.shortTerm.length).toBeLessThanOrEqual(160);
+    expect(b.long.entry.length).toBeLessThanOrEqual(90);
+    expect(b.dataGaps).toEqual(['a', 'b', 'c']);
+    expect(b.note).toBe(ai.DISCLAIMER);
+});
+
+test('shapeAnswer strips markdown and model disclaimers, caps length at a line boundary, appends one disclaimer', () => {
+    const out = ai.shapeAnswer('## Answer: **yes**\nLong case: entry 1\n\n\n\nThis is not financial advice.');
+    expect(out).toBe(`Answer: yes\nLong case: entry 1\n\n${ai.DISCLAIMER}`);
+    const line = 'word '.repeat(50).trim();
+    const capped = ai.shapeAnswer(Array(10).fill(line).join('\n'));
+    expect(capped.split('\n').filter((l) => l === line)).toHaveLength(4);
+});
+
+test('mapError passes an AiError detail through; compactLocal trims the data block for small local contexts', () => {
+    expect(ai.mapError(new ai.AiError(502, 'ai_context_too_small', 'n_ctx 8192'))).toEqual({ status: 502, body: { error: 'ai_context_too_small', detail: 'n_ctx 8192' } });
+    expect(ai.mapError(new ai.AiError(502, 'ai_upstream_error'))).toEqual({ status: 502, body: { error: 'ai_upstream_error' } });
+    const rows = (n) => Array.from({ length: n }, (_, i) => ({ ts: 1763700000000 + i, ratio: i }));
+    const candles = Array.from({ length: 48 }, (_, i) => ({ time: 1763700000 + i * 3600, open: 1, high: 2, low: 0.5, close: 1 + i }));
+    const levels = Array.from({ length: 40 }, (_, i) => ({ price: 90 + i, longUsd: i < 20 ? 1e6 : 0, shortUsd: i >= 20 ? 1e6 : 0 }));
+    const full = ai.buildContext({ symbol: 'BTCUSDT', overviewRow: { symbol: 'BTCUSDT', nextFundingTime: 1763700000000, fundingRate: 0.0001 }, stats: { longShort: rows(200), funding: rows(100) }, liqmap: { price: 110, levels }, liqEvents: [], candles, daily: candles });
+    const small = ai.compactLocal(full);
+    expect(small.stats1h.longShort).toEqual([42, 43, 44, 45, 46, 47].map((i) => ({ ratio: i + 152 })));
+    expect(small.candles1h).toHaveLength(6);
+    expect(small.candles1h[5]).toEqual({ open: 1, high: 2, low: 0.5, close: 48 });
+    expect(small.liqMapEstimate.longLiqNearest).toHaveLength(5);
+    expect(small.overview).toEqual({ symbol: 'BTCUSDT', fundingRate: 0.0001 });
+    expect(small.trend).toEqual(full.trend); // the long-range facts survive
+    expect(JSON.stringify(small).length).toBeLessThan(JSON.stringify(full).length / 3);
 });

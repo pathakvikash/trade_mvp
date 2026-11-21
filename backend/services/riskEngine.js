@@ -96,7 +96,8 @@ const orderCrosses = (o, mark) => (o.side === 'long' ? mark <= o.limitPrice : ma
 // The limit-entry fill as one op: open a new position or add to the existing one, at the LIMIT price. The reservation
 // equals margin + fee, so the balance delta is normally 0 (any difference is settled, never lost).
 async function fillSpec(o) {
-  const orderTarget = { model: 'FuturesOrder', id: o._id, expect: { status: 'open' } };
+  // tp/sl pinned: a PATCH /orders/:id between our read and the lock must not be lost (the fill copies them to the position)
+  const orderTarget = { model: 'FuturesOrder', id: o._id, expect: { status: 'open', tp: o.tp ?? null, sl: o.sl ?? null } };
   const reserved = cents(o.reserved);
   const rejectSpec = (why) => {
     logger.warn(`risk: rejecting futures order ${o._id}: ${why}`);

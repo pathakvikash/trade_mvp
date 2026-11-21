@@ -16,7 +16,7 @@ const Toasts = () => {
             <p className="text-xs tabular-nums text-slate-400">Now {Number(t.observed).toLocaleString('en-US', { maximumFractionDigits: 6 })}</p>
             {t.note && <p className="mt-0.5 truncate text-xs text-slate-400">{t.note}</p>}
           </div>
-          <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss alert" className="focus-ring rounded-md p-1 text-slate-400 hover:text-slate-100">
+          <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss alert" title="Dismiss" className="focus-ring rounded-md p-1 text-slate-400 hover:text-slate-100">
             <Icon d={ICONS.close} />
           </button>
         </div>

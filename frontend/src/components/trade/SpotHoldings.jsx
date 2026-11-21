@@ -21,7 +21,7 @@ const SpotHoldings = ({ holdings = [], trades = [], prices = {}, loading = false
   if (loading) return <div aria-busy="true" aria-label="Loading spot holdings"><Skeleton className="h-4 w-full" /></div>;
   return (
     <div className="mt-3 border-t border-slate-800/60 pt-2 text-xs tabular-nums">
-      <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Spot holdings</h3>
+      <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Spot holdings{rows.length > 0 && <span className="ml-1 text-slate-400" data-testid="spot-count">({rows.length})</span>}</h3>
       {rows.length === 0 ? <div className="py-1 text-slate-500">No spot holdings</div> : (
         <div className="overflow-x-auto">
           <table aria-label="Spot holdings" className="w-full min-w-[460px] text-slate-300">

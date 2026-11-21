@@ -131,3 +131,18 @@ describe('closeQuote and unrealized', () => {
     expect(fm.unrealized(short, 110).pnl).toBe(-10);
   });
 });
+
+describe('leverageQuote (re-size isolated margin on the entry notional)', () => {
+  const pos = { side: 'long', size: 1, entryPrice: 100, margin: 10, leverage: 10, mmr: 0.004 };
+  test('10x -> 20x releases 500c, liq moves up; 10x -> 5x debits 1000c, liq moves down', () => {
+    expect(fm.leverageQuote(pos, 20)).toEqual({ margin: 500, delta: 500, liqPrice: 95.3815261 });
+    expect(fm.leverageQuote(pos, 5)).toEqual({ margin: 2000, delta: -1000, liqPrice: 80.32128514 });
+  });
+  test('margin rounds up like open; short liq on the other side', () => {
+    expect(fm.leverageQuote({ ...pos, size: 1, entryPrice: 100.01 }, 3).margin).toBe(3334); // 10001/3 = 3333.67 -> 3334
+    expect(fm.leverageQuote({ ...pos, side: 'short' }, 20).liqPrice).toBe(104.58167331);
+  });
+  test('after adds the delta is vs the margin actually held', () => {
+    expect(fm.leverageQuote({ ...pos, size: 2, entryPrice: 110, margin: 22 }, 20)).toMatchObject({ margin: 1100, delta: 1100 });
+  });
+});

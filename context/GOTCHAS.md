@@ -16,6 +16,9 @@
 | Logs in production | Console transport is always on (JSON in production); `error.log`/`combined.log` only when `LOG_TO_FILES=true` (default off in production, on elsewhere). Redaction applies to both. |
 | Log files by cwd | Winston writes `error.log`/`combined.log` relative to the process cwd (so `backend/` or wherever you started node, which is why stray logs appear in `backend/services/` and the repo root). |
 
+| `ENCRYPTION_KEY` / `JWT_SECRET` rotation | Saved BYO AI keys become unreadable (`ai_key_unreadable` 409); users re-enter them. Unset `ENCRYPTION_KEY` logs one startup warning. An invalid value fails startup without printing it. |
+| Google-created accounts | `passwordSet:false`; setting a password without the current one only works within 10 min of sign-in (`REAUTH_REQUIRED` otherwise). |
+
 ## Routes and servers
 
 | Gotcha | Detail |
@@ -51,6 +54,8 @@
 | `docs/phase2-leverage.md` vs code | Code adds `Position.rev`, lock `expect` filters, `OP_FAILED`, `BAD_SIZE`, periodic marker sweep. Trust the code. |
 | Float noise | Never compare money floats with `===`; use the cents helpers. |
 | Liquidation has no fee and credit 0 | Entire margin is forfeited; `realizedPnl` records `-margin`. |
+| Account delete races | Deleting a user mid spot limit fill leaves the order rejected with noisy refund/orphan logs (no money). A futures request that passed auth just before the lock can orphan one op/position (parks as an `error` op). |
+| `ai_auth_failed` is 502 | On purpose: the SPA signs out on any 401, so a bad provider key must not be 401. |
 
 ## Tests and tooling
 
@@ -58,7 +63,7 @@
 |---|---|
 | No supertest / no listening ports in tests | See `CONVENTIONS.md`; use the in-process dispatch pattern. |
 | `react-router-dom` in jest | Needs `jest.mock('react-router-dom', factory, { virtual: true })`. |
-| Axios ESM in jest | Importing `lib/api` (which imports axios) without a `jest.mock('axios')` fails with `Cannot use import statement outside a module`. Failing at 2026-11-20: `pages/Market.test.js`, `pages/Liquidation.test.js`, `components/trade/SymbolLiquidations.test.js`. |
+| Axios ESM in jest | Importing `lib/api` (which imports axios) without a `jest.mock('axios')` fails with `Cannot use import statement outside a module`. The three suites that failed on this at 2026-11-20 (`pages/Market.test.js`, `pages/Liquidation.test.js`, `components/trade/SymbolLiquidations.test.js`) pass now (2026-11-21); keep the mock in any new test touching `lib/api`. |
 | CI = warnings are errors | `CI=true npm run build` fails on ESLint warnings. |
 | npm cache | Sandbox may need `npm install --cache "$TMPDIR/npm-cache"`. |
 | Jest watch mode | CRA `npm test` is interactive; use `CI=true ... --watchAll=false` in scripts/agents. |
@@ -72,3 +77,4 @@
 | Persisted state per user | `usePersistedState` keys include the user id; a logged-out value is `anon`. Stored values are validated; bump the `validate` rule, not the key, when shapes change. |
 | `OrderCard` is keyed by symbol | Changing symbol remounts the forms (intentional reset). |
 | Legacy files | `CompanyDash.jsx`, `components/company/*`, `CompanyViewModel.js`, `CompDash.css` are unused; do not copy patterns from them. Default CRA title in `public/index.html`. |
+| LM Studio context | LM Studio loads models with a small context (8192 for qwen3.5-9b) whatever the model supports, and parallel requests split it. The full brief data block is ~12k tokens, so `aiService.compactLocal` trims it for `lmstudio` (newest 6 rows, no timestamps, 5 liq levels; ~2.7k tokens). An overflow returns `502 ai_context_too_small`; any other LM Studio error returns `ai_upstream_error` with a `detail` (200 chars). Every upstream non-2xx is logged at warn (provider, status, 300 chars, key masked). Thinking is off by default (`LMSTUDIO_REASONING_EFFORT`), timeout 180 s. |

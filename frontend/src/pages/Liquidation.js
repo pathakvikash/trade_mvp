@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import usePersistedState from '../lib/usePersistedState';
 import usePolling from '../lib/usePolling';
@@ -8,6 +8,7 @@ import CoinTreemap from '../components/liquidation/CoinTreemap';
 import LiqHeat from '../components/liquidation/LiqHeat';
 import LiqMap from '../components/liquidation/LiqMap';
 import LiveFeed from '../components/liquidation/LiveFeed';
+import CoinDetail from '../components/liquidation/CoinDrawer';
 import PairPicker from '../components/ui/PairPicker';
 import { FUT } from '../components/liquidation/shared';
 
@@ -20,6 +21,9 @@ const Liquidation = () => {
   const raw = (params.get('symbol') || '').toUpperCase();
   const symbol = SYMBOL_RE.test(raw) ? raw : saved; // ?symbol= wins over the remembered pick
   const setSymbol = (s) => { setSaved(s); setParams({ symbol: s }); };
+  const [detail, setDetail] = useState(false); // drawer open state is per visit, not persisted
+  const closeDetail = useCallback(() => setDetail(false), []);
+  const pickCoin = (s) => { setSymbol(s); setDetail(true); };
 
   return (
     <div className="space-y-3">
@@ -34,10 +38,11 @@ const Liquidation = () => {
       </div>
       <LiqHeat symbol={symbol} />
       <Summary data={data} error={error} />
-      <CoinTreemap bySymbol={data?.bySymbol} error={error} selected={symbol} onSelect={setSymbol} />
+      <CoinTreemap bySymbol={data?.bySymbol} error={error} selected={symbol} onSelect={pickCoin} />
       <LiquidationHeatmap symbol={symbol} />
       <LiqMap symbol={symbol} />
       <LiveFeed recent={data?.recent} error={error} />
+      {detail && <CoinDetail symbol={symbol} bySymbol={data?.bySymbol} onClose={closeDetail} />}
     </div>
   );
 };

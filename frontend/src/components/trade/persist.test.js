@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import OrderCard from './OrderCard';
 import BottomStrip from './BottomStrip';
 import { readPersisted } from '../../lib/usePersistedState';
+import useUserStore from '../../store/userStore';
 
 jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 jest.mock('../ai/CopilotPanel', () => () => null);
@@ -29,7 +30,7 @@ const card = (sym) => (
 );
 
 beforeEach(() => localStorage.clear());
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); useUserStore.setState({ user: null }); });
 
 test('mode and leverage per symbol survive a remount', async () => {
   await render(card('BTC'));
@@ -70,4 +71,21 @@ test('bottom tab survives a remount; an invalid stored tab falls back to positio
   localStorage.setItem('tm:v1:anon:trade.bottomTab', JSON.stringify('nope'));
   await remount(strip);
   expect(btn('Positions').getAttribute('aria-selected')).toBe('true');
+});
+
+test('Settings defaults (leverage, order type) seed the forms until the user picks; the pick then wins', async () => {
+  useUserStore.setState({ user: { _id: 'u1', preferences: { defaultLeverage: 40, defaultOrderType: 'limit' } } });
+  await render(card('BTC'));
+  expect(btn('Limit').getAttribute('aria-selected')).toBe('true'); // spot form
+  await click('Futures');
+  expect(btn('Limit').getAttribute('aria-selected')).toBe('true');
+  expect(host.querySelector('input[type="range"]').value).toBe('40');
+  await remount(card('ETH'));
+  expect(host.querySelector('input[type="range"]').value).toBe('25'); // clamped to the ETH max
+  await remount(card('BTC'));
+  await click('5x');
+  await click('Market');
+  await remount(card('BTC'));
+  expect(host.querySelector('input[type="range"]').value).toBe('5');
+  expect(btn('Market').getAttribute('aria-selected')).toBe('true');
 });

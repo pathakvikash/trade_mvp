@@ -81,6 +81,15 @@ function closeQuote(pos, closeSize, exit) {
   return { pnl, fee, released, credit: Math.max(0, released + pnl - fee) };
 }
 
+// Leverage change on an open position: isolated margin re-sized on the ENTRY notional with the same rounding as open
+// (ceil). mmr stays as fixed at open/add (tier depends on notional, which does not change). The caller checks the tier
+// cap and that the new liq is not already breached by the mark.
+// -> cents: { margin (new total), delta (+ = released to the balance, - = extra debit) }, liqPrice (USD)
+function leverageQuote(pos, lev) {
+  const margin = marginOf(notionalCents(pos.size, pos.entryPrice), lev);
+  return { margin, delta: Math.round(pos.margin * 100) - margin, liqPrice: liqPrice(pos.side, pos.entryPrice, pos.size, margin / 100, pos.mmr) };
+}
+
 // Display only, USD, unrounded. roe is percent of the USD margin.
 function unrealized(pos, mark) {
   const sign = pos.side === 'long' ? 1 : -1;
@@ -99,5 +108,6 @@ module.exports = {
   openQuote,
   addQuote,
   closeQuote,
+  leverageQuote,
   unrealized,
 };

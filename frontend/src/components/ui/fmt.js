@@ -16,7 +16,11 @@ export const fmtUsd = (n) => {
   return Number.isFinite(v) ? usd.format(v) : '--';
 };
 
-export const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+// undefined = the browser locale decides (preference "auto"). ponytail: module state, so a changed preference shows on each
+// component's next render rather than instantly everywhere; upgrade path: put it in a store if that ever matters.
+let hour12;
+export const setTimeFormat = (f) => { hour12 = f === '12h' ? true : f === '24h' ? false : undefined; };
+export const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12 });
 
 // hh:mm:ss until `ms` elapse; '--' when there is nothing to count down to
 export const fmtCountdown = (ms) => {

@@ -2,11 +2,13 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const User = require('../models/User');
 
-// Deleted, locked, or issued before the last password change all fail; fails closed on DB error / bad userId.
+// Deleted, locked, issued before the last password change, or carrying a stale tokenVersion (`tv`, bumped by password
+// change / sign-out-everywhere) all fail; a token without tv counts as 0 so sessions survive the deploy that added it; fails closed on DB error / bad userId.
 async function accountOk(decoded) {
   try {
-    const user = await User.findById(decoded.userId).select('lockedAt passwordChangedAt').lean();
-    return !!user && !user.lockedAt && !(user.passwordChangedAt && decoded.iat < Math.floor(user.passwordChangedAt.getTime() / 1000));
+    const user = await User.findById(decoded.userId).select('lockedAt passwordChangedAt tokenVersion').lean();
+    return !!user && !user.lockedAt && (decoded.tv || 0) === (user.tokenVersion || 0)
+      && !(user.passwordChangedAt && decoded.iat < Math.floor(user.passwordChangedAt.getTime() / 1000));
   } catch (e) {
     return false;
   }

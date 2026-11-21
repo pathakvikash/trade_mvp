@@ -23,14 +23,16 @@ Backend process (backend/server.js) starts, in this order:
 | `routes/tradeRoutes.js`, `orderRoutes.js` | Spot: place/list trades, portfolio; list/cancel limit orders. |
 | `routes/futuresRoutes.js` | Futures API (auth on all, 30/min/user writes). |
 | `routes/marketRoutes.js` | Public market data: CoinGecko proxies + Binance futures REST aggregations + liquidation buffer; 120/min/IP. |
-| `routes/aiRoutes.js` | `/api/ai/*`: status, brief (5 min cache), ask, alerts/parse; per-user 10/min + process budget. |
+| `routes/aiRoutes.js` | `/api/ai/*`: status, brief (5 min cache), ask, alerts/parse, `PUT/DELETE /keys/:provider`, `POST /test`, `GET /lmstudio/models`; per-user 10/min for all providers, process hourly budget only for `default`. |
+| `services/secretBox.js` | AES-256-GCM seal/open for saved AI keys: `v1.iv.tag.ct`, AAD `userId:provider`; key from `ENCRYPTION_KEY` or HKDF of `JWT_SECRET`. |
+| `services/aiProviders.js` | BYO providers (anthropic/openai/gemini/openrouter/custom) over `https.request`, no redirects; custom base URL SSRF guard (`guardedLookup` at connect time, final URL re-checked). |
 | `routes/alertRoutes.js` | Alerts CRUD + events (inline validation, 60/min/user). |
-| `controllers/authController.js` | register, login, Google login, verify, me, updateMe, changePassword, `devHint`, `authConfig`, boot-time `lockLegacyAccounts` / `initializeDefaultUsers` / `warnAboutAdmins`. JWT `sign()` (HS256, 24h). |
+| `controllers/authController.js` | register, login, Google login, verify, me, updateMe, avatar, changePassword, logoutAll, export, deleteAccount, `devHint`, `authConfig`, boot-time `lockLegacyAccounts` / `initializeDefaultUsers` / `warnAboutAdmins`. JWT `sign()` (HS256, 24h). |
 | `controllers/tradeController.js` | Spot market + limit placement, portfolio (holdings + avg cost), trade list. |
 | `controllers/orderController.js` | List/cancel spot limit orders (conditional status flip, then release reservation). |
 | `controllers/futuresController.js` | Futures API: validates, quotes via `futuresMath`, builds ledger op specs, maps ledger results to HTTP (`ApiError` + codes). Never writes money itself. |
 | `controllers/BaseController.js` | `wrap(handler)` async error wrapper + response helpers. |
-| `middleware/auth.js` | Bearer JWT verify (HS256 only) + `accountOk` (user exists, not `lockedAt`, token `iat` >= `passwordChangedAt`). Exports `accountOk` (also used by the alerts socket). |
+| `middleware/auth.js` | Bearer JWT verify (HS256 only) + `accountOk` (user exists, not `lockedAt`, token `iat` >= `passwordChangedAt`, token `tv` == `User.tokenVersion`, missing `tv` = 0). Exports `accountOk` (also used by the alerts socket). |
 | `middleware/rateLimit.js` | In-memory sliding-window limiter: `createLimiter`, `limitBy(opts, keyFn)`, `ipKey` (IPv6 -> /64). Max 5000 keys, LRU eviction. |
 | `middleware/validator.js` | express-validator rule sets (auth, settings, spot extras, futures order/close/tpsl) + `validate` (422). |
 | `middleware/errorHandler.js` | Generic JSON error; logs full error server-side, never to the client. |
@@ -53,7 +55,7 @@ Backend process (backend/server.js) starts, in this order:
 
 | Path | Responsibility |
 |---|---|
-| `index.js`, `App.js` | Mount, `installAuthInterceptor()`, router (lazy pages; public: `/`, `/login`, `/register`, `/market` (`/markets` redirects); protected: `/dashboard /trade /derivatives /portfolio /liquidation /settings`; `/alerts` redirects to `/trade?alerts=1`; `*` -> NotFound behind `ProtectedRoute`). Starts the market socket once. |
+| `index.js`, `App.js` | Mount, `installAuthInterceptor()`, router (lazy pages; public: `/`, `/login`, `/register`, `/market` (`/markets` redirects); protected: `/dashboard /trade /derivatives /portfolio /liquidation /settings/:section` (profile, ai, preferences, security; `/settings` -> last section, persisted as `settings.section`); `/alerts` redirects to `/trade?alerts=1`; `*` -> NotFound behind `ProtectedRoute`). Starts the market socket once. |
 | `components/Layout.js`, `Header.jsx`, `Sidebar.js`, `shell/nav.jsx`, `shell/CommandPalette.jsx` | App shell (collapsible sidebar, command palette, nav source of truth), one authed alerts socket while logged in. |
 | `components/ProtectedRoute.js`, `ErrorBoundary.js` | Route guard (verifies the persisted token once), render-error boundary per page. |
 | `pages/` | `Home`, `Login`, `register`, `Market`, `Dashboard`, `Trade`, `Derivatives`, `Liquidation`, `Portfolio`, `Settings`, `NotFound` (+ tests for Market, Liquidation, Portfolio, Settings). |
@@ -62,6 +64,8 @@ Backend process (backend/server.js) starts, in this order:
 | `components/derivatives/` | `MarketTable`, `FundingStrip`, `StatChart`, `signals.js`. |
 | `components/dashboard/` | `Tiles`, `Tile`, `Panels`, `Sparkline`, `Bars`, `stats.js`, `format.js`. |
 | `components/market/` | `MarketList`, `MarketChart` (CoinGecko-based Markets page). |
+| `pages/settings/` | `ProfileSection`, `AiSection`, `PreferencesSection`, `SecuritySection`, `avatarImage.js` (client resize to 256x256 via canvas), `shared.jsx`. |
+| `components/shell/TickerBar.jsx`, `components/ui/Avatar.jsx`, `lib/useApplyPreferences.js`, `lib/landing.js` | Ticker under the header (speed, funding countdown on the standard 8h UTC schedule; paper futures charge no funding); Avatar used by Header; applies `data-compact` / `data-reduce-motion` on `<html>` and the time format in `components/ui/fmt.js`; landing page after login/register. |
 | `components/ai/CopilotPanel.jsx` | Brief/Ask UI, `useAiConfigured` (reads `/api/ai/status`), error mapping. |
 | `components/alerts/` | `AlertsPanel` (list/create/AI draft), `Toasts`, `alertLogic.js`. |
 | `components/auth/GoogleButton.jsx` | Loads Google Identity script, posts credential to `/api/auth/google`. |
@@ -96,7 +100,7 @@ Backend process (backend/server.js) starts, in this order:
 3. **Limit**: `placeLimit` -> op `place` creating a `FuturesOrder` (`placing` -> `open`), debit = margin + fee at the limit price (the reservation).
 4. `futuresLedger.run(spec)`, steps: (1) `FuturesOp` journal row `pending` with frozen numbers; (2) lock each target (`lockOp = op._id`; E11000 on `activeKey` -> `onDuplicate` rebuilds as an add, once); (3) one conditional `User.updateOne` that `$inc`s `balance` and sets marker `futuresOps.<opId>` (guard `balance >= debit`); (4) apply `post` to each target and `$inc rev`; (5) op `done`; (6) clear marker. Failure to lock -> `rolled_back` / `POSITION_BUSY`; insufficient funds -> rolled back, new docs voided -> 400 `INSUFFICIENT_BALANCE`.
 5. **Close** (`POST /positions/:id/close {size?}`): own position, open and unlocked; `closeQuote` at the mark (pnl floor, fee ceil, credit = max(0, released + pnl - fee)); partial must leave >= $5 notional; op `close` with `deltaCents = +credit`; final close sets `status:'closed'`, unsets `activeKey`.
-6. **TP/SL edit** (`PATCH /positions/:id`): no money moves, so no ledger op; one conditional `findOneAndUpdate` (`status:'open', lockOp:null`, `$inc rev`).
+6. **Position edit** (`PATCH /positions/:id`, `editPosition`): TP/SL only -> no money moves, no ledger op; one conditional `findOneAndUpdate` (`status:'open', lockOp:null`, `$inc rev`). With a changed `leverage` -> `checkLeverage`, `fm.leverageQuote`, `LIQ_BREACH` vs mark, SL vs the new liq, then one `leverage` ledger op (`expect:{status,size,rev}`, `post` = leverage, margin, liqPrice + tp/sl). `PATCH /orders/:id` (`editOrderTpsl`): conditional update of tp/sl on an open, unlocked limit order.
 7. Responses map ledger codes: `POSITION_BUSY|DUPLICATE_ACTIVE|INCOMPLETE_LOCK` -> 409 `POSITION_BUSY` (retry); unknown -> 500 `OP_FAILED`.
 8. Crash recovery: `recover(op)` rolls an op **forward** from the journal (see `DOMAIN.md`); `riskEngine` calls `recoverAll` at start (all pending older than 15 s) and every pass (<=50, older than 15 s). After 10 failed attempts an op becomes `error` and its targets stay locked ("under review").
 
@@ -113,10 +117,12 @@ Backend process (backend/server.js) starts, in this order:
 ### 5. AI brief  (`GET /api/ai/brief/:symbol`)
 
 1. `auth` -> `isValidSymbol` (`BTCUSDT` form) -> `isKnownSymbol` (404 if not a perp) -> per-user limiter (10/min, after validation).
-2. Cache key `symbol|model` (5 min; in-flight promise shared; failures evicted). Model = user's `ai.model` if on the allow-list else `AI_MODEL`/`claude-opus-5-5`.
+2. Cache key `[userId|]symbol|provider|model|hash(prompt+length)` (5 min; in-flight promise shared; failures evicted); per-user (userId prefix) for BYO providers or `includePortfolio`. Provider/model = the user's settings; `default` uses `ai.model` if on the allow-list else `AI_MODEL`/`claude-opus-5-5`.
 3. `aiService.brief`: `gather` (overview row, 1h stats, liq map, 48 x 1h candles, sampled liquidation buffer; each upstream may fail independently, all failing -> 502 `market_data_unavailable`) -> `spendOrThrow` (hourly process budget, 429) -> `structured()`.
 4. `structured()`: dev CLI provider when `cliAvailable()` (schema in the system prompt, JSON parsed + zod, one retry) else Anthropic SDK `beta.messages.create` with `output_config.format` (zod) and cached system prompt.
 5. Errors mapped by `mapError` to `{error: code}` with 429/422/502/503; SDK messages are never returned.
+
+Prompt assembly (brief and ask, not alert parsing): user style prompt first, then server rules always appended; disclaimer and word cap (short/normal/detailed = 100/180/300) enforced in code. `includePortfolio` (default off) adds cash, spot holdings and open futures positions.
 
 ### 6. Alert trigger
 
@@ -128,11 +134,11 @@ Backend process (backend/server.js) starts, in this order:
 
 ### 7. Login and JWT
 
-1. `POST /api/auth/login` (10/min/IP, validators): lookup by lowercased email, bcrypt compare (dummy hash if unknown), reject locked; `sign()` = HS256, 24 h, payload `{userId, role}`. Response `{token, user}` (public fields only).
+1. `POST /api/auth/login` (10/min/IP, validators): lookup by lowercased email, bcrypt compare (dummy hash if unknown), reject locked; `sign()` = HS256, 24 h, payload `{userId, role, tv}`. Response `{token, user}` (public fields only).
 2. Client: `userStore.setLogin` persists `{token, user}` in localStorage `user-storage`. All calls use `Authorization: Bearer`.
 3. Server per request: `middleware/auth` verifies signature (HS256 only), then `accountOk` (DB read): user exists, not locked, `iat >= passwordChangedAt`. Else 401 `Invalid token`.
 4. Client: `ProtectedRoute` verifies the token once per page load via `GET /api/auth/verify`; the axios response interceptor logs out and redirects to `/login` on any 401 from our API (except login/register/password endpoints, unless the body says the session is dead).
-5. Password change: new hash, `passwordChangedAt = now` (kills all older tokens), returns a fresh token. Google login: client posts the Google ID token -> `verifyIdToken` against `GOOGLE_CLIENT_ID`, `email_verified` required -> same `sign()`.
+5. Password change and `POST /api/auth/logout-all` bump `tokenVersion` (kills all older tokens; `/alerts` sockets of the user are disconnected on bump and on deletion) and return a fresh token. Google-created accounts have `passwordSet:false`. Avatar route has its own 256kb JSON parser mounted before the global 100kb one. Account delete: lock first, 409 `OPEN_FUTURES` check, then delete alert events, alerts, orders, trades, futures orders, ops, positions, user. Google login: client posts the Google ID token -> `verifyIdToken` against `GOOGLE_CLIENT_ID`, `email_verified` required -> same `sign()`.
 6. Sockets: `/market` and `/futures` are public; `/alerts` verifies the same JWT + `accountOk` in the handshake.
 
 ## Cross-cutting facts

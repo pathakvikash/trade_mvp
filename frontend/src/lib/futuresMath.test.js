@@ -1,4 +1,4 @@
-import { openQuote, closeQuote, addQuote, liqPrice, maxLeverage, unrealized, feeCents } from './futuresMath';
+import { openQuote, closeQuote, addQuote, liqPrice, maxLeverage, unrealized, feeCents, leverageQuote } from './futuresMath';
 
 
 // Spec vectors V1-V5 (docs/phase2-leverage.md §3). Money in cents, liq in USD.
@@ -103,4 +103,16 @@ test('no config keeps local defaults', () => {
 test('liqPrice clamps at 0 (over-margined long)', () => {
   expect(liqPrice('long', 100, 1, 150, 0.004)).toBe(0);
   expect(liqPrice('short', 100, 1, 150, 0.004)).toBeGreaterThan(100);
+});
+
+test('leverageQuote matches the backend: 10x->20x releases 500c, 10x->5x debits 1000c, margin ceil, mmr kept', () => {
+  const p = { side: 'long', size: 1, entryPrice: 100, margin: 10, leverage: 10, mmr: 0.004 };
+  const up = leverageQuote(p, 20);
+  expect([up.margin, up.delta]).toEqual([500, 500]);
+  expect(up.liqPrice).toBeCloseTo(95.3815261, 7);
+  const down = leverageQuote(p, 5);
+  expect([down.margin, down.delta]).toEqual([2000, -1000]);
+  expect(down.liqPrice).toBeCloseTo(80.32128514, 7);
+  expect(leverageQuote({ ...p, entryPrice: 100.01 }, 3).margin).toBe(3334);
+  expect(leverageQuote({ ...p, side: 'short' }, 20).liqPrice).toBeCloseTo(104.58167331, 7);
 });

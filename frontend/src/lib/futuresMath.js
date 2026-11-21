@@ -93,6 +93,15 @@ export const addQuote = (pos, size, price, lev = pos.leverage, config) => {
   };
 };
 
+// Leverage change on an open position (mirrors backend futuresMath.leverageQuote): isolated margin re-sized on the ENTRY
+// notional with the open rounding (ceil); mmr stays as stored on the position. Cents: margin (new total) and delta
+// (+ = released to the balance, - = extra margin debited). liqPrice in USD.
+export const leverageQuote = (pos, lev, config) => {
+  const margin = ceilC(notionalCents(pos.size, pos.entryPrice) / lev);
+  const mmr = pos.mmr ?? tierOf(pos.size * pos.entryPrice, config).mmr;
+  return { margin, delta: Math.round(pos.margin * 100) - margin, liqPrice: liqPrice(pos.side, pos.entryPrice, pos.size, margin / 100, mmr) };
+};
+
 // Display-only unrealised PnL (USD) and ROE (%) on isolated margin.
 export const unrealized = (pos, mark) => {
   const pnl = pos.side === 'long' ? pos.size * (mark - pos.entryPrice) : pos.size * (pos.entryPrice - mark);

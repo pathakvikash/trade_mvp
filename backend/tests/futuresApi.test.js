@@ -630,6 +630,152 @@ describe('edit tp/sl', () => {
   });
 });
 
+describe('leverage change (PATCH /positions/:id { leverage })', () => {
+  // V1: long 1 @100 x10, margin 10, liq 90.36144578; mark 100
+  const v1 = (over = {}) => seed({ size: 1, entryPrice: 100, margin: 10, liqPrice: 90.36144578, rev: 0, ...over });
+  const equity = () => users[A].balance + positions.filter((p) => p.status === 'open').reduce((a, p) => a + p.margin, 0);
+
+  test('10x -> 20x releases 5.00 to the balance, liq moves up, one leverage op, rev bumped', async () => {
+    const p = v1();
+    const res = await patch(`/positions/${p._id}`, { leverage: 20 });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ success: true, balance: 1005, marginDelta: 5, position: { leverage: 20, margin: 5, liqPrice: 95.3815261 } });
+    expect(ledger.run).toHaveBeenCalledTimes(1);
+    expect(ledger.run.mock.calls[0][0]).toMatchObject({ kind: 'leverage', deltaCents: 500, targets: [{ model: 'Position', expect: { status: 'open', size: 1, rev: 0 } }] });
+    expect(p.rev).toBe(1);
+    expect(equity()).toBeCloseTo(1010, 6);
+  });
+
+  test('10x -> 5x debits 10.00 more margin, liq moves down; equity conserved', async () => {
+    const p = v1();
+    const res = await patch(`/positions/${p._id}`, { leverage: 5 });
+    expect(res.body).toMatchObject({ balance: 990, marginDelta: -10, position: { leverage: 5, margin: 20, liqPrice: 80.32128514 } });
+    expect(equity()).toBeCloseTo(1010, 6);
+  });
+
+  test('short 10x -> 20x: liq 104.58167331', async () => {
+    const p = v1({ side: 'short', liqPrice: 109.56175298, activeKey: `${A}:BTC:short` });
+    expect((await patch(`/positions/${p._id}`, { leverage: 20 })).body.position).toMatchObject({ leverage: 20, margin: 5, liqPrice: 104.58167331 });
+  });
+
+  test('decrease short of balance -> 400 INSUFFICIENT_BALANCE, nothing changes', async () => {
+    users[A].balance = 5;
+    const p = v1();
+    const res = await patch(`/positions/${p._id}`, { leverage: 5 });
+    expect([res.statusCode, res.body.code]).toEqual([400, 'INSUFFICIENT_BALANCE']);
+    expect(p).toMatchObject({ leverage: 10, margin: 10, rev: 0 });
+    expect(users[A].balance).toBe(5);
+  });
+
+  test('new liq at/through the mark -> 400 LIQ_BREACH (long and short), ledger never called', async () => {
+    const p = v1();
+    mark = 98.39; // 50x: margin 2.00, liq 98.3935743 >= mark
+    let res = await patch(`/positions/${p._id}`, { leverage: 50 });
+    expect([res.statusCode, res.body.code]).toEqual([400, 'LIQ_BREACH']);
+    mark = 95; // 20x liq 95.38 >= 95
+    expect((await patch(`/positions/${p._id}`, { leverage: 20 })).body.code).toBe('LIQ_BREACH');
+    const s = v1({ _id: oid(), side: 'short', liqPrice: 109.56175298, activeKey: `${A}:BTC:short` });
+    mark = 105; // short 20x liq 104.58 <= 105
+    res = await patch(`/positions/${s._id}`, { leverage: 20 });
+    expect(res.body.code).toBe('LIQ_BREACH');
+    expect(ledger.run).not.toHaveBeenCalled();
+    expect(users[A].balance).toBe(1000);
+  });
+
+  test('above the symbol/tier cap -> 400 LEVERAGE_TOO_HIGH; out of 1..50 or non-integer -> 422', async () => {
+    const p = v1({ symbol: 'SOL', activeKey: `${A}:SOL:long` });
+    expect((await patch(`/positions/${p._id}`, { leverage: 25 })).body.code).toBe('LEVERAGE_TOO_HIGH');
+    for (const leverage of [0, 51, 2.5, '10', null]) expect((await patch(`/positions/${p._id}`, { leverage })).statusCode).toBe(422);
+    expect(ledger.run).not.toHaveBeenCalled();
+  });
+
+  test('same leverage is a no-op (no op, no rev bump); with tp it is a plain TP/SL edit', async () => {
+    const p = v1();
+    let res = await patch(`/positions/${p._id}`, { leverage: 10 });
+    expect(res.statusCode).toBe(200);
+    expect(p.rev).toBe(0);
+    res = await patch(`/positions/${p._id}`, { leverage: 10, tp: 120 });
+    expect(res.body.position).toMatchObject({ tp: 120, leverage: 10 });
+    expect(ledger.run).not.toHaveBeenCalled();
+  });
+
+  test('leverage + tp/sl in one PATCH: applied together in the same op', async () => {
+    const p = v1();
+    const res = await patch(`/positions/${p._id}`, { leverage: 20, tp: 120, sl: 97 });
+    expect(res.body.position).toMatchObject({ leverage: 20, tp: 120, sl: 97, margin: 5 });
+    expect(ledger.run).toHaveBeenCalledTimes(1);
+    expect(p.rev).toBe(1);
+  });
+
+  test('sl (new or kept) checked against the NEW liq: both rejected, nothing applied', async () => {
+    const p = v1();
+    let res = await patch(`/positions/${p._id}`, { leverage: 20, tp: 120, sl: 93 }); // new liq 95.38 > 93
+    expect([res.statusCode, res.body.code]).toEqual([400, 'BAD_TPSL']);
+    expect(p).toMatchObject({ leverage: 10, tp: null, sl: null, margin: 10 });
+    p.sl = 93; // kept stop now below the would-be liq
+    res = await patch(`/positions/${p._id}`, { leverage: 20 });
+    expect(res.body.code).toBe('BAD_TPSL');
+    res = await patch(`/positions/${p._id}`, { leverage: 20, sl: null }); // clearing it in the same PATCH is fine
+    expect(res.body.position).toMatchObject({ leverage: 20, sl: null });
+    expect(users[A].balance).toBe(1005);
+  });
+
+  test('busy / closed / ledger loses the claim to a close -> 409, no money moved', async () => {
+    const p = v1();
+    p.lockOp = 'op';
+    expect((await patch(`/positions/${p._id}`, { leverage: 20 })).body.code).toBe('POSITION_BUSY');
+    p.lockOp = null;
+    ledger.run.mockImplementationOnce(async () => { p.status = 'closed'; return { op: { _id: 'x' }, ok: false, code: 'POSITION_BUSY' }; });
+    expect((await patch(`/positions/${p._id}`, { leverage: 20 })).body.code).toBe('NOT_OPEN');
+    expect(users[A].balance).toBe(1000);
+  });
+
+  test('concurrent close and leverage change: exactly one wins, equity conserved', async () => {
+    const p = v1();
+    const [c, l] = await Promise.all([post(`/positions/${p._id}/close`, {}), patch(`/positions/${p._id}`, { leverage: 20 })]);
+    expect([c.statusCode, l.statusCode].sort()).toEqual([200, 409]);
+    if (c.statusCode === 200) expect(users[A].balance).toBeCloseTo(1000 + 10 - 0.05, 6); // V1 closed at 100: margin back minus fee
+    else expect(equity()).toBeCloseTo(1010, 6);
+  });
+});
+
+describe('edit tp/sl on an open limit order (PATCH /orders/:id)', () => {
+  beforeEach(() => {
+    FuturesOrder.findOneAndUpdate.mockImplementation((f, upd) => {
+      const d = orders.find((x) => matches(x, f));
+      if (d) Object.assign(d, upd.$set);
+      return one(d ? [d] : []);
+    });
+  });
+
+  test('sets and clears tp/sl vs the limit price; reservation and balance untouched', async () => {
+    await lim(); // long 1 @90 x10
+    const o = orders[0];
+    const before = users[A].balance;
+    let res = await patch(`/orders/${o._id}`, { tp: 100, sl: 85 });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.order).toMatchObject({ tp: 100, sl: 85, reserved: o.reserved });
+    res = await patch(`/orders/${o._id}`, { sl: null });
+    expect(res.body.order).toMatchObject({ tp: 100, sl: null });
+    expect(users[A].balance).toBe(before);
+    expect(ledger.run).toHaveBeenCalledTimes(1); // the place only
+  });
+
+  test('bad bounds 400 BAD_TPSL; price/size/leverage 422; IDOR 404; cancelled 409 NOT_OPEN; locked 409', async () => {
+    await lim();
+    const o = orders[0];
+    expect((await patch(`/orders/${o._id}`, { tp: 80 })).body.code).toBe('BAD_TPSL');
+    expect((await patch(`/orders/${o._id}`, { sl: 80 })).body.code).toBe('BAD_TPSL'); // below liq ~81.3
+    for (const body of [{ limitPrice: 80 }, { size: 2 }, { leverage: 5 }, {}]) expect((await patch(`/orders/${o._id}`, body)).statusCode).toBe(422);
+    expect((await patch(`/orders/${o._id}`, { tp: 100 }, B)).statusCode).toBe(404);
+    o.lockOp = 'op';
+    expect((await patch(`/orders/${o._id}`, { tp: 100 })).body.code).toBe('POSITION_BUSY');
+    o.lockOp = null;
+    o.status = 'cancelled';
+    expect((await patch(`/orders/${o._id}`, { tp: 100 })).body.code).toBe('NOT_OPEN');
+  });
+});
+
 describe('ledger result -> HTTP mapping', () => {
   test.each([
     ['INSUFFICIENT_BALANCE', 400, 'INSUFFICIENT_BALANCE'],

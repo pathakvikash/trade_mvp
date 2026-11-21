@@ -15,7 +15,8 @@ Done 2026-11-20: `TRUST_PROXY`, always-on console logging (`LOG_TO_FILES`), `GET
 
 ## P1: correctness and quality
 
-- [ ] **Frontend test suites failing to load** (`Cannot use import statement outside a module`, axios ESM through `lib/api.js`): `pages/Market.test.js`, `pages/Liquidation.test.js`, `components/trade/SymbolLiquidations.test.js`. Fix by mocking axios in those tests or adding `transformIgnorePatterns`/a `moduleNameMapper` for axios in `package.json` `jest` config (CRA supports a limited set). Cause not fully verified; may be tied to in-flight changes to `lib/api.js`.
+- [x] (2026-11-21) Wire `confirmClose`, `defaultLeverage`, `defaultOrderType` (stored in `User.preferences`, UI hidden in Settings) into `frontend/src/components/trade/*` once that directory is free to edit, then expose them in `frontend/src/pages/settings/PreferencesSection.jsx`.
+- [ ] No AI conversation history exists server-side, so there is no "save/delete AI history" setting; add storage first if wanted.
 - [ ] Frontend env: `futuresStore.js` still builds its base URL from the raw `REACT_APP_API_URL` (no trailing-slash strip like `lib/api.js`); unify on `API` from `lib/api`.
 - [ ] Count-then-insert caps (20 positions, 20 futures orders, 20 spot orders, 20 alerts) can overshoot by a few under parallel requests (`// ponytail:` markers). Fix with an atomic counter if abuse matters.
 - [ ] `FuturesOp` journal has no TTL (done/rolled_back rows accumulate). Add a TTL index on terminal ops once recovery windows are settled.
@@ -27,7 +28,7 @@ Done 2026-11-20: `TRUST_PROXY`, always-on console logging (`LOG_TO_FILES`), `GET
 ## P2: product and platform
 
 - [ ] Account features: email verification, password reset, refresh tokens/httpOnly cookie session (JWT is in `localStorage`), 2FA.
-- [ ] Funding simulation, cross margin, leverage change on open positions, reduce-only limit exits, trailing stops.
+- [ ] Funding simulation, cross margin, reduce-only limit exits, trailing stops.
 - [ ] Redis-backed rate limiter and a leader lock so more than one backend instance can run; move engines to a worker.
 - [ ] Leaderboard / competitions, trade export, per-user equity history chart.
 - [ ] Migrate off Create React App (Vite), replace placeholder `public/index.html` title/description and the marketing copy on `/`.

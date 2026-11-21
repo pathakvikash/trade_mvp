@@ -4,14 +4,20 @@ import { Link } from 'react-router-dom';
 import Panel from '../ui/Panel';
 import useUserStore from '../../store/userStore';
 import { API, authed, errStatus, errText } from '../../lib/api';
-import { fmtPrice } from '../ui/fmt';
 
+export const REASONING_BUDGET = 'The model used its whole budget thinking; raise the token budget (LMSTUDIO_MAX_TOKENS) or use a shorter length.';
+export const CONTEXT_TOO_SMALL = 'Context window too small: load the model with a larger context in LM Studio.';
 export const NOT_CONFIGURED = 'AI is not configured. The server needs an Anthropic API key in backend/.env as ANTHROPIC_API_KEY.';
 const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
 
 // Maps a failed AI call to {unconfigured, msg}.
 export const aiError = (e) => {
   const s = errStatus(e);
+  const { error, detail } = e?.response?.data || {};
+  if (error === 'ai_reasoning_budget') return { msg: REASONING_BUDGET };
+  if (error === 'ai_context_too_small') return { msg: CONTEXT_TOO_SMALL };
+  // detail: the local model server's own message (LM Studio only, capped at 200 chars by the backend)
+  if (error === 'ai_upstream_error' && typeof detail === 'string' && detail) return { msg: `The local model server returned an error: ${detail}` };
   if (s === 503) return { unconfigured: true, msg: NOT_CONFIGURED };
   if (s === 429) return { msg: 'Rate limited. Wait a moment and try again.' };
   if (s === 422) return { msg: 'The assistant declined this request.' };
@@ -70,7 +76,30 @@ const Skeleton = () => (
     </div>
   </div>
 );
-const SetupCard = ({ onCheck, checking }) => (
+const CaseCard = ({ title, c, cls }) => (
+  <div className={`rounded-lg border bg-slate-900/40 p-2 ${cls}`}>
+    <p className="text-[11px] font-semibold uppercase tracking-wider">{title}</p>
+    <ul className="mt-1 space-y-0.5 text-xs text-slate-300">
+      <li><span className="text-slate-500">Entry </span>{c?.entry || '—'}</li>
+      <li><span className="text-slate-500">Stop </span>{c?.invalidation || '—'}</li>
+      <li><span className="text-slate-500">Target </span>{c?.target || '—'}</li>
+    </ul>
+  </div>
+);
+// Ask answers come back as "Label: text" lines (see aiService ASK_FORMAT): bold the label, bullets as list items.
+const LABEL_RE = /^([A-Z][\w ()/-]{1,30}):\s*(.*)$/;
+export const Answer = ({ text }) => (
+  <div className="mt-1 space-y-1 text-slate-300">
+    {String(text).split('\n').filter((l) => l.trim()).map((l, i) => {
+      const bullet = /^\s*[-•*]\s+/.test(l);
+      const m = !bullet && LABEL_RE.exec(l.trim());
+      if (bullet) return <p key={i} className="pl-3 before:-ml-3 before:mr-1.5 before:content-['•']">{l.replace(/^\s*[-•*]\s+/, '')}</p>;
+      if (m) return <p key={i}><span className="font-semibold text-slate-100">{m[1]}:</span> {m[2]}</p>;
+      return <p key={i} className={/financial advice/i.test(l) ? 'text-[11px] text-slate-500' : ''}>{l}</p>;
+    })}
+  </div>
+);
+const SetupCard =({ onCheck, checking }) => (
   <div role="alert" className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-sm text-slate-200">
     <p className="font-semibold text-amber-300">Connect Claude to enable the Copilot</p>
     <ol className="mt-2 list-decimal space-y-1 pl-5 text-slate-300">
@@ -167,7 +196,7 @@ const CopilotPanel = ({ symbol, className = '' }) => {
     <Panel
       title={`AI Copilot · ${symbol}`}
       className={className}
-      bodyClassName="min-h-0 overflow-auto p-3"
+      bodyClassName="min-h-0 overflow-y-auto overscroll-contain p-3"
       right={
         <Btn onClick={generate} disabled={busy} aria-busy={busy}>
           {busy ? <><Spinner />{`Analyzing live data… ${elapsed}s`}</> : b ? 'Refresh' : 'Generate brief'}
@@ -196,11 +225,17 @@ const CopilotPanel = ({ symbol, className = '' }) => {
             <Chip cls="border-slate-600 text-slate-300">{b.confidence} confidence</Chip>
           </div>
           <p className="mt-2 font-semibold text-slate-100">{b.headline}</p>
-          <p className="mt-1 text-slate-300">{b.summary}</p>
-          {b.drivers?.length > 0 && <><Label>Drivers</Label><ul className="mt-1 space-y-1">{b.drivers.map((d, i) => <li key={i}><span className="text-slate-200">{d.label}</span> <span className="text-slate-400">{d.detail}</span></li>)}</ul></>}
-          {b.risks?.length > 0 && <><Label>Risks</Label><ul className="mt-1 list-disc space-y-0.5 pl-4 text-slate-400">{b.risks.map((r, i) => <li key={i}>{r}</li>)}</ul></>}
-          {b.watch?.length > 0 && <><Label>Watch levels</Label><ul className="mt-1 space-y-0.5">{b.watch.map((w, i) => <li key={i}><span className="tabular-nums text-cyan-400">{fmtPrice(Number(w.price))}</span> <span className="text-slate-400">{w.note}</span></li>)}</ul></>}
-          <p className="mt-3 text-[11px] text-slate-500">Generated {new Date(brief.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} by {brief.model}</p>
+          <dl className="mt-2 space-y-1">
+            {b.shortTerm && <div><dt className="inline font-semibold text-slate-200">Short-term (hours): </dt><dd className="inline text-slate-300">{b.shortTerm}</dd></div>}
+            {b.longTerm && <div><dt className="inline font-semibold text-slate-200">Long-term (days-weeks): </dt><dd className="inline text-slate-300">{b.longTerm}</dd></div>}
+          </dl>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <CaseCard title="Long case" c={b.long} cls="border-emerald-400/30 text-emerald-400" />
+            <CaseCard title="Short case" c={b.short} cls="border-rose-400/30 text-rose-400" />
+          </div>
+          {b.invalidation && <p className="mt-2"><span className="font-semibold text-slate-200">Invalidation: </span><span className="text-slate-300">{b.invalidation}</span></p>}
+          {b.dataGaps?.length > 0 && <><Label>Data gaps</Label><ul className="mt-1 list-disc space-y-0.5 pl-4 text-slate-400">{b.dataGaps.map((g, i) => <li key={i}>{g}</li>)}</ul></>}
+          <p className="mt-3 text-[11px] text-slate-500">{b.note || 'Not financial advice. Paper trading only.'} Generated {new Date(brief.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} by {brief.model}</p>
         </div>
       )}
 
@@ -231,7 +266,7 @@ const CopilotPanel = ({ symbol, className = '' }) => {
         {qa.filter((x) => x.sym === symbol).map((x, i) => (
           <li key={i} className="text-sm">
             <p className="text-slate-400">{x.question}</p>
-            <p className="whitespace-pre-wrap text-slate-200">{x.answer}</p>
+            <Answer text={x.answer} />
           </li>
         ))}
       </ul>

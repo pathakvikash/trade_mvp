@@ -79,6 +79,30 @@ test('submit posts the order, shows fill price and fee, and reloads futures + ac
   expect($('#fut-size').value).toBe('');
 });
 
+test('after a fill the cleared size is explained and focused, and a second order goes through', async () => {
+  axios.post.mockResolvedValue({ data: { fill: { price: 100, fee: 0.05 }, balance: 989.95 } });
+  await mount();
+  await setValue($('#fut-size'), '1');
+  await act(async () => { submit().click(); });
+  expect(container.textContent).toContain('Enter a size for the next order.');
+  expect(document.activeElement).toBe($('#fut-size'));
+  expect(submit().disabled).toBe(true);
+  await setValue($('#fut-size'), '1');
+  await act(async () => { submit().click(); });
+  expect(axios.post).toHaveBeenCalledTimes(2);
+});
+
+test('codes without a friendly entry and 401s still read as sentences', async () => {
+  await mount();
+  await setValue($('#fut-size'), '1');
+  axios.post.mockRejectedValueOnce({ message: 'x', response: { status: 500, data: { code: 'OP_FAILED', message: 'Operation failed' } } });
+  await act(async () => { submit().click(); });
+  expect($('[role="alert"]').textContent).toContain('could not be completed');
+  axios.post.mockRejectedValueOnce({ message: 'x', response: { status: 401, data: { message: 'Invalid token' } } });
+  await act(async () => { submit().click(); });
+  expect($('[role="alert"]').textContent).toContain('session has expired');
+});
+
 test('server error codes become friendly text', async () => {
   axios.post.mockRejectedValue({ message: 'x', response: { status: 400, data: { success: false, code: 'MAX_POSITIONS', message: 'raw' } } });
   await mount();

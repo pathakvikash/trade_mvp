@@ -6,6 +6,7 @@ import { fmtPct, fmtPrice } from './ui/fmt';
 import ConnectionChip from './ui/ConnectionChip';
 import CommandPalette from './shell/CommandPalette';
 import { Icon, ICONS } from './shell/nav';
+import Avatar from './ui/Avatar';
 
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
@@ -85,16 +86,19 @@ const Header = ({ onMenu }) => {
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}
-            className="focus-ring grid h-7 w-7 place-items-center rounded-full border border-slate-700 bg-slate-900 text-xs font-semibold uppercase text-slate-200"
+            className="focus-ring rounded-full"
             aria-label="User menu"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
-            {(user.name || 'U').charAt(0)}
+            <Avatar avatar={user.profile?.avatar} name={user.name || user.username} size="sm" />
           </button>
           {menuOpen && (
             <div role="menu" className="absolute right-0 top-9 z-50 w-44 rounded-xl border border-slate-800 bg-slate-950 p-1 shadow-xl shadow-black/50">
-              <p className="truncate px-2.5 py-1.5 text-xs text-slate-400">{user.name || 'Signed in'}</p>
+              <div className="flex items-center gap-2 px-2.5 py-1.5">
+                <Avatar avatar={user.profile?.avatar} name={user.name || user.username} size="xs" />
+                <p className="truncate text-xs text-slate-400">{user.name || 'Signed in'}</p>
+              </div>
               <button type="button" role="menuitem" onClick={logout} className="focus-ring flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-900">
                 <Icon d={ICONS.logout} /> Logout
               </button>

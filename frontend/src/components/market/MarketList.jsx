@@ -35,7 +35,7 @@ const MarketList = ({ rows, error, onRetry, selected, onSelect, className = '' }
     <Panel
       title="Markets"
       className={className}
-      bodyClassName="min-h-0 p-0"
+      bodyClassName="min-h-0 p-0 pt-2"
       right={
         <input
           type="search"

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../../store/userStore';
 import { API } from '../../lib/api';
+import { landingPath } from '../../lib/landing';
 import Spinner from '../ui/Spinner';
 
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
@@ -56,8 +57,8 @@ const GoogleButton = () => {
         const { data } = await axios.post(`${API}/api/auth/google`, { credential });
         if (!data?.success || !data.token) throw new Error('Invalid response from server');
         const u = data.user;
-        setLogin(data.token, { id: u._id, email: u.email, name: u.name, username: u.username, role: u.role });
-        navigate('/dashboard');
+        setLogin(data.token, { id: u._id, email: u.email, name: u.name, username: u.username, role: u.role, preferences: u.preferences, profile: u.profile });
+        navigate(landingPath(u.preferences));
       } catch (err) {
         setError(err.response?.data?.message || err.message || 'Google sign-in failed. Please try again.');
       } finally {

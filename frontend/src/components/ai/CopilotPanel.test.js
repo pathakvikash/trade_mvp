@@ -3,7 +3,7 @@ import { act } from 'react-dom/test-utils';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import axios from 'axios';
-import CopilotPanel from './CopilotPanel';
+import CopilotPanel, { aiError, CONTEXT_TOO_SMALL } from './CopilotPanel';
 import useUserStore from '../../store/userStore';
 
 // This checkout's react-router-dom has no dist/ build, so stub the exports used here (Link, MemoryRouter).
@@ -70,4 +70,24 @@ test('provider cli shows the local CLI line once the status reports it', async (
   await act(async () => { button('Check again').click(); });
   expect(container.textContent).toContain('Using your Claude account via the local CLI (dev only)');
   expect(container.textContent).not.toContain('Connect Claude to enable the Copilot');
+});
+
+test('Answer renders "Label: text" lines with a bold label and bullets as items', async () => {
+  const { Answer } = require('./CopilotPanel');
+  const el = document.createElement('div');
+  const r = createRoot(el);
+  await act(async () => { r.render(<Answer text={'Long case: entry 100; stop 95\n- funding flat\nNot financial advice. Paper trading only.'} />); });
+  const bold = el.querySelector('span.font-semibold');
+  expect(bold.textContent).toBe('Long case:');
+  expect(el.textContent).toContain('entry 100; stop 95');
+  expect(el.textContent).toContain('funding flat');
+  expect(el.textContent).not.toContain('- funding');
+  act(() => r.unmount());
+});
+
+test('aiError: context overflow and local upstream detail get readable messages', () => {
+  const err = (data) => ({ response: { status: 502, data } });
+  expect(aiError(err({ error: 'ai_context_too_small', detail: 'n_ctx 8192' })).msg).toBe(CONTEXT_TOO_SMALL);
+  expect(aiError(err({ error: 'ai_upstream_error', detail: 'model not loaded' })).msg).toBe('The local model server returned an error: model not loaded');
+  expect(aiError(err({ error: 'ai_upstream_error' })).msg).toBe('The AI service failed. Try again.');
 });

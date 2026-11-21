@@ -24,7 +24,7 @@ cd frontend && CI=true npm run build                   # CI treats warnings as e
 ## Hard rules
 1. **Never commit secrets.** `backend/.env` is git-ignored; never print, overwrite or paste it. Examples go in `.env.example` with empty values.
 2. **Ask before** `git push`, any deploy (Vercel, Render, Railway, Fly), publishing, spending money (API keys, cloud resources), or deleting data. Do not commit unless asked.
-3. **Tests must stay green** (backend 430 passing; frontend suites listed in `context/TODO.md` are known-failing, do not add new failures). Add a test that fails without your change for any money, auth or concurrency logic.
+3. **Tests must stay green** (backend 705 passing; frontend 35 suites / 183 tests passing, do not add failures). Add a test that fails without your change for any money, auth or concurrency logic.
 4. **Money**: integer cents in engines, house never loses a cent, one conditional update per balance change, futures money only via `services/futuresLedger.js`, fills only at the server price (`tradeFill.fillPrice`). Read `context/DOMAIN.md` first.
 5. Symbol formats: trading uses `BTC`, market data/sockets/AI/alerts use `BTCUSDT`.
 6. The backend is **single-instance, long-running** (not serverless); deploys are stop-then-start.
