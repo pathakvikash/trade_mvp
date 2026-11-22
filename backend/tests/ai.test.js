@@ -75,6 +75,26 @@ test('stubbed client: brief maps refusal to a clean error, ask uses the stream f
     jest.restoreAllMocks();
 });
 
+test('gather: degraded stats count as missing, empty candles do not satisfy the guard, spot candles are labelled', async () => {
+    const rest = require('../services/futuresRest');
+    const row = [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5 }];
+    jest.spyOn(rest, 'overview').mockResolvedValue([]);
+    jest.spyOn(rest, 'liqmap').mockResolvedValue(null);
+    const stats = jest.spyOn(rest, 'stats').mockResolvedValue({ symbol: 'BTCUSDT', period: '1h', degraded: true, source: 'unavailable' });
+    const klines = jest.spyOn(rest, 'klines').mockResolvedValue(Object.defineProperty([...row], 'source', { value: 'spot' }));
+    const ctx = await ai._test.gather('BTCUSDT');
+    expect(ctx.missing).toContain('open interest / long-short stats');
+    expect(ctx.stats1h).toBeNull();
+    expect(ctx.candlesSource).toBe('spot');
+    klines.mockResolvedValue(row);
+    expect((await ai._test.gather('BTCUSDT')).candlesSource).toBe('binance-futures');
+    klines.mockResolvedValue([]);
+    await expect(ai._test.gather('BTCUSDT')).rejects.toMatchObject({ status: 502, code: 'market_data_unavailable' });
+    stats.mockResolvedValue({ symbol: 'BTCUSDT', period: '1h' });
+    await expect(ai._test.gather('BTCUSDT')).resolves.toBeTruthy(); // real stats alone are enough
+    jest.restoreAllMocks();
+});
+
 test('hourlyBudget: max 0 always blocks with a positive integer; 2 allows two then blocks; slot frees after an hour', () => {
     const z = ai.hourlyBudget(0);
     for (let i = 0; i < 3; i++) { const w = z.take(); expect(Number.isInteger(w) && w > 0).toBe(true); }

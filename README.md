@@ -217,6 +217,7 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 | `AI_PROVIDER` | no | unset | Code-only (not in `.env.example`). `api` forces the Anthropic API even in development, disabling the CLI provider. |
 | `CLAUDE_BIN` | no | `claude` | Code-only. Path of the Claude Code CLI used by the dev-only CLI provider. |
 | `BINANCE_FUTURES_REST` | no | `https://fapi.binance.com` | REST base URL (e.g. a proxy). |
+| `BINANCE_SPOT_REST` | no | `https://data-api.binance.vision` | Spot mirror used only for kline fallback when futures REST is IP-blocked (spot prices, so candles differ slightly). |
 | `BINANCE_FUTURES_WS` | no | `wss://fstream.binance.com` | WebSocket base URL. |
 | `MARKET_POLL_INTERVAL_MS` | no | `30000` | CoinGecko poll interval for the Markets page. |
 

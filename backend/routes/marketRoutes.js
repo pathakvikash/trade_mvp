@@ -56,7 +56,8 @@ router.get('/futures/klines/:symbol', async (req, res) => {
     if (!INTERVALS.includes(interval)) return res.status(400).json({ error: 'invalid interval' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
     try {
-        res.json(await futuresRest.klines(symbol, interval, limit)); // cached 10s
+        const rows = await futuresRest.klines(symbol, interval, limit); // cached 10s
+        res.set('X-Data-Source', rows.source || 'binance-futures').json(rows);
     } catch (err) {
         const r = err.response;
         if (r && r.status === 400) {
@@ -71,15 +72,20 @@ router.get('/futures/klines/:symbol', async (req, res) => {
 });
 
 // Upstream failure -> 502 (451 = Binance region block, -1121 = unknown symbol -> 404)
-function upstreamError(res, err, what) {
+// `noAlt`: no fallback source exists (liqmap/liqheat), so a blocked REST is 503 + degraded rather than a generic 502
+function upstreamError(res, err, what, noAlt) {
     const r = err.response;
+    if (noAlt && futuresRest.isBlocked(err)) return res.status(503).json({ error: 'Binance futures data is unavailable from this server', degraded: true });
     if (r && r.status === 451) return res.status(502).json({ error: "Binance blocks this server's region (HTTP 451)" });
     if (r && r.status === 400 && r.data && r.data.code === -1121) return res.status(404).json({ error: 'No perpetual futures market for this symbol' });
     res.status(502).json({ error: `Failed to fetch ${what}` });
 }
 
 router.get('/futures/overview', async (req, res) => {
-    try { res.json(await futuresRest.overview()); } catch (err) { upstreamError(res, err, 'futures overview'); }
+    try {
+        const rows = await futuresRest.overview();
+        res.set('X-Data-Source', rows.source || 'binance-futures').json(rows);
+    } catch (err) { upstreamError(res, err, 'futures overview'); }
 });
 
 router.get('/futures/stats/:symbol', async (req, res) => {
@@ -95,7 +101,7 @@ router.get('/futures/liqmap/:symbol', async (req, res) => {
     const symbol = String(req.params.symbol).toUpperCase();
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
-    try { res.json(await futuresRest.liqmap(symbol)); } catch (err) { upstreamError(res, err, 'liquidation map'); }
+    try { res.json(await futuresRest.liqmap(symbol)); } catch (err) { upstreamError(res, err, 'liquidation map', true); }
 });
 
 // Predicted liquidation heatmap grid (estimate, see estimateLiqHeat)
@@ -105,14 +111,14 @@ router.get('/futures/liqheat/:symbol', async (req, res) => {
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
     if (!Object.prototype.hasOwnProperty.call(futuresRest.HEAT_RANGES, range)) return res.status(400).json({ error: 'invalid range' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
-    try { res.json(await futuresRest.liqheat(symbol, range)); } catch (err) { upstreamError(res, err, 'liquidation heatmap'); }
+    try { res.json(await futuresRest.liqheat(symbol, range)); } catch (err) { upstreamError(res, err, 'liquidation heatmap', true); }
 });
 
 // Tradable USDT perpetuals for the pair picker
 router.get('/futures/symbols', async (req, res) => {
     try {
         const list = await futuresRest.listSymbols();
-        res.set('Cache-Control', 'public, max-age=300').json(list);
+        res.set('X-Data-Source', list.source || 'binance-futures').set('Cache-Control', 'public, max-age=300').json(list);
     } catch (err) { res.status(502).json({ error: 'Failed to fetch symbol list' }); }
 });
 

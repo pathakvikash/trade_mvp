@@ -173,7 +173,7 @@ const CoinDetail = ({ symbol, bySymbol, onClose }) => {
           <section aria-label="Market context">
             <div className={label}>Context</div>
             <dl className="mt-1 space-y-1 text-xs tabular-nums">
-              <div className="flex justify-between"><dt className="text-slate-400">Funding rate</dt><dd className="text-slate-200">{mkt && Number.isFinite(mkt.fundingRate) ? `${(mkt.fundingRate * 100).toFixed(4)}% / ${mkt.fundingIntervalHours}h` : '--'}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-400">Funding rate</dt><dd className="text-slate-200">{mkt && Number.isFinite(mkt.fundingRate) ? `${(mkt.fundingRate * 100).toFixed(4)}%${mkt.fundingIntervalHours > 0 ? ` / ${mkt.fundingIntervalHours}h` : ''}` : '--'}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-400">Open interest</dt><dd className="text-slate-200">{mkt?.openInterestUsd != null ? fmtUsd(mkt.openInterestUsd) : '--'}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-400">24h volume</dt><dd className="text-slate-200">{mkt ? fmtUsd(mkt.quoteVolume) : '--'}</dd></div>
             </dl>

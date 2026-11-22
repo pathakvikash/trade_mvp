@@ -72,13 +72,15 @@ const Derivatives = () => {
         <h1 className="text-lg font-semibold text-slate-200">Derivatives</h1>
         <p className="text-xs text-slate-400">Binance USD-M perpetuals: funding, open interest and positioning.</p>
       </div>
-      <MarketTable rows={rows} error={ov.error} selected={symbol} onSelect={setSymbol} />
+      <MarketTable rows={rows} error={ov.error} source={ov.source} selected={symbol} onSelect={setSymbol} />
       <FundingStrip rows={rows} error={ov.error} selected={symbol} onSelect={setSymbol} />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">{coin(symbol)} positioning <Updating show={!!st.fetching} /></h2>
         <SegTabs label="Period" tabs={PERIODS} active={period} onChange={setPeriod} />
       </div>
+      {kl.source === 'spot' && <Notice>Price line uses Binance spot candles (futures history unavailable from this server).</Notice>}
+      {s?.degraded && <Notice>Positioning data (open interest, long/short ratios) is unavailable from this server.</Notice>}
       {st.error && !s && <Notice tone="error">{is404(st.error) ? `No perpetual market for ${coin(symbol)}.` : `Stats unavailable for ${coin(symbol)} right now.`}</Notice>}
       {!s && st.loading && <ChartsSkeleton />}
       {s && (

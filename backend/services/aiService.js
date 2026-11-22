@@ -369,17 +369,20 @@ function buildContext({ symbol, overviewRow, stats, liqmap, liqEvents, liqSince,
 // Gather live context; each upstream may fail independently (reported as null/missing to the model).
 async function gather(symbol) {
     const settle = (p) => p.then((v) => v, () => null);
-    const [overview, stats, liqmap, candles, daily] = await Promise.all([
+    const [overview, rawStats, liqmap, candles, daily] = await Promise.all([
         settle(futuresRest.overview()), settle(futuresRest.stats(symbol, '1h')),
         settle(futuresRest.liqmap(symbol)), settle(futuresRest.klines(symbol, '1h', 48)),
         settle(futuresRest.klines(symbol, '1d', 30)),
     ]);
-    if (!stats && !liqmap && !candles) throw new AiError(502, 'market_data_unavailable');
+    const stats = rawStats && !rawStats.degraded ? rawStats : null; // blocked REST answers 200 with empty series
+    if (!stats && !liqmap && !candles?.length) throw new AiError(502, 'market_data_unavailable');
     const liq = futuresService.getLiquidations(symbol);
-    return buildContext({
+    const ctx = buildContext({
         symbol, overviewRow: overview && overview.find((r) => r.symbol === symbol), stats, liqmap,
         liqEvents: liq.events, liqSince: liq.since, candles, daily,
     });
+    ctx.candlesSource = candles?.source || 'binance-futures'; // 'spot' when futures history was blocked
+    return ctx;
 }
 
 const ctxMessage = (ctx) => `Market data (JSON, generated ${new Date().toISOString()}):\n${JSON.stringify(ctx)}`;
@@ -505,4 +508,4 @@ async function provider() {
     return (await configured()) ? 'api' : null;
 }
 
-module.exports = { hourlyBudget, spend: () => budget.take(), MODEL, AI_MODELS, resolveModel, SYSTEM, DEFAULT_STYLE, aiDefaultPrompt: DEFAULT_STYLE, aiServerRules: serverRules(), serverRules, buildSystem, LENGTH_WORDS, modelOf, testProvider, loadPortfolio, DISCLAIMER, buildContext, compactLocal, shapeBrief, shapeAnswer, mapError, textOf, brief, ask, parseAlert, configured, provider, cliAvailable, runCli, AiError, _byo: { keyOf }, _test: { setClient: (c) => { clientInstance = c; }, request, resetCli: () => { cliProbe = { at: 0, p: null }; } } };
+module.exports = { hourlyBudget, spend: () => budget.take(), MODEL, AI_MODELS, resolveModel, SYSTEM, DEFAULT_STYLE, aiDefaultPrompt: DEFAULT_STYLE, aiServerRules: serverRules(), serverRules, buildSystem, LENGTH_WORDS, modelOf, testProvider, loadPortfolio, DISCLAIMER, buildContext, compactLocal, shapeBrief, shapeAnswer, mapError, textOf, brief, ask, parseAlert, configured, provider, cliAvailable, runCli, AiError, _byo: { keyOf }, _test: { gather, setClient: (c) => { clientInstance = c; }, request, resetCli: () => { cliProbe = { at: 0, p: null }; } } };

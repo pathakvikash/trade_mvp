@@ -27,7 +27,7 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 // ponytail: parsed before auth, so an unauthenticated caller can make us parse up to 256kb on this one path.
 app.use('/api/auth/me/avatar', express.json({ limit: '256kb' }));
 app.use(express.json({ limit: '100kb' }));
-app.use(cors({ origin: config.corsOrigins }));
+app.use(cors({ origin: config.corsOrigins, exposedHeaders: ['X-Data-Source'] })); // SPA reads where market data came from
 // morgan 'combined' logs ip/method/url/status/referrer/UA only: never request bodies or the Authorization header.
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 

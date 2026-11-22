@@ -138,3 +138,19 @@ test('unsubscribe while isKnownSymbol is pending cancels the join (no leaked roo
     expect([...subs.entries()].filter(([, s]) => s.has('a')).map(([k]) => k)).toEqual(['ETHUSDT']);
     expect(market.sent.flatMap((m) => m.params).some((p) => p.startsWith('btcusdt'))).toBe(false);
 });
+
+test('all-market array streams fill futuresRest live caches and never touch the mark/money path', async () => {
+    const rest = require('../services/futuresRest');
+    const axios = require('axios');
+    rest._test.reset();
+    svc._test.onMessage('!markPrice@arr', [{ s: 'BTCUSDT', p: '100', i: '99', r: '0.0001', T: 5 }]);
+    svc._test.onMessage('!miniTicker@arr', [{ s: 'BTCUSDT', c: '100', o: '90', h: '101', l: '89', q: '1000', E: 1 }]);
+    expect(svc.getMark('BTCUSDT')).toBeNull(); // futuresService.marks untouched: fills still need a subscribed/held mark
+    const get = jest.spyOn(axios, 'get').mockRejectedValue(Object.assign(new Error('418'), { response: { status: 418, headers: {} } }));
+    try {
+        expect((await rest.markPrice('BTCUSDT')).markPrice).toBe(100); // cache is fed; reachable only as the REST fallback
+    } finally {
+        get.mockRestore();
+        rest._test.reset();
+    }
+});

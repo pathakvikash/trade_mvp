@@ -81,3 +81,25 @@ describe('persisted timeframe', () => {
     expect(useFuturesStore.getState().interval).toBe('1m');
   });
 });
+
+test('empty spot/unavailable klines are not a failure: klineSource stored and futures:subscribe still emitted', async () => {
+  for (const source of ['spot', 'unavailable']) {
+    mockEmit.mockClear();
+    axios.get.mockImplementation((url) => Promise.resolve(url.includes('/liquidations/')
+      ? { data: { events: [], since: 1 } }
+      : { data: [], headers: { 'x-data-source': source } }));
+    useFuturesStore.getState().unsubscribe();
+    await useFuturesStore.getState().subscribe('SOLUSDT');
+    const s = useFuturesStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.klineSource).toBe(source);
+    expect(mockEmit).toHaveBeenCalledWith('futures:subscribe', { symbol: 'SOLUSDT' });
+  }
+});
+
+test('klineSource is null without the header', async () => {
+  axios.get.mockImplementation((url) => Promise.resolve({ data: url.includes('/liquidations/') ? { events: [], since: 1 } : [candle(60, 1)] }));
+  useFuturesStore.getState().unsubscribe();
+  await useFuturesStore.getState().subscribe('XRPUSDT');
+  expect(useFuturesStore.getState().klineSource).toBeNull();
+});

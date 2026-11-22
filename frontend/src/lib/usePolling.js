@@ -30,7 +30,7 @@ export default function usePolling(url, ms, refreshKey, token) {
       if (refreshKey) setState((s) => ({ ...s, fetching: true }));
       try {
         const r = await axios.get(url, { signal: ctl.signal, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) });
-        setState({ data: r.data, error: null, loading: false, fetching: false });
+        setState({ data: r.data, source: r.headers?.['x-data-source'] || null, error: null, loading: false, fetching: false });
       } catch (e) {
         if (axios.isCancel(e)) return;
         setState((s) => ({ ...s, error: e, loading: false, fetching: false }));

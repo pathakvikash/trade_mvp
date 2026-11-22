@@ -10,12 +10,18 @@ const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, labe
 
 const LEGEND = [['entry', 'Entry', '#22d3ee'], ['liq', 'Liq', '#f43f5e'], ['tp', 'TP', '#34d399'], ['sl', 'SL', '#fb923c']];
 
+// Live ticks only fold into an existing 1m candle (futuresStore / candleSync), so other timeframes stay empty.
+const noHistory = (interval) => (interval === '1m'
+  ? 'No candle history from this server; live candles will build up'
+  : 'No candle history from this server. Switch to 1m for live candles.');
+const SOURCE_NOTE = { spot: 'Spot candles (futures history unavailable from this server)' };
+
 const Message = ({ tone = 'text-slate-400', children }) => (
   <div className={`absolute inset-0 flex items-center justify-center text-sm ${tone}`}>{children}</div>
 );
 
 const MarketChartPanel = ({
-  ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry,
+  ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry, klineSource,
   view = 'chart', onView, alertsSymbol, unread = 0, className = '', lines,
 }) => {
   const alertsView = view === 'alerts';
@@ -55,10 +61,13 @@ const MarketChartPanel = ({
           <span>Unable to load futures data.</span>
           <button type="button" onClick={onRetry} className="ml-3 rounded-md border border-rose-300/40 px-2 py-0.5 text-xs hover:bg-rose-300/10">Retry</button>
         </Message>
+      ) : candles.length === 0 && ready && klineSource === 'unavailable' ? (
+        <Message tone="text-slate-500">{noHistory(interval)}</Message>
       ) : !ready || candles.length === 0 ? (
         <Message tone="text-slate-500">Loading candles…</Message>
       ) : (
         <>
+          {SOURCE_NOTE[klineSource] && <div className="pointer-events-none absolute left-2 top-1 z-10 text-[10px] text-slate-500">{SOURCE_NOTE[klineSource]}</div>}
           {legend.length > 0 && (
             <div className="pointer-events-none absolute right-16 top-1 z-10 hidden gap-x-3 text-[10px] text-slate-400 sm:flex" aria-label="Chart line legend">
               {legend.map(([k, t, c]) => (

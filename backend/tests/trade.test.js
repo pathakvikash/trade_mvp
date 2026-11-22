@@ -169,6 +169,33 @@ test('fill price: ws <= 3s, else futuresRest.markPrice, else overview, else 503'
     }
 });
 
+test('fill price when REST is IP-blocked: WS mark with receive time fills; a stale (>10s) mark is still rejected', async () => {
+    const axios = require('axios');
+    const real = jest.requireActual('../services/futuresRest');
+    jest.spyOn(axios, 'get').mockRejectedValue(Object.assign(new Error('418'), { response: { status: 418, headers: {}, data: {} } }));
+    rest.markPrice = real.markPrice;
+    const now = Date.now();
+    const dn = jest.spyOn(Date, 'now');
+    try {
+        svc.getMark.mockReturnValue(null); // symbol not WS-subscribed
+        real.ingestMarks([{ s: 'BTCUSDT', p: '42', i: '42', r: '0', T: 1 }]);
+        rest.overview.mockRejectedValue(new Error('blocked'));
+        const ok = await order({ cryptoSymbol: 'BTC', type: 'buy', amount: 1 });
+        expect(ok.body.fill.price).toBe(42);
+
+        real._test.reset(); // drop caches, then feed a mark that is 11s old by the time of the order
+        dn.mockReturnValue(now);
+        real.ingestMarks([{ s: 'BTCUSDT', p: '42', i: '42', r: '0', T: 1 }]);
+        dn.mockReturnValue(now + 11000);
+        expect((await order({ cryptoSymbol: 'BTC', type: 'buy', amount: 1 })).statusCode).toBe(503);
+    } finally {
+        dn.mockRestore();
+        axios.get.mockRestore();
+        real._test.reset();
+        delete rest.markPrice;
+    }
+});
+
 test('first trade migrates holdings from Trade history once, clamped at >= 0', async () => {
     User.findById.mockReturnValue(found({ balance: 500 })); // no holdingsSyncedAt
     Trade.aggregate.mockResolvedValue([{ _id: 'BTC', net: 1.5 }, { _id: 'ETH', net: -2 }, { _id: 'BAD.X', net: 1 }]);

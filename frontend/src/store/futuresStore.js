@@ -14,7 +14,7 @@ const validTf = oneOf(...TIMEFRAMES);
 // Shared by Trade and Market: the user's last pick (stored `trade.timeframe`) wins over the preference, then 1m.
 const startTf = (pref) => readPersisted('trade.timeframe', validTf(pref) ? pref : '1m', validTf);
 
-const empty = { candles: [], book: null, mark: null, trades: [], liquidations: [], since: null, error: null, interval: '1m', reloadSeq: 0 };
+const empty = { candles: [], book: null, mark: null, trades: [], liquidations: [], since: null, error: null, interval: '1m', reloadSeq: 0, klineSource: null };
 
 const mergeCandles = (a, b) => {
   const byTime = new Map();
@@ -96,7 +96,7 @@ const useFuturesStore = create((set, get) => {
         const seen = new Set(get().liquidations.map(liqKey));
         const seeded = l.data.events.filter((e) => !seen.has(liqKey(e)));
         set((s) => ({
-          ...(s.interval === interval ? { candles: mergeCandles(k.data, s.candles), reloadSeq: s.reloadSeq + 1 } : {}),
+          ...(s.interval === interval ? { candles: mergeCandles(k.data, s.candles), reloadSeq: s.reloadSeq + 1, klineSource: k.headers?.['x-data-source'] || null } : {}),
           liquidations: [...seeded, ...s.liquidations].slice(-MAX_LIQ),
           since: l.data.since,
         }));
@@ -114,9 +114,10 @@ const useFuturesStore = create((set, get) => {
       if (!symbol || reloading === key) return;
       reloading = key;
       try {
-        const { data } = await axios.get(`${API}/api/market/futures/klines/${symbol}`, { params: { interval, limit: 500 } });
+        const { data, headers } = await axios.get(`${API}/api/market/futures/klines/${symbol}`, { params: { interval, limit: 500 } });
         if (get().symbol === symbol && get().interval === interval) {
-          set((s) => ({ candles: data.slice(-MAX_CANDLES), error: null, reloadSeq: s.reloadSeq + 1 }));
+          // an empty reply (no history from this server) must not wipe candles built from live ticks
+          set((s) => ({ candles: data.length ? data.slice(-MAX_CANDLES) : s.candles, klineSource: headers?.['x-data-source'] || null, error: null, reloadSeq: s.reloadSeq + 1 }));
         }
       } catch (err) {
         if (get().symbol === symbol && get().interval === interval && get().candles.length === 0) set({ error: 'load_failed' });

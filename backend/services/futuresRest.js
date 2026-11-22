@@ -7,7 +7,85 @@ const BASE = process.env.BINANCE_FUTURES_REST || 'https://fapi.binance.com';
 const PERIODS = ['5m', '15m', '1h', '4h'];
 const num = (x) => parseFloat(x);
 const pct = (x) => parseFloat((num(x) * 100).toFixed(4)); // fraction -> percent
-const get = (path, params) => axios.get(BASE + path, { params, timeout: 10000 }).then((r) => r.data);
+const SPOT_BASE = process.env.BINANCE_SPOT_REST || 'https://data-api.binance.vision';
+
+// ---- circuit breaker ----
+// Hosts such as Render get 418/403/451 (IP/ASN block) or 429 from fapi for every call. After one of those we stop
+// calling for max(5 min, Retry-After) (429 is a rate limit, not a ban: Retry-After or 60 s) so we neither hammer a ban
+// nor wait 10 s per request, then let exactly one probe through; only that probe may close the breaker. Network errors and 5xx fall back for that call only (no trip); 400s pass through untouched.
+const BLOCK_STATUS = new Set([418, 403, 451, 429]);
+const BLOCK_MIN_MS = 300e3;
+const RATE_LIMIT_MS = 60e3;
+const br = { open: false, until: 0, probing: false };
+const statusOf = (e) => e && e.response && e.response.status;
+const isBlocked = (e) => !!e && (e.blocked === true || BLOCK_STATUS.has(statusOf(e)));
+// what may be answered from another source: a block (the call that trips it is still a plain 418), no response, 5xx
+const fallbackable = (e) => isBlocked(e) || !e.response || e.response.status >= 500;
+
+function trip(e) {
+    const h = (e.response && e.response.headers) || {};
+    const ra = Number(h['retry-after']);
+    const raMs = Number.isFinite(ra) ? ra * 1000 : 0;
+    const ms = statusOf(e) === 429 ? (raMs || RATE_LIMIT_MS) : Math.max(BLOCK_MIN_MS, raMs);
+    if (!br.open) logger.warn(`Binance REST blocked (HTTP ${statusOf(e)}), using fallbacks for ${Math.round(ms / 1000)}s`);
+    br.open = true;
+    br.until = Date.now() + ms;
+}
+
+async function get(path, params) {
+    let probe = false;
+    if (br.open) {
+        if (Date.now() < br.until || br.probing) throw Object.assign(new Error('binance rest blocked'), { blocked: true, status: 0 });
+        br.probing = probe = true; // one caller tests the water; concurrent calls keep short-circuiting
+    }
+    try {
+        const d = (await axios.get(BASE + path, { params, timeout: 10000 })).data;
+        // a request that started before the trip must not close it: only the probe can
+        if (probe) { br.open = false; logger.warn('Binance REST recovered'); }
+        return d;
+    } catch (e) {
+        const s = statusOf(e);
+        if (BLOCK_STATUS.has(s)) trip(e);
+        else if (probe && !(s && s < 500)) br.until = Date.now() + BLOCK_MIN_MS; // probe hit a network error/5xx: stay open
+        else if (probe) { br.open = false; logger.warn('Binance REST recovered'); } // got an answer (e.g. 400): reachable
+        throw e;
+    } finally {
+        if (probe) br.probing = false;
+    }
+}
+
+// Spot mirror (klines only). No breaker: it is a different host and only used after fapi failed.
+const spotGet = (path, params) => axios.get(SPOT_BASE + path, { params, timeout: 10000 }).then((r) => { spotWarned = false; return r.data; });
+let spotWarned = false;
+const warnSpotOnce = (e) => {
+    if (spotWarned) return;
+    spotWarned = true; // re-armed by the next successful spot call
+    logger.warn(`futuresRest: spot fallback failed (${e.message})`);
+};
+
+// The fstream WS feeds these (futuresService calls ingest*). Kept here, apart from futuresService's marks/hold/getMark,
+// so the money path keeps its own subscription-based marks and there is no require cycle.
+const liveTickers = new Map(); // symbol -> { c, o, h, l, q }
+const liveMarks = new Map(); // symbol -> { markPrice, indexPrice, fundingRate, nextFundingTime, ts (receive time) }
+function ingestTickers(arr) {
+    if (!Array.isArray(arr)) return;
+    const ts = Date.now();
+    for (const t of arr) if (t && t.s) liveTickers.set(t.s, { c: num(t.c), o: num(t.o), h: num(t.h), l: num(t.l), q: num(t.q), ts });
+}
+// Delisted perps stop ticking: drop entries silent for 5 min before the fallbacks read these maps.
+const LIVE_MAX_AGE_MS = 300e3;
+function pruneLive() {
+    const cutoff = Date.now() - LIVE_MAX_AGE_MS;
+    for (const m of [liveTickers, liveMarks]) for (const [k, v] of m) if (v.ts < cutoff) m.delete(k);
+}
+function ingestMarks(arr) {
+    if (!Array.isArray(arr)) return;
+    const ts = Date.now();
+    for (const m of arr) if (m && m.s) liveMarks.set(m.s, { markPrice: num(m.p), indexPrice: num(m.i), fundingRate: num(m.r), nextFundingTime: m.T, ts });
+}
+
+// JSON drops array props, so `source` rides along invisibly (routes read it for X-Data-Source).
+const tag = (arr, source) => Object.defineProperty(arr, 'source', { value: source, enumerable: false });
 
 // ponytail: per-process promise cache keyed by string; failures are evicted, capped at MAX_CACHE entries (oldest dropped).
 const MAX_CACHE = 500;
@@ -49,7 +127,13 @@ async function isKnownSymbol(symbol) {
 // [{symbol, base}] for the pair picker; throws when exchangeInfo has never loaded.
 async function listSymbols() {
     await isKnownSymbol('BTCUSDT');
-    if (!symbols) throw new Error('symbol list unavailable');
+    if (!symbols) {
+        // exchangeInfo blocked: the all-market ticker stream still names every live perp
+        pruneLive();
+        const live = [...liveTickers.keys()].filter((s) => s.endsWith('USDT') && isValidSymbol(s)).sort();
+        if (!live.length) throw new Error('symbol list unavailable');
+        return tag(live.map((symbol) => ({ symbol, base: symbol.replace(/USDT$/, '') })), 'ws');
+    }
     return [...symbols].map(([symbol, base]) => ({ symbol, base: base || symbol.replace(/USDT$/, '') })).sort((a, b) => (a.symbol < b.symbol ? -1 : 1));
 }
 
@@ -57,6 +141,7 @@ async function listSymbols() {
 const oiCache = new Map(); // symbol -> { oi, at }
 const oiBusy = new Set(); // symbols with an OI call in flight (overlapping refreshes skip them)
 async function refreshOpenInterest(syms) {
+    if (br.open) return; // do not spend the probe slot on 40 OI calls
     const stale = syms.filter((s) => !oiBusy.has(s) && (!oiCache.has(s) || Date.now() - oiCache.get(s).at > 60000));
     stale.forEach((s) => oiBusy.add(s));
     // concurrency 5; a failed symbol keeps its previous value (or null)
@@ -78,7 +163,34 @@ const fundingIntervals = () => cached('fundingInfo', 3600e3, async () => new Map
     (await get('/fapi/v1/fundingInfo')).map((r) => [r.symbol, num(r.fundingIntervalHours)]),
 )).catch((e) => { logger.warn(`futuresRest: fundingInfo failed (${e.message}); assuming 8h`); return new Map(); });
 
-const overview = () => cached('overview', 10000, async () => {
+// Blocked REST: rebuild the rows from the WS all-market streams. No OI (null), funding interval unknown (null; the UI
+// shows 8h-based annualisation without a label). `ts` is the mark's receive time so tradeFill's age gate still rejects a stale row.
+function overviewFromWs() {
+    pruneLive();
+    const rows = [];
+    for (const [symbol, t] of liveTickers) {
+        const m = liveMarks.get(symbol);
+        if (!m || !isValidSymbol(symbol) || !(t.c > 0) || !(m.markPrice > 0)) continue;
+        rows.push({
+            symbol,
+            lastPrice: t.c,
+            priceChangePercent: t.o > 0 ? ((t.c - t.o) / t.o) * 100 : 0,
+            high: t.h,
+            low: t.l,
+            quoteVolume: t.q,
+            markPrice: m.markPrice,
+            indexPrice: m.indexPrice,
+            fundingRate: m.fundingRate,
+            nextFundingTime: m.nextFundingTime,
+            fundingIntervalHours: null,
+            openInterestUsd: null,
+            ts: m.ts,
+        });
+    }
+    return rows.sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 40);
+}
+
+const overviewRest = async () => {
     const [tickers, premium, intervals] = await Promise.all([get('/fapi/v1/ticker/24hr'), get('/fapi/v1/premiumIndex'), fundingIntervals()]);
     const prem = new Map(premium.map((p) => [p.symbol, p]));
     const top = tickers
@@ -109,6 +221,17 @@ const overview = () => cached('overview', 10000, async () => {
             openInterestUsd: oi ? oi.oi * markPrice : null,
         };
     });
+};
+
+const overview = () => cached('overview', 10000, async () => {
+    try {
+        return await overviewRest();
+    } catch (e) {
+        if (!fallbackable(e)) throw e;
+        const rows = overviewFromWs();
+        if (!rows.length) throw e; // WS not warmed up yet: 502 as before
+        return tag(rows, 'ws');
+    }
 });
 
 // ---- stats ----
@@ -128,7 +251,11 @@ const stats = (symbol, period) => cached(`stats:${symbol}:${period}`, 30000, asy
     };
     const keys = Object.keys(jobs);
     const res = await Promise.allSettled(keys.map((k) => get(jobs[k][0], jobs[k][1])));
-    if (res.every((r) => r.status === 'rejected')) throw res[0].reason;
+    if (res.every((r) => r.status === 'rejected')) {
+        // blocked: no alternative source for these series; answer 200 with empty series so the page shows "no data"
+        if (res.every((r) => isBlocked(r.reason))) return { symbol, period, ...Object.fromEntries(keys.map((k) => [k, []])), degraded: true, source: 'unavailable' };
+        throw res[0].reason;
+    }
     const out = { symbol, period };
     keys.forEach((k, i) => { out[k] = res[i].status === 'fulfilled' ? jobs[k][2](res[i].value).sort(byTs) : []; });
     return out;
@@ -207,17 +334,41 @@ const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () 
 // Single-symbol mark price for trade code: null on any failure or unknown symbol, never rejects. Cached 2s.
 const markPrice = (symbol) => (isValidSymbol(symbol)
     ? cached(`mark:${symbol}`, 2000, async () => {
-        const d = await get('/fapi/v1/premiumIndex', { symbol });
-        const p = num(d && d.markPrice);
-        if (!(p > 0)) throw new Error('bad mark price');
-        return { markPrice: p, ts: Number(d.time) || Date.now() };
+        try {
+            const d = await get('/fapi/v1/premiumIndex', { symbol });
+            const p = num(d && d.markPrice);
+            if (!(p > 0)) throw new Error('bad mark price');
+            return { markPrice: p, ts: Number(d.time) || Date.now() };
+        } catch (e) {
+            // Deliberate money-path fallback: the WS mark with its receive time. tradeFill still enforces <= 10 s.
+            const m = fallbackable(e) && liveMarks.get(symbol);
+            if (m && m.markPrice > 0) return { markPrice: m.markPrice, ts: m.ts };
+            throw e;
+        }
     }).catch(() => null)
     : Promise.resolve(null));
 
-const klines = (symbol, interval, limit) => cached(`klines:${symbol}:${interval}:${limit}`, 10000,
-    async () => (await get('/fapi/v1/klines', { symbol, interval, limit })).map(normalizeRestKline));
+const klines = (symbol, interval, limit) => cached(`klines:${symbol}:${interval}:${limit}`, 10000, async () => {
+    try {
+        return (await get('/fapi/v1/klines', { symbol, interval, limit })).map(normalizeRestKline);
+    } catch (e) {
+        if (!fallbackable(e)) throw e;
+        try {
+            return tag((await spotGet('/api/v3/klines', { symbol, interval, limit })).map(normalizeRestKline), 'spot');
+        } catch (e2) {
+            // spot 400 (-1121) = perp-only symbol: empty chart, NOT a 404 (the SPA would mark the market missing)
+            if (statusOf(e2) === 400) return tag([], 'unavailable');
+            warnSpotOnce(e2);
+            throw e;
+        }
+    }
+});
 
 module.exports = {
     PERIODS, HEAT_RANGES, overview, stats, liqmap, liqheat, klines, markPrice, isKnownSymbol, listSymbols,
-    _test: { reset: () => { symbols = null; symbolsFresh = 0; symbolsP = null; cache.clear(); heatCache.clear(); } },
+    ingestTickers, ingestMarks, isBlocked,
+    _test: {
+        reset: () => { symbols = null; symbolsFresh = 0; symbolsP = null; cache.clear(); heatCache.clear(); br.open = false; br.until = 0; br.probing = false; spotWarned = false; liveTickers.clear(); liveMarks.clear(); },
+        resetBreaker: () => { br.open = false; br.until = 0; br.probing = false; },
+    },
 };

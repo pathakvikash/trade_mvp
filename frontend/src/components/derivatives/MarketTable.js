@@ -16,7 +16,7 @@ const getters = {
 
 const cls = (v) => (v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-400');
 
-const MarketTable = ({ rows, error, selected, onSelect }) => {
+const MarketTable = ({ rows, error, source, selected, onSelect }) => {
   const [q, setQ] = usePersistedState('derivatives.search', '', { validate: (v) => typeof v === 'string' && v.length <= 40 });
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -83,6 +83,7 @@ const MarketTable = ({ rows, error, selected, onSelect }) => {
           {sorted.length === 0 && <Notice>No symbols match.</Notice>}
         </div>
       )}
+      {source === 'ws' && <p className="mt-1 text-[11px] text-slate-500">Open interest unavailable from this server</p>}
       <p className="mt-1 text-[11px] text-slate-500">APR = rate x payments per day (24 / funding interval) x 365, simple, not compounded. The interval is shown next to the countdown.</p>
     </Panel>
   );

@@ -23,6 +23,7 @@ Fills use only the server's price: `tradeFill.fillPrice(futuresSymbol)` -> `{pri
 1. `futuresService.getMark` (websocket markPrice stream) if <= 3 s old;
 2. else `futuresRest.markPrice` (REST `premiumIndex`, cached 2 s) if <= 10 s old;
 3. else the `overview` row (<= 10 s, or untimestamped);
+   When fapi is IP-blocked, step 2 returns the `!markPrice@arr` WS mark (receive time as `ts`, so the same <= 10 s gate applies) for symbols nobody subscribed; the overview fallback rows carry the same `ts`. `futuresService.getMark` (step 1, engines) is unaffected.
 4. else `null` -> API 503 (`NO_PRICE` for futures). Engines skip the symbol for that pass (never act on a stale mark).
 
 The client never sends a fill price (limit orders send a *limit* price, which is the fill price of that order type).

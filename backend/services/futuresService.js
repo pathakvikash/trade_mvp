@@ -188,6 +188,9 @@ function onMessage(stream, d) {
         if (ioNs) ioNs.to(room(ev.symbol)).emit('futures:liquidation', ev);
         return;
     }
+    // arrays carry no `.s`: route them before the per-symbol access
+    if (stream === '!miniTicker@arr') return futuresRest.ingestTickers(d);
+    if (stream === '!markPrice@arr') return futuresRest.ingestMarks(d);
     const symbol = d.s;
     if (!symbol) return;
     if (d.e === 'aggTrade') {
@@ -307,6 +310,9 @@ function start(ns) {
     conns.public = connection('public');
     conns.market = connection('market');
     conns.market.add('!forceOrder@arr');
+    // all-market snapshots feed futuresRest's fallbacks when REST is IP-blocked (market endpoint, like forceOrder)
+    conns.market.add('!miniTicker@arr');
+    conns.market.add('!markPrice@arr');
     ns.on('connection', onConnection);
     conns.public.open();
     conns.market.open();

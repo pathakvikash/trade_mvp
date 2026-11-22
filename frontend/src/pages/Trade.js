@@ -98,6 +98,7 @@ const Trade = () => {
 
   const ready = storeSymbol === futuresSymbol;
   const reloadSeq = useFuturesStore((s) => s.reloadSeq);
+const klineSource = useFuturesStore((s) => s.klineSource);
   // Futures last price (last candle close, else mark); never the CoinGecko spot price.
   const lastPrice = ready ? (candles.length ? candles[candles.length - 1].close : mark?.markPrice ?? null) : null;
 
@@ -205,6 +206,7 @@ const Trade = () => {
           interval={interval}
           onInterval={setTimeframe}
           candles={candles}
+          klineSource={klineSource}
           lines={lines}
           reloadSeq={reloadSeq}
           error={futuresError}
