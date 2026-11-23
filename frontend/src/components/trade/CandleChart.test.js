@@ -5,6 +5,8 @@ import { createRoot } from 'react-dom/client';
 global.IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockCandle = {};
+const mockLine = [];
+const mockRemoveSeries = jest.fn();
 jest.mock('lightweight-charts', () => ({ LineStyle: { Solid: 0, Dashed: 2 }, createChart: jest.fn() }));
 
 import { createChart } from 'lightweight-charts';
@@ -17,10 +19,13 @@ const ui = (lines) => <CandleChart candles={candles} reloadSeq={0} label="x" lin
 beforeEach(() => {
   Object.assign(mockCandle, {
     applyOptions: jest.fn(), setData: jest.fn(), update: jest.fn(),
-    createPriceLine: jest.fn(() => ({ applyOptions: jest.fn() })), removePriceLine: jest.fn(),
+    createPriceLine: jest.fn(() => ({ applyOptions: jest.fn() })), removePriceLine: jest.fn(), setMarkers: jest.fn(),
   });
+  mockLine.length = 0;
   createChart.mockImplementation(() => ({
     addCandlestickSeries: () => mockCandle,
+    addLineSeries: () => { const l = { setData: jest.fn(), applyOptions: jest.fn() }; mockLine.push(l); return l; },
+    removeSeries: mockRemoveSeries,
     addHistogramSeries: () => ({ setData: jest.fn(), update: jest.fn() }),
     priceScale: () => ({ applyOptions: jest.fn() }),
     subscribeCrosshairMove: jest.fn(),
@@ -55,4 +60,26 @@ test('creates, updates in place, and removes price lines', () => {
 test('works without lines prop', () => {
   render(ui(undefined));
   expect(mockCandle.createPriceLine).not.toHaveBeenCalled();
+});
+
+test('overlays: line series per id, updated in place, removed on clear; markers sorted and cleared', () => {
+  mockRemoveSeries.mockClear();
+  const ov = (v) => [{ id: 'fast', color: '#fff', data: [{ time: 1, value: v }, { time: 2, value: v }] }, { id: 'bb.upper', data: [{ time: 1, value: 3 }] }];
+  const mk = [{ time: 5, kind: 'exit_long', price: 1 }, { time: 2, kind: 'entry_long', price: 1 }, { time: 3, kind: 'nope', price: 1 }];
+  const node = (overlays, markers) => <CandleChart candles={candles} reloadSeq={0} label="x" overlays={overlays} markers={markers} />;
+  const { rerender } = render(node(ov(1), mk));
+  expect(mockLine).toHaveLength(2);
+  expect(mockLine[0].setData).toHaveBeenCalledWith([{ time: 1, value: 1 }, { time: 2, value: 1 }]);
+  const m = mockCandle.setMarkers.mock.calls[0][0];
+  expect(m.map((x) => x.time)).toEqual([2, 5]);
+  expect(m[0]).toMatchObject({ shape: 'arrowUp', position: 'belowBar' });
+
+  rerender(node(ov(2), mk));
+  expect(mockLine).toHaveLength(2); // no new series, updated in place
+  expect(mockLine[0].setData).toHaveBeenCalledTimes(2);
+
+  rerender(node([], []));
+  expect(mockRemoveSeries).toHaveBeenCalledTimes(2);
+  expect(mockCandle.setMarkers).toHaveBeenLastCalledWith([]);
+  expect(createChart).toHaveBeenCalledTimes(1);
 });

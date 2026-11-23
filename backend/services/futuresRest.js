@@ -1,148 +1,24 @@
-// Binance USDS-M REST aggregations for the futures dashboard (all cached in memory).
-const axios = require('axios');
+// Binance USDS-M REST aggregations for the futures dashboard (all cached in memory). Thin facade: Binance first (providers/binance.js),
+// then the marketData gateway (Bybit, Bitget, Gate, MEXC, spot) after a fallbackable Binance failure. The gateway is analytics only:
+// markPrice and the overview's price/mark/ts columns never come from it (money path: tradeFill reads them).
 const logger = require('../config/logger');
-const { isValidSymbol, normalizeRestKline, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, MMR } = require('./futuresUtils');
+const { isValidSymbol, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, MMR } = require('./futuresUtils');
+const { cached, clear: clearCache } = require('./marketData/cache');
+const { isBlocked, fallbackable } = require('./marketData/breaker');
+const binance = require('./marketData/providers/binance');
+const bybit = require('./marketData/providers/bybit');
+const md = require('./marketData');
 
-const BASE = process.env.BINANCE_FUTURES_REST || 'https://fapi.binance.com';
+const get = binance.get;
 const PERIODS = ['5m', '15m', '1h', '4h'];
 const num = (x) => parseFloat(x);
-const pct = (x) => parseFloat((num(x) * 100).toFixed(4)); // fraction -> percent
-const byTs = (a, b) => a.ts - b.ts;
-const SPOT_BASE = process.env.BINANCE_SPOT_REST || 'https://data-api.binance.vision';
 
-// ---- circuit breaker ----
-// Hosts such as Render get 418/403/451 (IP/ASN block) or 429 from fapi for every call. After one of those we stop
-// calling for max(5 min, Retry-After) (429 is a rate limit, not a ban: Retry-After or 60 s) so we neither hammer a ban
-// nor wait 10 s per request, then let exactly one probe through; only that probe may close the breaker. Network errors and 5xx fall back for that call only (no trip); 400s pass through untouched.
-const BLOCK_STATUS = new Set([418, 403, 451, 429]);
-const BLOCK_MIN_MS = 300e3;
-const RATE_LIMIT_MS = 60e3;
-const br = { open: false, until: 0, probing: false };
-const statusOf = (e) => e && e.response && e.response.status;
-const isBlocked = (e) => !!e && (e.blocked === true || BLOCK_STATUS.has(statusOf(e)));
-// what may be answered from another source: a block (the call that trips it is still a plain 418), no response, 5xx
-const fallbackable = (e) => isBlocked(e) || !e.response || e.response.status >= 500;
-
-function trip(e) {
-    const h = (e.response && e.response.headers) || {};
-    const ra = Number(h['retry-after']);
-    const raMs = Number.isFinite(ra) ? ra * 1000 : 0;
-    const ms = statusOf(e) === 429 ? (raMs || RATE_LIMIT_MS) : Math.max(BLOCK_MIN_MS, raMs);
-    if (!br.open) logger.warn(`Binance REST blocked (HTTP ${statusOf(e)}), using fallbacks for ${Math.round(ms / 1000)}s`);
-    br.open = true;
-    br.until = Date.now() + ms;
-}
-
-async function get(path, params) {
-    let probe = false;
-    if (br.open) {
-        if (Date.now() < br.until || br.probing) throw Object.assign(new Error('binance rest blocked'), { blocked: true, status: 0 });
-        br.probing = probe = true; // one caller tests the water; concurrent calls keep short-circuiting
-    }
-    try {
-        const d = (await axios.get(BASE + path, { params, timeout: 10000 })).data;
-        // a request that started before the trip must not close it: only the probe can
-        if (probe) { br.open = false; logger.warn('Binance REST recovered'); }
-        return d;
-    } catch (e) {
-        const s = statusOf(e);
-        if (BLOCK_STATUS.has(s)) trip(e);
-        else if (probe && !(s && s < 500)) br.until = Date.now() + BLOCK_MIN_MS; // probe hit a network error/5xx: stay open
-        else if (probe) { br.open = false; logger.warn('Binance REST recovered'); } // got an answer (e.g. 400): reachable
-        throw e;
-    } finally {
-        if (probe) br.probing = false;
-    }
-}
-
-// Spot mirror (klines only). No breaker: it is a different host and only used after fapi failed.
-const spotGet = (path, params) => axios.get(SPOT_BASE + path, { params, timeout: 10000 }).then((r) => { spotWarned = false; return r.data; });
-let spotWarned = false;
-const warnSpotOnce = (e) => {
-    if (spotWarned) return;
-    spotWarned = true; // re-armed by the next successful spot call
-    logger.warn(`futuresRest: spot fallback failed (${e.message})`);
-};
-
-// ---- Bybit v5 public REST (linear USDT perps, no key) ----
-// Second fallback, used ONLY after Binance failed with fallbackable(e): one API covers klines, OI, account ratio, funding and
-// all-market tickers. Numbers differ from Binance (OI is Bybit-only, ratios are Bybit accounts), so every result is tagged 'bybit'.
-// Every failure here just falls through to the previous behaviour.
-const BYBIT_BASE = process.env.BYBIT_REST || 'https://api.bybit.com';
-const BYBIT_KL = { '1m': '1', '3m': '3', '5m': '5', '15m': '15', '30m': '30', '1h': '60', '2h': '120', '4h': '240', '6h': '360', '12h': '720', '1d': 'D', '1w': 'W' };
-// OI history and account ratio share one period vocabulary; Bybit has no 2h/6h/12h there (unsupported -> empty series)
-const BYBIT_PERIOD = { '5m': '5min', '15m': '15min', '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1d' };
-const BYBIT_STEP_MS = { '5min': 300e3, '15min': 900e3, '30min': 1800e3, '1h': 3600e3, '4h': 4 * 3600e3, '1d': 86400e3 };
-
-// Breaker: no response (timeout/network), 403/418/429/451 or 5xx skips Bybit for 5 min; then one probe (others skipped
-// while it is in flight); a success closes it. ponytail: no Retry-After handling.
-const by = { until: 0, tripped: false };
-const withCap = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('bybit time cap')), ms); })]).finally(() => clearTimeout(t)); };
-
-async function bybitGet(path, params) {
-    if (Date.now() < by.until) throw new Error('bybit skipped (breaker open)');
-    if (by.tripped) by.until = Date.now() + 5000; // probe slot
-    let d;
-    try {
-        d = (await axios.get(BYBIT_BASE + path, { params: { category: 'linear', ...params }, timeout: 4000 })).data;
-    } catch (e) {
-        const st = statusOf(e);
-        if (!st || BLOCK_STATUS.has(st) || st >= 500) { by.tripped = true; by.until = Date.now() + BLOCK_MIN_MS; }
-        throw e;
-    }
-    by.tripped = false; by.until = 0;
-    // unknown symbol (retCode 10001 "Symbol Is Invalid") = unavailable, not a crash
-    if (d.retCode === 10001 && /symbol/i.test(d.retMsg)) return { list: [] };
-    if (d.retCode !== 0) throw new Error(`bybit ${d.retCode}: ${d.retMsg}`);
-    return d.result;
-}
-
-// ascending, normalizeRestKline shape (Bybit returns newest first, strings)
-async function bybitKlines(symbol, interval, limit) {
-    const iv = BYBIT_KL[interval];
-    if (!iv) return [];
-    const { list } = await bybitGet('/v5/market/kline', { symbol, interval: iv, limit: Math.min(1000, limit) });
-    return list.map(normalizeRestKline).sort((a, b) => a.time - b.time);
-}
-
-// USD price for a base-coin amount at ts: open of the candle starting at ts, else close of the last candle before it
-function closeAt(candles) {
-    return (ts) => {
-        let lo = 0;
-        let hi = candles.length - 1;
-        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (candles[m].time * 1000 <= ts) lo = m; else hi = m - 1; }
-        const c = candles[lo];
-        return c.time * 1000 >= ts ? c.open : c.close; // an OI snapshot stamped at a candle start was taken before that candle traded
-    };
-}
-
-// [{ts, oi}] ascending, `count` rows max. 200 rows per call; pages are fetched concurrently: page k ends k*200 steps
-// before the latest aligned slot (endTime is inclusive). ponytail: a hole in Bybit's history shifts older pages by the gap.
-// Uses singleOpenInterest: Bybit's openInterest counts both sides (2x).
-async function bybitOi(symbol, period, count) {
-    const intervalTime = BYBIT_PERIOD[period];
-    if (!intervalTime) return [];
-    const step = BYBIT_STEP_MS[intervalTime];
-    const head = Math.floor(Date.now() / step) * step;
-    const pages = await Promise.all(Array.from({ length: Math.ceil(count / 200) }, (_, k) => bybitGet('/v5/market/open-interest', {
-        symbol, intervalTime, limit: Math.min(200, count - k * 200), ...(k && { endTime: head - k * 200 * step }),
-    })));
-    const byTime = new Map();
-    pages.forEach(({ list }) => list.forEach((r) => byTime.set(Number(r.timestamp), num(r.singleOpenInterest ?? r.openInterest))));
-    return [...byTime].map(([ts, oi]) => ({ ts, oi })).sort(byTs).slice(-count);
-}
-
-// OI rows priced in USD with the Bybit candles of the same interval
-const bybitOiUsd = (oi, candles) => { const px = candles.length ? closeAt(candles) : null; return px ? oi.map((r) => ({ ...r, oiUsd: r.oi * px(r.ts) })) : []; };
-
-// all-market tickers, one call, cached 30s: Map(symbol -> open interest USD, one side: Bybit's openInterestValue is 2x).
+// Overview OI column from Bybit's all-market tickers (the ONLY thing a third party may fill in an overview row).
 // The overview never waits for it: refreshBybitOi() runs in the background and overviewFromWs reads the last map.
 let bybitOiMap = new Map();
 let bybitWarned = false;
 function refreshBybitOi() {
-    cached('bybitTickers', 30000, async () => new Map(
-        (await bybitGet('/v5/market/tickers', {})).list.map((t) => [t.symbol, num(t.singleOpenInterestValue ?? t.openInterestValue)]),
-    )).then((m) => { bybitOiMap = m; bybitWarned = false; }, (e) => {
+    cached('bybitTickers', 30000, () => bybit.tickersOi()).then((m) => { bybitOiMap = m; bybitWarned = false; }, (e) => {
         if (!bybitWarned) logger.warn(`futuresRest: bybit tickers failed (${e.message})`);
         bybitWarned = true; // re-armed by the next success
     });
@@ -172,20 +48,6 @@ function ingestMarks(arr) {
 // JSON drops array props, so `source` rides along invisibly (routes read it for X-Data-Source).
 const tag = (arr, source) => Object.defineProperty(arr, 'source', { value: source, enumerable: false });
 
-// ponytail: per-process promise cache keyed by string; failures are evicted, capped at MAX_CACHE entries (oldest dropped).
-const MAX_CACHE = 500;
-const cache = new Map();
-function cached(key, ttlMs, fn, store = cache, max = MAX_CACHE) {
-    const c = store.get(key);
-    if (c && c.exp > Date.now()) return c.p;
-    const p = fn();
-    for (const [k, v] of store) if (v.exp <= Date.now()) store.delete(k);
-    if (store.size >= max) store.delete(store.keys().next().value);
-    store.set(key, { p, exp: Date.now() + ttlMs });
-    p.catch(() => { if (store.get(key)?.p === p) store.delete(key); });
-    return p;
-}
-
 // ---- real symbols ----
 // Tradable USDT perpetuals from exchangeInfo, cached 1h. A failed refresh keeps the last good set and retries
 // after 1 min; with no good set yet we fall back to the regex only (isValidSymbol) and warn.
@@ -206,7 +68,11 @@ async function isKnownSymbol(symbol) {
         }).finally(() => { symbolsP = null; });
         await symbolsP;
     }
-    return symbols ? symbols.has(symbol) : true;
+    if (symbols) return symbols.has(symbol);
+    // exchangeInfo never loaded: the !markPrice@arr stream carries every live perp (the ticker stream may skip quiet ones),
+    // so a warm marks map beats the regex alone; cold/empty WS keeps the regex-only answer
+    pruneLive();
+    return liveMarks.size ? liveMarks.has(symbol) : true;
 }
 
 // [{symbol, base}] for the pair picker; throws when exchangeInfo has never loaded.
@@ -226,7 +92,7 @@ async function listSymbols() {
 const oiCache = new Map(); // symbol -> { oi, at }
 const oiBusy = new Set(); // symbols with an OI call in flight (overlapping refreshes skip them)
 async function refreshOpenInterest(syms) {
-    if (br.open) return; // do not spend the probe slot on 40 OI calls
+    if (binance.breaker.state().state !== 'closed') return; // do not spend the probe slot on 40 OI calls
     const stale = syms.filter((s) => !oiBusy.has(s) && (!oiCache.has(s) || Date.now() - oiCache.get(s).at > 60000));
     stale.forEach((s) => oiBusy.add(s));
     // concurrency 5; a failed symbol keeps its previous value (or null)
@@ -323,54 +189,43 @@ const overview = () => cached('overview', 10000, async () => {
 });
 
 // ---- stats ----
-const ratioRows = (rows) => rows.map((r) => ({
-    ts: r.timestamp, ratio: num(r.longShortRatio), longPct: pct(r.longAccount), shortPct: pct(r.shortAccount),
-}));
-
-// Same shape as the Binance result; top-trader and taker series have no Bybit equivalent. null when Bybit gave nothing.
-async function bybitStats(symbol, period) {
-    const rp = BYBIT_PERIOD[period];
-    const [oi, kl, ls, fu] = await withCap(Promise.allSettled([
-        bybitOi(symbol, period, 200),
-        bybitKlines(symbol, period, 200),
-        rp ? bybitGet('/v5/market/account-ratio', { symbol, period: rp, limit: 200 }) : { list: [] },
-        bybitGet('/v5/market/funding/history', { symbol, limit: 100 }),
-    ]), 8000);
-    const ok = (r, f) => (r.status === 'fulfilled' ? f(r.value) : []);
-    const out = {
-        symbol, period,
-        openInterest: oi.status === 'fulfilled' && kl.status === 'fulfilled' ? bybitOiUsd(oi.value, kl.value).map((r) => ({ ts: r.ts, oi: r.oi, oiUsd: r.oiUsd })) : [],
-        longShort: ok(ls, (v) => v.list.filter((r) => num(r.sellRatio) > 0).map((r) => ({ ts: Number(r.timestamp), ratio: num(r.buyRatio) / num(r.sellRatio), longPct: pct(r.buyRatio), shortPct: pct(r.sellRatio) }))).sort(byTs),
-        topLongShort: [],
-        takerBuySell: [],
-        funding: ok(fu, (v) => v.list.map((r) => ({ ts: Number(r.fundingRateTimestamp), rate: num(r.fundingRate) }))).sort(byTs),
-        source: 'bybit',
-    };
-    return out.openInterest.length || out.longShort.length || out.funding.length ? out : null;
-}
+// [cap, args] per series: the same capability names the gateway chains use.
+const statsJobs = (symbol, period) => ({
+    openInterest: ['oiHist', [period, 200]],
+    longShort: ['ratio', [period, 200]],
+    topLongShort: ['topRatio', [period, 200]],
+    takerBuySell: ['taker', [period, 200]],
+    funding: ['funding', [100]],
+});
 
 const stats = (symbol, period) => cached(`stats:${symbol}:${period}`, 30000, async () => {
-    const q = { symbol, period, limit: 200 };
-    const jobs = {
-        openInterest: ['/futures/data/openInterestHist', q, (rows) => rows.map((r) => ({ ts: r.timestamp, oi: num(r.sumOpenInterest), oiUsd: num(r.sumOpenInterestValue) }))],
-        longShort: ['/futures/data/globalLongShortAccountRatio', q, ratioRows],
-        topLongShort: ['/futures/data/topLongShortPositionRatio', q, ratioRows],
-        takerBuySell: ['/futures/data/takerlongshortRatio', q, (rows) => rows.map((r) => ({ ts: r.timestamp, ratio: num(r.buySellRatio), buyVol: num(r.buyVol), sellVol: num(r.sellVol) }))],
-        funding: ['/fapi/v1/fundingRate', { symbol, limit: 100 }, (rows) => rows.map((r) => ({ ts: r.fundingTime, rate: num(r.fundingRate) }))],
-    };
+    const jobs = statsJobs(symbol, period);
     const keys = Object.keys(jobs);
-    const res = await Promise.allSettled(keys.map((k) => get(jobs[k][0], jobs[k][1])));
+    const res = await Promise.allSettled(keys.map((k) => binance[jobs[k][0]](symbol, ...jobs[k][1])));
     if (res.every((r) => r.status === 'rejected')) {
-        // Binance unreachable: Bybit series if it answers, else 200 with empty series so the page shows "no data"
+        // Binance unreachable: each series asks the other providers for itself (Binance is not retried), else 200 with empty
+        // series so the page shows "no data". The body `source` is the first series' provider; `sources` lists them per series
+        // only when they differ.
         if (res.every((r) => fallbackable(r.reason))) {
-            const b = await bybitStats(symbol, period).catch(() => null);
-            if (b) return b;
+            const got = await Promise.all(keys.map((k) => md.rest(jobs[k][0], symbol, ...jobs[k][1]).catch(() => null)));
+            const out = { symbol, period };
+            const sources = {};
+            keys.forEach((k, i) => {
+                out[k] = got[i] ? [...got[i]] : [];
+                if (out[k].length) sources[k] = got[i].source;
+            });
+            const names = [...new Set(Object.values(sources))];
+            if (names.length) {
+                out.source = sources[keys.find((k) => sources[k])];
+                if (names.length > 1) out.sources = sources;
+                return out;
+            }
         }
         if (res.every((r) => isBlocked(r.reason))) return { symbol, period, ...Object.fromEntries(keys.map((k) => [k, []])), degraded: true, source: 'unavailable' };
         throw res[0].reason;
     }
     const out = { symbol, period };
-    keys.forEach((k, i) => { out[k] = res[i].status === 'fulfilled' ? jobs[k][2](res[i].value).sort(byTs) : []; });
+    keys.forEach((k, i) => { out[k] = res[i].status === 'fulfilled' ? res[i].value : []; });
     return out;
 });
 
@@ -383,22 +238,18 @@ const liqmapOf = (symbol, klines, oiHist) => {
     };
 };
 
-// Binance first; on a fallbackable error the same estimate from Bybit candles + OI, else the original error (route: 503 degraded).
+// Binance first; on a fallbackable error the same estimate from the gateway's candles + OI (same provider for both), else the original error (route: 503 degraded).
 const liqmap = (symbol) => cached(`liqmap:${symbol}`, 60000, async () => {
     try {
-        const [kl, oi] = await Promise.all([
-            get('/fapi/v1/klines', { symbol, interval: '1h', limit: 500 }),
-            get('/futures/data/openInterestHist', { symbol, period: '1h', limit: 500 }),
-        ]);
-        const klines = kl.map(normalizeRestKline);
-        if (!klines.length) throw new Error('no klines');
-        const oiHist = oi.map((r) => ({ ts: r.timestamp, oiUsd: num(r.sumOpenInterestValue) })).sort(byTs);
-        return liqmapOf(symbol, klines, oiHist);
+        const [klines, oi] = await Promise.all([binance.klines(symbol, '1h', 500), binance.oiHist(symbol, '1h', 500)]);
+        // Binance answered fine but empty: not a transport failure, so no third-party fallback (an unknown symbol stays unknown)
+        if (!klines.length) throw Object.assign(new Error('no klines'), { response: { status: 200 } });
+        return liqmapOf(symbol, klines, oi.map(({ ts, oiUsd }) => ({ ts, oiUsd })));
     } catch (e) {
         if (!fallbackable(e)) throw e;
-        const b = await bybitInputs(symbol, '1h', 500, 500).catch(() => null);
+        const b = await md.pair(symbol, '1h', 500, 500).catch(() => null);
         if (!b) throw e;
-        return tag(liqmapOf(symbol, b.candles, b.oiHist), 'bybit');
+        return tag(liqmapOf(symbol, b.candles, b.oiHist), b.source);
     }
 });
 
@@ -411,26 +262,6 @@ const HEAT_RANGES = {
     '1w': { iv: '1h', ms: 3600e3, w: 168 },
 };
 
-// openInterestHist allows 500 rows per call: page backwards with endTime (inclusive) until `count` rows.
-async function oiHistory(symbol, period, count) {
-    let rows = [];
-    for (let end; rows.length < count;) {
-        const limit = Math.min(500, count - rows.length);
-        const r = await get('/futures/data/openInterestHist', { symbol, period, limit, ...(end && { endTime: end }) });
-        rows = r.concat(rows);
-        if (r.length < limit) break;
-        end = r[0].timestamp - 1;
-    }
-    return rows.map((r) => ({ ts: r.timestamp, oiUsd: num(r.sumOpenInterestValue) })).sort(byTs);
-}
-
-// Bybit inputs for liqmap/liqheat: candles + OI rows priced at the candle close; null when either is empty (unknown symbol).
-async function bybitInputs(symbol, iv, candleCount, oiCount) {
-    const [candles, oi] = await withCap(Promise.all([bybitKlines(symbol, iv, candleCount), bybitOi(symbol, iv, oiCount)]), 8000);
-    const oiHist = bybitOiUsd(oi, candles).map(({ ts, oiUsd }) => ({ ts, oiUsd }));
-    return candles.length && oiHist.length ? { candles, oiHist } : null;
-}
-
 // liqheat entries are ~0.3 MB each: own small cache (insertion-ordered, oldest dropped).
 const heatCache = new Map();
 const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () => {
@@ -440,17 +271,16 @@ const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () 
     let source;
     try {
         const [kl, oi] = await Promise.all([
-            get('/fapi/v1/klines', { symbol, interval: iv, limit: 2 * w }),
-            oiHistory(symbol, iv, 2 * w + 1),
+            binance.klines(symbol, iv, 2 * w),
+            binance.oiHistory(symbol, iv, 2 * w + 1),
         ]);
-        candles = kl.map(normalizeRestKline);
+        candles = kl;
         oiHist = oi;
     } catch (e) {
         if (!fallbackable(e)) throw e;
-        const b = await bybitInputs(symbol, iv, 2 * w, 2 * w + 1).catch(() => null);
+        const b = await md.pair(symbol, iv, 2 * w, 2 * w + 1).catch(() => null);
         if (!b) throw e;
-        ({ candles, oiHist } = b);
-        source = 'bybit';
+        ({ candles, oiHist, source } = b);
     }
     if (!candles.length) throw new Error('no klines');
     const now = Date.now();
@@ -471,6 +301,7 @@ const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () 
         keyLevels: liqKeyLevels(heat.open, heat.priceMin, heat.priceStep, price),
         totals: { longUsd: Math.round(heat.totals.longUsd), shortUsd: Math.round(heat.totals.shortUsd) },
         outOfViewUsd: Math.round(heat.outOfViewUsd),
+        ...(heat.cols < w && { partial: true }), // less history than the range asks for (new listing)
         largest: big && { price: big.price, usd: Math.round(big.usd), side: big.side },
     };
     return source ? tag(out, source) : out;
@@ -495,22 +326,11 @@ const markPrice = (symbol) => (isValidSymbol(symbol)
 
 const klines = (symbol, interval, limit) => cached(`klines:${symbol}:${interval}:${limit}`, 10000, async () => {
     try {
-        return (await get('/fapi/v1/klines', { symbol, interval, limit })).map(normalizeRestKline);
+        return await binance.klines(symbol, interval, limit);
     } catch (e) {
         if (!fallbackable(e)) throw e;
-        // real futures candles first (also covers perp-only symbols); any Bybit failure or empty answer falls through to spot
-        try {
-            const b = await bybitKlines(symbol, interval, limit);
-            if (b.length) return tag(b, 'bybit');
-        } catch (e3) { /* spot next */ }
-        try {
-            return tag((await spotGet('/api/v3/klines', { symbol, interval, limit })).map(normalizeRestKline), 'spot');
-        } catch (e2) {
-            // spot 400 (-1121) = perp-only symbol: empty chart, NOT a 404 (the SPA would mark the market missing)
-            if (statusOf(e2) === 400) return tag([], 'unavailable');
-            warnSpotOnce(e2);
-            throw e;
-        }
+        // real futures candles first (also covers perp-only symbols); then spot; any failure or empty answer falls through
+        return md.after(e, 'klines', symbol, interval, limit);
     }
 });
 
@@ -518,7 +338,7 @@ module.exports = {
     PERIODS, HEAT_RANGES, overview, stats, liqmap, liqheat, klines, markPrice, isKnownSymbol, listSymbols,
     ingestTickers, ingestMarks, isBlocked,
     _test: {
-        reset: () => { symbols = null; symbolsFresh = 0; symbolsP = null; cache.clear(); heatCache.clear(); br.open = false; br.until = 0; br.probing = false; spotWarned = false; liveTickers.clear(); liveMarks.clear(); by.until = 0; by.tripped = false; bybitOiMap = new Map(); bybitWarned = false; },
-        resetBreaker: () => { br.open = false; br.until = 0; br.probing = false; },
+        reset: () => { symbols = null; symbolsFresh = 0; symbolsP = null; clearCache(); heatCache.clear(); binance.breaker.reset(); md.reset(); liveTickers.clear(); liveMarks.clear(); bybitOiMap = new Map(); bybitWarned = false; },
+        resetBreaker: () => binance.breaker.reset(),
     },
 };

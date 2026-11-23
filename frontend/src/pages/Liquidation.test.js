@@ -2,6 +2,7 @@ import React from 'react';
 import { act } from 'react-dom/test-utils';
 import { createRoot } from 'react-dom/client';
 import Liquidation from './Liquidation';
+import useAgentStore from '../store/agentStore';
 
 let mockQuery = '';
 jest.mock('react-router-dom', () => {
@@ -45,4 +46,11 @@ test('a stale stored symbol falls back to BTCUSDT', () => {
   localStorage.setItem('tm:v1:anon:liquidation.symbol', '"nonsense"');
   render();
   expect(title()).toContain('BTCUSDT');
+});
+
+test('Ask AI opens the dock with the liquidation page context', () => {
+  render();
+  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Ask AI').click());
+  expect(useAgentStore.getState().open).toBe(true);
+  expect(useAgentStore.getState().ctx).toMatchObject({ kind: 'perp', symbol: 'BTCUSDT', page: 'liquidation' });
 });

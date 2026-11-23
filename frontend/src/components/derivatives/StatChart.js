@@ -3,7 +3,9 @@ import { createChart } from 'lightweight-charts';
 
 // One shared lightweight-charts wrapper. series: [{kind:'line'|'histogram', data:[{time,value,color?}], color, scale?:'left'}]
 // Series are created once per layout (kind/scale/color); polls only setData on them and the view is fitted on first data.
-const StatChart = ({ series, height = 180, label }) => {
+// fill: container takes 100% of its parent (maximised card). Height is only the container's CSS: autoSize
+// tracks it, so toggling fill never recreates the chart.
+const StatChart = ({ series, height = 180, fill = false, label }) => {
   const el = useRef(null);
   const chart = useRef(null);
   const added = useRef([]);
@@ -13,7 +15,6 @@ const StatChart = ({ series, height = 180, label }) => {
   useEffect(() => {
     const c = createChart(el.current, {
       autoSize: true,
-      height,
       layout: { background: { color: 'transparent' }, textColor: '#94a3b8', fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(148, 163, 184, 0.12)' } },
       rightPriceScale: { borderColor: '#334155' },
@@ -25,7 +26,7 @@ const StatChart = ({ series, height = 180, label }) => {
     layout.current = null;
     fitted.current = false;
     return () => { c.remove(); chart.current = null; };
-  }, [height]);
+  }, []);
 
   useEffect(() => {
     const c = chart.current;
@@ -45,9 +46,9 @@ const StatChart = ({ series, height = 180, label }) => {
       c.timeScale().fitContent();
       fitted.current = true;
     }
-  }, [series, height]);
+  }, [series]);
 
-  return <div ref={el} role="img" aria-label={label} style={{ height }} />;
+  return <div ref={el} role="img" aria-label={label} style={{ height: fill ? '100%' : height }} />;
 };
 
 export default StatChart;

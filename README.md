@@ -31,6 +31,8 @@ AI agents and new engineers: start at [`context/README.md`](context/README.md) (
 - **Liquidation page**: real-time liquidation feed (Binance `!forceOrder@arr` stream, buffered 24h), cross-symbol summary and coin treemap, a **liquidation map** (price-bucket estimate) and a **liquidation heatmap** (time x price canvas grid). Both are model-based estimates built from open-interest deltas and a leverage mix; exchanges do not publish real liquidation prices.
 - **Derivatives page**: market table, funding strip, per-symbol open interest / long-short / taker / funding charts and simple signal readouts.
 - **Markets page**: top-20 coins by market cap from CoinGecko, live over Socket.IO.
+- **Stocks page** (`/stocks`, public) and the Derivatives **Real markets** panel: curated NSE stocks (incl. Tata and Aditya Birla groups, TMPV/TMCV), NIFTY 50 / BANK NIFTY / NIFTY IT, gold, silver, WTI, Brent, USD/INR, EUR/INR, GBP/INR, EUR/USD from Yahoo (unofficial, delayed, view only). Stock trading is not implemented.
+- **Resilient data sources**: if Binance futures REST is blocked, candles, open interest, long/short and funding come from Bybit, Bitget, Gate or MEXC (labelled in the UI, `X-Data-Source`); no third-party price is ever used for fills, marks, liquidations, TP/SL or alerts.
 - **Dashboard**: tiles (price, portfolio, open interest, funding, liquidations, alerts, sentiment), movers, recent liquidations, holdings, alert triggers.
 - Command palette and a sidebar shell; per-user persisted UI state.
 
@@ -38,6 +40,7 @@ AI agents and new engineers: start at [`context/README.md`](context/README.md) (
 - Market **brief** per symbol (structured output: headline, bias, confidence, drivers, risks, levels to watch; cached 5 min).
 - **Ask** a free-form question about a symbol's data.
 - **Alert parsing**: "tell me when BTC funding goes above 0.05%" becomes a validated alert draft you can save.
+- **AI analyst dock**: single-shot chat about the chart you are on (crypto perp or a curated market) with source-tagged data; it can propose a **strategy** as a declarative JSON spec, which the server backtests (no look-ahead, fees and slippage included, caveats shown) and overlays on the chart. AI-written code never executes. Up to 20 saved strategies and 10 conversations per user.
 - Per-user model choice (Opus 5.5, Sonnet 5.5, Haiku 5.5) in Settings, or bring your own key (Anthropic, OpenAI, Gemini, OpenRouter, custom https endpoint), plus a personal style prompt, answer length and an opt-in to share your paper portfolio with the model.
 - Settings (`/settings/profile|ai|preferences|security`): avatar, preferences (ticker bar, compact tables, reduced motion, time format, landing page, alert sound/toasts), sign out everywhere, data export and account deletion.
 
@@ -122,6 +125,7 @@ flowchart LR
 
 Key points:
 - The server is the only price authority. Fills use the server's Binance mark price (`tradeFill.fillPrice`: websocket mark within 3 s, else REST mark within 10 s, else 503). The client never sends a fill price.
+- Market data goes through a gateway (`backend/services/marketData/`): Binance first, then Bybit, Bitget, Gate, MEXC and the Binance spot mirror, each behind its own circuit breaker and tagged in `X-Data-Source`. It is analytics only; `GET /api/market/providers` shows its health.
 - Spot and futures are **separate engines** sharing one `User.balance`. Spot settles with one conditional `$inc`; futures settles through `futuresLedger` (journal, locks, per-op marker, recovery).
 - Background loops (`orderMatcher`, `riskEngine`, `alertService`, `marketService`, `futuresService`) run **inside the API process**, so the backend must be a single always-on instance. See [Deployment](#deployment).
 
@@ -217,8 +221,12 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 | `AI_PROVIDER` | no | unset | Code-only (not in `.env.example`). `api` forces the Anthropic API even in development, disabling the CLI provider. |
 | `CLAUDE_BIN` | no | `claude` | Code-only. Path of the Claude Code CLI used by the dev-only CLI provider. |
 | `BINANCE_FUTURES_REST` | no | `https://fapi.binance.com` | REST base URL (e.g. a proxy). |
-| `BINANCE_SPOT_REST` | no | `https://data-api.binance.vision` | Spot mirror used only for kline fallback when futures REST is IP-blocked (spot prices, so candles differ slightly). |
-| `BYBIT_REST` | no | `https://api.bybit.com` | Bybit v5 public REST (no key), used only when Binance futures REST is blocked: perpetual candles, open interest, long/short ratio, funding, liquidation map/heatmap inputs. Numbers are Bybit's and differ from Binance. |
+| `BINANCE_SPOT_REST` | no | `https://data-api.binance.vision` | Spot mirror, the last kline fallback when every futures source fails (spot prices, so candles differ slightly). |
+| `BYBIT_REST` | no | `https://api.bybit.com` | Bybit v5 public REST (no key), second in the market-data chains (used when Binance futures REST fails): perpetual candles, open interest, long/short ratio, funding, liquidation map/heatmap inputs, overview open interest. Numbers are Bybit's and differ from Binance. |
+| `BITGET_REST` | no | `https://api.bitget.com/api/v2/mix/market` | Bitget USDT-M public REST (no key), after Bybit: candles, long/short ratio, funding. Analytics only. |
+| `GATE_REST` | no | `https://api.gateio.ws/api/v4/futures/usdt` | Gate USDT futures public REST (no key), after Bitget: candles, open interest, ratios, taker volume, funding. Analytics only. |
+| `MEXC_REST` | no | `https://contract.mexc.com/api/v1/contract` | MEXC futures public REST (no key), last exchange in the chain: candles and funding. Analytics only. |
+| `YAHOO_REST` | no | `https://query1.finance.yahoo.com` | Yahoo Finance (unofficial, delayed, view only) for the curated stocks, indices, commodities and currencies. Never used for trading. |
 | `BINANCE_FUTURES_WS` | no | `wss://fstream.binance.com` | WebSocket base URL. |
 | `MARKET_POLL_INTERVAL_MS` | no | `30000` | CoinGecko poll interval for the Markets page. |
 
@@ -316,6 +324,11 @@ Futures error codes: `INSUFFICIENT_BALANCE`, `MIN_NOTIONAL`, `LEVERAGE_TOO_HIGH`
 | GET | `/futures/liqheat/:symbol?range=` | Estimated heatmap grid (`12h,24h,3d,1w`) |
 | GET | `/futures/liquidations` | Cross-symbol summary of the in-memory buffer (cached 2 s) |
 | GET | `/futures/liquidations/:symbol` | Buffered real liquidation events `{since, events}` |
+| GET | `/stocks/quotes`, `/stocks/klines/:symbol?interval=&limit=` | Curated NSE stocks (Yahoo, unofficial, delayed, view only). Display symbols only (`RELIANCE`, `TMPV`); anything off the allow-list is 404/400. Intervals `1m,5m,15m,1h,1d`; `stale: true` when the last good answer is served; 502 when Yahoo is down |
+| GET | `/instruments/quotes?category=`, `/instruments/klines/:symbol` | Same for all curated markets: `stock`, `index` (`NIFTY50`, `BANKNIFTY`, `NIFTYIT`), `commodity` (`GOLD`, `SILVER`, `CRUDEOIL`, `BRENT`), `currency` (`USDINR`, `EURINR`, `GBPINR`, `EURUSD`) |
+| GET | `/providers` | Health of each data source: name, capabilities, breaker state, listed-symbol count (no URLs or errors) |
+
+Every futures response carries `X-Data-Source`: `binance-futures` (default), `ws`, `bybit`, `bitget`, `gate`, `mexc`, `spot`, `unavailable` or `yahoo`. Anything other than `binance-futures` is third-party or reduced data and the UI says so. `/futures/liqheat` adds `partial: true` when the history is shorter than the range (new listing). Third-party data is analytics only: fills, marks, liquidations, TP/SL and alerts use Binance prices only.
 
 Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** (`BTCUSDT`); trading routes use the **base ticker** (`BTC`).
 
@@ -331,8 +344,26 @@ Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** 
 | DELETE | `/keys/:provider` | Remove the saved key |
 | POST | `/test` | `{provider}` -> `{ok, provider, model, latencyMs}` using the saved key/model/baseUrl |
 | GET | `/lmstudio/models` | `{models: [id]}`: chat models loaded in the user's LM Studio (saved base URL or default) |
+| POST | `/agent/chat` | `{context: {kind: perp/instrument, symbol, page, interval?}, message (1..1000), conversationId?, wantStrategy?}` -> `{conversationId, reply, disclaimer}`. Single-shot analyst, no tools; it may return a strategy spec (inert JSON) |
+| GET | `/agent/conversations`, `/agent/conversations/:id` | Own conversations (max 10, 40 messages each, expire after 30 days) |
+| DELETE | `/agent/conversations/:id`, `/agent/conversations` | Delete one / all own conversations |
 
-Per user: 10 requests/min across brief/ask/parse/test/lmstudio models. Process-wide hourly budget `AI_MAX_CALLS_PER_HOUR` applies only to the `default` provider. Error codes: `ai_no_key` 400, `ai_bad_base_url` 400, `ai_no_model` 400, `ai_local_disabled` 400 (LM Studio in production without `ALLOW_LOCAL_LLM`), `ai_key_unreadable` 409, `ai_rate_limited` 429, `ai_not_configured` 503, `ai_auth_failed` / `ai_unreachable` / `ai_upstream_error` / `ai_reasoning_budget` 502 (`ai_auth_failed` is 502 on purpose: the SPA signs out on any 401).
+AI-written code never executes. Strategies are a strict declarative JSON spec evaluated by the server.
+
+### Strategies (`/api/strategies`, authenticated)
+
+| Method | Path | Purpose | Limit |
+|---|---|---|---|
+| POST | `/validate` | `{spec}` -> `{spec, describe}` or 422 `invalid_spec` | 60/min/user |
+| POST | `/evaluate` | `{spec` or `strategyId, kind: perp/instrument, symbol, limit?, costs?: {slippagePct}}` -> stats, trades, markers, series, caveats, `candlesSource`. The server fetches candles; client candles are rejected | 30/min/user |
+| GET | `/`, `/:id` | Own strategies | none |
+| POST | `/` | `{spec, name?, symbol?, origin?: ai/user}` (max 20, 409 `STRATEGY_LIMIT`) | none |
+| PUT | `/:id` | Update `name`, `spec`, `symbol` | none |
+| DELETE | `/:id` | Delete | none |
+
+Backtest rules: signal on bar i fills at the open of bar i+1, stop is checked before target within a candle, fee 0.05% per side and slippage 0.02% by default, one position, fixed size, no compounding. Results are hypothetical and in-sample; the caveats are always returned.
+
+Per user: 10 requests/min across brief/ask/parse/test/lmstudio models and agent chat; agent chat on the server's own key is also capped at 60/day. Process-wide hourly budget `AI_MAX_CALLS_PER_HOUR` applies only to the `default` provider. Error codes: `ai_no_key` 400, `ai_bad_base_url` 400, `ai_no_model` 400, `ai_local_disabled` 400 (LM Studio in production without `ALLOW_LOCAL_LLM`), `ai_key_unreadable` 409, `ai_rate_limited` 429, `ai_not_configured` 503, `ai_auth_failed` / `ai_unreachable` / `ai_upstream_error` / `ai_reasoning_budget` 502 (`ai_auth_failed` is 502 on purpose: the SPA signs out on any 401).
 
 ### Alerts (`/api/alerts`, authenticated, 60/min/user)
 
@@ -444,6 +475,10 @@ Also on the host:
 - **Logs**: in production the app logs to files only (`error.log`, `combined.log` in the working directory) and not to stdout, so the platform's log tab will be empty. Either add a console transport in `config/logger.js` (not done) or ship the files elsewhere.
 - **Secrets**: set them in the host dashboard, never in the repo.
 
+### Keepalive (Render free tier)
+
+`.github/workflows/keepalive.yml` pings `https://cryptozen-api.onrender.com/api/health` every 5 minutes (and on manual dispatch) so the free web service does not sleep; a sleeping instance pauses limit orders, TP/SL and liquidations. Limits: GitHub cron can lag 5-15 minutes and GitHub pauses scheduled workflows after 60 days without repo activity (re-enable in the Actions tab, or use cron-job.org). The URL is hardcoded in the workflow: edit it if the backend moves.
+
 ### CORS
 
 - REST: `cors({ origin: CORS_ORIGINS })`, exact string match against the request `Origin` header.
@@ -476,6 +511,9 @@ Limitations (by design or not yet done):
 - Paper trading only; fills happen at the server mark price, no slippage, no order-book matching. Funding is never charged. No cross margin, no leverage change on an open position, no reduce-only limit exits, no trailing stops, no hedge/netting modes beyond one long and one short per symbol.
 - Spot only trades symbols that exist as Binance USDT perpetuals (`BTC` -> `BTCUSDT`); the price source is the futures mark.
 - Liquidation map and heatmap are estimates from open-interest changes and an assumed leverage mix. Liquidation feed data is sampled (Binance throttles the stream) and the in-memory buffer only covers the time since the server started (plus up to 24 h reloaded from Mongo).
+- Local models (LM Studio) work only when the backend runs on your own machine: a hosted server cannot reach your `localhost` (`ALLOW_LOCAL_LLM` exists but does not help remotely).
+- Yahoo data is unofficial and delayed; stocks, indices, commodities and currencies are view-only (no INR ledger, no NSE sessions, no trading yet).
+- Strategy backtests are hypothetical and in-sample, not a prediction.
 - Single process: in-memory rate limits, caches, liquidation buffer, risk engine and matchers; no horizontal scaling and no leader election.
 - No email verification, password reset, refresh tokens or 2FA; JWT in `localStorage`.
 - Frontend: Create React App (unmaintained upstream); some legacy files are unused (`CompanyDash.jsx` and the `company/` components); default CRA `index.html` title/description; marketing copy on `/` is placeholder.

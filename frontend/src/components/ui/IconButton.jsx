@@ -13,6 +13,8 @@ const P = {
   trash: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />,
   refresh: <path d="M20 11a8 8 0 1 0-2 5.3M20 5v6h-6" />,
   upload: <path d="M12 16V4M7 9l5-5 5 5M4 20h16" />,
+  maximize: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />,
+  minimize: <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />,
   smile: <><circle cx="12" cy="12" r="9" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01" /></>,
 };
 export const Icon = ({ name, className = 'h-3.5 w-3.5' }) => (

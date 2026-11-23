@@ -2,13 +2,19 @@ import React, { useMemo } from 'react';
 import usePersistedState from '../lib/usePersistedState';
 import usePolling from '../lib/usePolling';
 import MarketTable from '../components/derivatives/MarketTable';
+import RealMarkets from '../components/derivatives/RealMarkets';
 import FundingStrip from '../components/derivatives/FundingStrip';
 import StatChart from '../components/derivatives/StatChart';
 import { readouts } from '../components/derivatives/signals';
+import AgentLauncher from '../components/ai/AgentLauncher';
 import SegTabs from '../components/ui/SegTabs';
 import { LoadingBlock } from '../components/ui/Skeleton';
 import { Updating } from '../components/ui/Spinner';
+import SymbolCombobox, { buildSymbols } from '../components/trade/SymbolCombobox';
+import { sourceNote } from '../components/ui/sourceNote';
 import { FUT, Notice, Panel, coin, is404 } from '../components/liquidation/shared';
+import MaximizeButton, { MaximizeBackdrop } from '../components/ui/MaximizeButton';
+import useMaximize from '../components/ui/useMaximize';
 
 const PERIODS = ['5m', '15m', '1h', '4h'].map((id) => ({ id, label: id }));
 const EMERALD = '#34d399';
@@ -27,11 +33,22 @@ const toPts = (arr, val, ms = true) => {
   }, []);
 };
 
-const ChartCard = ({ title, series, note, label }) => (
-  <Panel title={title} right={note && <span className="text-xs tabular-nums text-slate-400">{note}</span>}>
-    {series.some((s) => s.data.length) ? <StatChart series={series} label={label || title} /> : <Notice>No data for this period.</Notice>}
-  </Panel>
-);
+const ChartCard = ({ title, series, note, label }) => {
+  const mx = useMaximize();
+  return (
+    <>
+      <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
+      <Panel
+        title={title}
+        className={mx.panelClass}
+        {...mx.panelProps}
+        right={<div className="flex items-center gap-2">{note && <span className="text-xs tabular-nums text-slate-400">{note}</span>}<MaximizeButton max={mx.max} onToggle={mx.toggle} /></div>}
+      >
+        {series.some((s) => s.data.length) ? <StatChart series={series} label={label || title} fill={mx.max} /> : <Notice>No data for this period.</Notice>}
+      </Panel>
+    </>
+  );
+};
 
 const lastOf = (a, f) => (a && a.length ? f(a[a.length - 1]) : null);
 
@@ -48,6 +65,8 @@ const Derivatives = () => {
   const st = usePolling(`${FUT}/stats/${symbol}?period=${period}`, 60000);
   const kl = usePolling(`${FUT}/klines/${symbol}?interval=${period}&limit=200`, 60000);
   const rows = Array.isArray(ov.data) ? ov.data : null;
+  const allSyms = usePolling(`${FUT}/symbols`, 300000); // every perp, not just the top-40 overview
+  const symbols = useMemo(() => buildSymbols(allSyms.data, rows || [], [], coin(symbol)), [allSyms.data, rows, symbol]);
   const s = st.data;
 
   const c = useMemo(() => {
@@ -68,21 +87,25 @@ const Derivatives = () => {
 
   return (
     <div className="space-y-3">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-200">Derivatives</h1>
-        <p className="text-xs text-slate-400">Binance USD-M perpetuals: funding, open interest and positioning.</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-200">Derivatives</h1>
+          <p className="text-xs text-slate-400">Binance USD-M perpetuals: funding, open interest and positioning.</p>
+        </div>
+        <AgentLauncher kind="perp" symbol={symbol} page="derivatives" interval={period} />
       </div>
       <MarketTable rows={rows} error={ov.error} source={ov.source} selected={symbol} onSelect={setSymbol} />
       <FundingStrip rows={rows} error={ov.error} selected={symbol} onSelect={setSymbol} />
+      <RealMarkets />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">{coin(symbol)} positioning <Updating show={!!st.fetching} /></h2>
-        <SegTabs label="Period" tabs={PERIODS} active={period} onChange={setPeriod} />
+        <div className="flex items-center gap-2">
+          <div className="w-40"><SymbolCombobox symbols={symbols} overview={rows || []} value={coin(symbol)} onSelect={(b) => setSymbol(`${b}USDT`)} /></div>
+          <SegTabs label="Period" tabs={PERIODS} active={period} onChange={setPeriod} />
+        </div>
       </div>
-      {kl.source === 'spot' && <Notice>Price line uses Binance spot candles (futures history unavailable from this server).</Notice>}
-      {kl.source === 'bybit' && <Notice>Price line uses Bybit perpetual candles (Binance futures history unavailable from this server).</Notice>}
-      {(st.source === 'bybit' || s?.source === 'bybit') && <Notice>Open interest, long/short ratio and funding are from Bybit (Binance futures unavailable from this server) and differ from Binance. Top-trader and taker series are not available.</Notice>}
-      {s?.degraded && <Notice>Positioning data (open interest, long/short ratios) is unavailable from this server.</Notice>}
+      {[...new Set([sourceNote(kl.source, 'priceLine'), sourceNote(st.source || s?.source, 'positioning'), s?.degraded && sourceNote('unavailable', 'positioning')].filter(Boolean))].map((t) => <Notice key={t}>{t}</Notice>)}
       {st.error && !s && <Notice tone="error">{is404(st.error) ? `No perpetual market for ${coin(symbol)}.` : `Stats unavailable for ${coin(symbol)} right now.`}</Notice>}
       {!s && st.loading && <ChartsSkeleton />}
       {s && (

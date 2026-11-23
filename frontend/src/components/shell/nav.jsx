@@ -19,6 +19,7 @@ export const ICONS = {
 export const NAV = [
   { path: '/dashboard', label: 'Dashboard', d: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
   { path: '/market', label: 'Markets', d: 'M3 17l6-6 4 4 8-8M15 7h6v6' },
+  { path: '/stocks', label: 'Stocks', d: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
   { path: '/trade', label: 'Trade', d: 'M7 20V4M7 4L3 8M7 4l4 4M17 4v16M17 20l-4-4M17 20l4-4' },
   { path: '/derivatives', label: 'Derivatives', d: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5' },
   { path: '/liquidation', label: 'Liquidations', d: 'M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z' },

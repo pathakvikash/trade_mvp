@@ -5,6 +5,8 @@ const futuresService = require('../services/futuresService');
 const futuresRest = require('../services/futuresRest');
 const { isValidSymbol, INTERVALS } = require('../services/futuresUtils');
 const { limitBy } = require('../middleware/rateLimit');
+const instruments = require('../services/marketData/instruments');
+const yahoo = require('../services/marketData/providers/yahoo');
 
 router.use(limitBy({ limit: 120, windowMs: 60e3 })); // per IP, everything under /api/market
 
@@ -138,6 +140,51 @@ router.get('/futures/liquidations/:symbol', async (req, res) => {
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
     res.json(futuresService.getLiquidations(symbol));
+});
+
+// ---- Curated view-only markets (Yahoo): stocks, indices, commodities, currencies. Never trading symbols. ----
+// Clients send display symbols only (NIFTY50, GOLD, RELIANCE); the Yahoo ticker never leaves the server.
+const DISCLAIMER = 'Unofficial Yahoo Finance data, may be delayed (NSE quotes can lag about 15 min), view only, not investment advice.';
+const yahooSend = (res, body) => res.set('X-Data-Source', 'yahoo').json({ disclaimer: DISCLAIMER, ...body });
+const yahooDown = (res) => res.status(502).json({ error: 'Market data unavailable' });
+
+// forced: category fixed by the route (back-compat /stocks/*), else taken from ?category=
+const quotesRoute = (forced) => async (req, res) => {
+    const category = forced || req.query.category;
+    if (category !== undefined && !instruments.CATEGORIES.includes(category)) return res.status(400).json({ error: 'invalid category' });
+    try {
+        const { rows } = await yahoo.quotes(category);
+        yahooSend(res, { rows });
+    } catch (err) { yahooDown(res); }
+};
+
+const klinesRoute = (forced) => async (req, res) => {
+    const inst = instruments.find(req.params.symbol);
+    if (!inst && !instruments.SYMBOL_RE.test(String(req.params.symbol).toUpperCase())) return res.status(400).json({ error: 'invalid symbol' });
+    if (!inst || (forced && inst.category !== forced)) return res.status(404).json({ error: 'Unknown symbol' });
+    const interval = req.query.interval || '1d';
+    if (!Object.prototype.hasOwnProperty.call(yahoo.INTERVALS, interval)) return res.status(400).json({ error: 'invalid interval' });
+    const parsed = parseInt(req.query.limit, 10);
+    const limit = Math.min(1000, Math.max(1, parsed > 0 ? parsed : 500));
+    try {
+        const { candles, stale } = await yahoo.klines(inst, interval, limit);
+        yahooSend(res, { symbol: inst.symbol, name: inst.name, category: inst.category, exchange: inst.exchange, currency: inst.currency, interval, candles, ...(stale && { stale: true }) });
+    } catch (err) { yahooDown(res); }
+};
+
+router.get('/stocks/quotes', quotesRoute('stock'));
+router.get('/stocks/klines/:symbol', klinesRoute('stock'));
+router.get('/instruments/quotes', quotesRoute());
+router.get('/instruments/klines/:symbol', klinesRoute());
+
+// Health of the data sources. The gateway module may be absent or throw: never take the route down for it.
+router.get('/providers', (req, res) => {
+    let providers = [yahoo.health()];
+    try {
+        const h = require('../services/marketData').health();
+        providers = [...(Array.isArray(h) ? h : Array.isArray(h && h.providers) ? h.providers : h ? [h] : []), ...providers];
+    } catch (err) { /* yahoo only */ }
+    res.json({ providers });
 });
 
 module.exports = router;

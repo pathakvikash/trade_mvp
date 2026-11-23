@@ -1,17 +1,19 @@
 import React, { useMemo } from 'react';
 import usePersistedState from '../../lib/usePersistedState';
 import { API } from '../../lib/apiBase';
+import { sourceNote } from '../ui/sourceNote';
 
 export const FUT = `${API}/api/market/futures`;
 
 export { fmtPrice, fmtPct, fmtUsd, fmtTime } from '../ui/fmt';
+export { sourceNote, PARTIAL_NOTE } from '../ui/sourceNote';
 export { default as Panel } from '../ui/Panel';
 export const coin = (symbol) => (symbol || '').replace(/USDT$/, '');
 
 export const is404 = (e) => e?.response?.status === 404;
 
-// Shown wherever a response carries X-Data-Source: bybit (Binance futures REST is blocked from this server).
-export const BYBIT_NOTE = 'Estimated from Bybit perpetuals data (Binance futures history unavailable from this server). Bybit open interest and positions differ from Binance.';
+// Bybit wording kept for tests; views use sourceNote(source, 'heatmap'). Shown wherever a response carries X-Data-Source (Binance futures REST is blocked from this server).
+export const BYBIT_NOTE = sourceNote('bybit', 'heatmap');
 
 export const Notice = ({ children, tone = 'muted' }) => (
   <p className={`py-6 text-center text-sm ${tone === 'error' ? 'text-amber-400' : 'text-slate-400'}`}>{children}</p>

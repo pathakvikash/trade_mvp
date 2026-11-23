@@ -26,6 +26,8 @@ Fills use only the server's price: `tradeFill.fillPrice(futuresSymbol)` -> `{pri
    When fapi is IP-blocked, step 2 returns the `!markPrice@arr` WS mark (receive time as `ts`, so the same <= 10 s gate applies) for symbols nobody subscribed; the overview fallback rows carry the same `ts`. `futuresService.getMark` (step 1, engines) is unaffected.
 4. else `null` -> API 503 (`NO_PRICE` for futures). Engines skip the symbol for that pass (never act on a stale mark).
 
+**RULE: no third-party price is ever used for fills, marks, liquidations, TP/SL or alerts.** `markPrice` (money path) is Binance REST, then the Binance WS mark, nothing else. The market-data gateway (`services/marketData/`: Bybit, Bitget, Gate, MEXC, Binance spot mirror, Yahoo) is analytics and display only: candles on charts, open interest, long/short, funding history, liquidation estimates, the Stocks page. The only value a third party may put in an overview row is `openInterestUsd` (Bybit tickers); price/mark/`ts` columns come from Binance. Yahoo markets (stocks, indices, commodities, currencies) are view-only: they have no trading symbol, no ledger and no fills. Strategy backtests and AI answers are hypothetical and never move money.
+
 The client never sends a fill price (limit orders send a *limit* price, which is the fill price of that order type).
 
 ## Spot (`tradeMath`, `tradeFill`)

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import usePersistedState from '../../lib/usePersistedState';
 import { Notice, Panel, SortTh, coin, fmtPct, fmtPrice, fmtUsd, useSort } from '../liquidation/shared';
 import { fmtCountdown } from '../ui/fmt';
+import { sourceNote } from '../ui/sourceNote';
 import Skeleton from '../ui/Skeleton';
 
 const getters = {
@@ -83,9 +84,10 @@ const MarketTable = ({ rows, error, source, selected, onSelect }) => {
           {sorted.length === 0 && <Notice>No symbols match.</Notice>}
         </div>
       )}
-      {source === 'ws' && (rows || []).some((r) => Number.isFinite(r.openInterestUsd))
-        ? <p className="mt-1 text-[11px] text-slate-500">Open interest is Bybit perpetuals open interest (Binance futures unavailable from this server); '--' = not listed on Bybit.</p>
-        : source === 'ws' && <p className="mt-1 text-[11px] text-slate-500">Open interest unavailable from this server</p>}
+      {(() => {
+        const n = sourceNote(source === 'ws' && !(rows || []).some((r) => Number.isFinite(r.openInterestUsd)) ? 'unavailable' : source, 'oi');
+        return n && <p className="mt-1 text-[11px] text-slate-500">{n}</p>;
+      })()}
       <p className="mt-1 text-[11px] text-slate-500">APR = rate x payments per day (24 / funding interval) x 365, simple, not compounded. The interval is shown next to the countdown.</p>
     </Panel>
   );

@@ -8,6 +8,8 @@ const FuturesOrder = require('../models/FuturesOrder');
 const FuturesOp = require('../models/FuturesOp');
 const Alert = require('../models/Alert');
 const AlertEvent = require('../models/AlertEvent');
+const Strategy = require('../models/Strategy');
+const AiConversation = require('../models/AiConversation');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const config = require('../config/config');
@@ -337,8 +339,8 @@ exports.exportMe = BaseController.wrap(async (req, res) => {
   const userId = req.user.userId;
   const u = await User.findById(userId).lean();
   if (!u) return res.status(404).json({ success: false, message: 'User not found' });
-  const [trades, orders, positions, futuresOrders, alerts] = await Promise.all(
-    [Trade, Order, Position, FuturesOrder, Alert].map((M) => M.find({ userId }).lean()),
+  const [trades, orders, positions, futuresOrders, alerts, strategies, aiConversations] = await Promise.all(
+    [Trade, Order, Position, FuturesOrder, Alert, Strategy, AiConversation].map((M) => M.find({ userId }).lean()),
   );
   const pub = publicUser(u);
   for (const id of PROVIDER_IDS) delete pub.ai.providers[id].keyLast4; // keySet stays; nothing key-derived is exported
@@ -352,6 +354,8 @@ exports.exportMe = BaseController.wrap(async (req, res) => {
     positions: positions.map(stripV),
     futuresOrders: futuresOrders.map(stripV),
     alerts: alerts.map(stripV),
+    strategies: strategies.map(stripV),
+    aiConversations: aiConversations.map(stripV),
   });
 });
 
@@ -382,7 +386,7 @@ exports.deleteMe = BaseController.wrap(async (req, res) => {
       await User.updateOne({ _id: userId }, { $unset: { lockedAt: 1 } });
       return res.status(409).json(OPEN_FUTURES);
     }
-    for (const M of [AlertEvent, Alert, Order, Trade, FuturesOrder, FuturesOp, Position]) await M.deleteMany({ userId });
+    for (const M of [Strategy, AiConversation, AlertEvent, Alert, Order, Trade, FuturesOrder, FuturesOp, Position]) await M.deleteMany({ userId });
     await User.deleteOne({ _id: userId });
   } catch (e) {
     // stays locked: half-deleted money data must not be usable; a human finishes it

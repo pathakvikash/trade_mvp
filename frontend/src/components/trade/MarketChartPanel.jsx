@@ -4,6 +4,9 @@ import SegTabs from '../ui/SegTabs';
 import { Tip } from '../ui/Tooltip';
 import CandleChart from './CandleChart';
 import AlertsPanel from '../alerts/AlertsPanel';
+import { sourceNote } from '../ui/sourceNote';
+import MaximizeButton, { MaximizeBackdrop } from '../ui/MaximizeButton';
+import useMaximize from '../ui/useMaximize';
 
 const TF_NAME = { m: 'minute', h: 'hour', d: 'day' };
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id, title: `${parseInt(id, 10)}-${TF_NAME[id.slice(-1)]} candles` }));
@@ -14,7 +17,6 @@ const LEGEND = [['entry', 'Entry', '#22d3ee'], ['liq', 'Liq', '#f43f5e'], ['tp',
 const noHistory = (interval) => (interval === '1m'
   ? 'No candle history from this server; live candles will build up'
   : 'No candle history from this server. Switch to 1m for live candles.');
-const SOURCE_NOTE = { bybit: 'Candles from Bybit perpetuals (Binance futures history unavailable from this server)', spot: 'Spot candles (futures history unavailable from this server)' };
 
 const Message = ({ tone = 'text-slate-400', children }) => (
   <div className={`absolute inset-0 flex items-center justify-center text-sm ${tone}`}>{children}</div>
@@ -22,16 +24,21 @@ const Message = ({ tone = 'text-slate-400', children }) => (
 
 const MarketChartPanel = ({
   ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry, klineSource,
-  view = 'chart', onView, alertsSymbol, unread = 0, className = '', lines,
+  view = 'chart', onView, alertsSymbol, unread = 0, className = '', lines, overlays, markers, strategyChip, headerExtra,
 }) => {
+  const mx = useMaximize();
   const alertsView = view === 'alerts';
   const legend = LEGEND.filter(([k]) => (lines || []).some((l) => l.kind === k)).map(([k, t, fb]) => [k, t, lines.find((l) => l.kind === k).color || fb]);
   return (
+    <>
+    <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
     <Panel
       title={alertsView ? 'Alerts' : 'Chart'}
-      className={className}
+      className={`${className} ${mx.panelClass}`}
+      {...mx.panelProps}
       right={
         <div className="flex items-center gap-2">
+          {headerExtra}
           <Tip text={alertsView ? 'Back to the chart' : 'Price alerts for this symbol'}>
           <button
             type="button"
@@ -48,6 +55,7 @@ const MarketChartPanel = ({
           </button>
           </Tip>
           <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" className="[&_button]:min-h-[36px] sm:[&_button]:min-h-0" />
+          <MaximizeButton max={mx.max} onToggle={mx.toggle} />
         </div>
       }
       bodyClassName={alertsView ? 'relative min-h-[320px] xl:min-h-0 p-0' : 'relative min-h-[320px] xl:min-h-0 p-1.5 pt-0'}
@@ -67,7 +75,7 @@ const MarketChartPanel = ({
         <Message tone="text-slate-500">Loading candles…</Message>
       ) : (
         <>
-          {SOURCE_NOTE[klineSource] && <div className="pointer-events-none absolute left-2 top-1 z-10 text-[10px] text-slate-500">{SOURCE_NOTE[klineSource]}</div>}
+          {sourceNote(klineSource) && <div className="pointer-events-none absolute left-2 top-1 z-10 text-[10px] text-slate-500">{sourceNote(klineSource)}</div>}
           {legend.length > 0 && (
             <div className="pointer-events-none absolute right-16 top-1 z-10 hidden gap-x-3 text-[10px] text-slate-400 sm:flex" aria-label="Chart line legend">
               {legend.map(([k, t, c]) => (
@@ -75,10 +83,11 @@ const MarketChartPanel = ({
               ))}
             </div>
           )}
-          <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} lines={lines} />
+          <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} lines={lines} overlays={overlays} markers={markers} strategyChip={strategyChip} />
         </>
       )}
     </Panel>
+    </>
   );
 };
 

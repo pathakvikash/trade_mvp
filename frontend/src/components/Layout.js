@@ -3,11 +3,14 @@ import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
 import Toasts from './alerts/Toasts';
+import AgentDock from './ai/AgentDock';
 import TickerBar from './shell/TickerBar';
 import useApplyPreferences from '../lib/useApplyPreferences';
 import usePersistedState from '../lib/usePersistedState';
 import useUserStore from '../store/userStore';
 import useAlertStore from '../store/alertStore';
+import useAgentStore from '../store/agentStore';
+import useStrategyStore from '../store/strategyStore';
 
 const Layout = () => {
   const [collapsed, setCollapsed] = usePersistedState('sidebar.collapsed', false, { validate: (v) => typeof v === 'boolean' });
@@ -17,6 +20,11 @@ const Layout = () => {
 
   // One authenticated alerts socket while logged in; cleanup disconnects on logout.
   useEffect(() => (token ? useAlertStore.getState().connect(token) : undefined), [token]);
+
+  // sign-out must not leave the previous user's AI conversation or strategy overlay for the next login
+  useEffect(() => {
+    if (!token) { useAgentStore.getState().signOut(); useStrategyStore.getState().clear(); }
+  }, [token]);
 
   useEffect(() => {
     if (!mobileOpen) return undefined;
@@ -44,6 +52,7 @@ const Layout = () => {
         </main>
       </div>
       {token && <Toasts />}
+      {token && <AgentDock />}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import useCanvas from './useCanvas';
 import SegTabs from '../ui/SegTabs';
-import { BYBIT_NOTE, Notice, Panel, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
+import { PARTIAL_NOTE, sourceNote, Notice, Panel, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
 import { cellAt, heatColor, heatCss, niceTicks, scaleT, timeTicks } from './heat';
 import { LoadingBlock } from '../ui/Skeleton';
 import { Updating } from '../ui/Spinner';
@@ -156,7 +156,8 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
       <p className="mb-2 text-xs text-amber-400">
         Estimated model. Exchanges do not publish liquidation prices; levels are inferred from open-interest increases, a leverage mix of 5x–125x and 0.4% maintenance margin. Not financial advice.
       </p>
-      {source === 'bybit' && <p className="mb-2 text-xs text-amber-400">{BYBIT_NOTE}</p>}
+      {sourceNote(source, 'heatmap') && <p className="mb-2 text-xs text-amber-400">{sourceNote(source, 'heatmap')}</p>}
+      {data?.partial && <p className="mb-2 text-xs text-amber-400">{PARTIAL_NOTE}</p>}
       {!ok ? (
         loading ? <LoadingBlock height={H} /> : (
           <Notice tone={error ? 'error' : 'muted'}>

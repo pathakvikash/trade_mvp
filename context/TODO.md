@@ -25,8 +25,14 @@ Done 2026-11-20: `TRUST_PROXY`, always-on console logging (`LOG_TO_FILES`), `GET
 - [ ] Brief cache in `routes/aiRoutes.js` is unbounded by symbol count (valid symbols only); cap if abused.
 - [ ] No frontend tests for the `Trade`, `Dashboard`, `Derivatives` pages.
 
+- [ ] Gate/MEXC/Bitget provider modules and the gateway chains are covered by tests, but their live shapes were checked by hand only; re-verify a provider when it starts returning empty (see `GET /api/market/providers`).
+- [ ] Keepalive (`.github/workflows/keepalive.yml`) pings the Render URL every 5 min: GitHub cron can lag 5-15 min and pauses after 60 days of repo inactivity; switch to cron-job.org or a paid always-on instance if sleeps still pause the engines.
+
 ## P2: product and platform
 
+- [ ] **Stock trading is not implemented**: view-only Yahoo quotes exist (`/stocks`, Derivatives "Real markets"), but there is no INR ledger, no NSE session/holiday handling and no fills for stocks, indices, commodities or currencies. Needs its own engine and ledger (do not reuse the USD one), a price source that is allowed to fill (Yahoo is unofficial and delayed), and a BSE fallback for symbols or sessions NSE data lacks.
+- [ ] Local models cannot be used from a hosted backend (it cannot reach a user's localhost LM Studio); a real fix needs a browser-side or tunnelled path, not `ALLOW_LOCAL_LLM`.
+- [ ] Strategy backtest is in-sample, one position, fixed size; walk-forward or out-of-sample splitting would make results less misleading.
 - [ ] Account features: email verification, password reset, refresh tokens/httpOnly cookie session (JWT is in `localStorage`), 2FA.
 - [ ] Funding simulation, cross margin, reduce-only limit exits, trailing stops.
 - [ ] Redis-backed rate limiter and a leader lock so more than one backend instance can run; move engines to a worker.

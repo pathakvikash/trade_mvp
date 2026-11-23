@@ -515,3 +515,144 @@ describe('bybit fallback', () => {
         });
     });
 });
+
+// ---- gateway: symbols Binance fapi cannot serve (418) and Bybit does not list (SKYAIUSDT) ----
+describe('multi-provider fallbacks (SKYAIUSDT)', () => {
+    const logger = require('../config/logger');
+    const md = require('../services/marketData');
+    const err = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status, headers: {}, data: {} } });
+    const host = (u) => ['bybit', 'bitget', 'gateio', 'mexc'].find((h) => u.includes(h)) || (u.includes('binance') ? 'binance' : 'other');
+    const step = (iv) => ({ '5m': 300, '15m': 900, '1h': 3600 }[iv]);
+    const slot = (iv) => Math.floor(Date.now() / 1000 / step(iv)) * step(iv);
+    // everything not stubbed here rejects with no response, like an unreachable host
+    const stub = (o = {}) => jest.spyOn(axios, 'get').mockImplementation((u, { params } = {}) => {
+        const h = host(u);
+        if (h === 'binance') return Promise.reject(err(418));
+        if (h === 'bybit') return Promise.resolve({ data: { retCode: 10001, retMsg: 'params error: Symbol Is Invalid', result: {} } });
+        const f = o[h];
+        return f ? f(u, params) : Promise.reject(new Error('ECONNREFUSED'));
+    });
+    beforeEach(() => { jest.spyOn(logger, 'warn').mockImplementation(() => {}); });
+
+    test('klines: fapi 418 + Bybit unknown symbol -> Bitget candles, ascending, source bitget', async () => {
+        const T = slot('1h') * 1000;
+        const get = stub({
+            bitget: (u) => Promise.resolve({ data: u.endsWith('/contracts')
+                ? { code: '00000', data: [{ symbol: 'SKYAIUSDT', symbolStatus: 'normal' }] }
+                : { code: '00000', data: [[T - 3600e3, '1', '2', '0.5', '1.5', '10', '15'], [T, '1.5', '3', '1', '2', '20', '40']] } }),
+        });
+        const k = await rest.klines('SKYAIUSDT', '1h', 2);
+        expect(k.source).toBe('bitget');
+        expect(k.map((c) => c.time)).toEqual([T / 1000 - 3600, T / 1000]);
+        expect(k[1]).toEqual({ time: T / 1000, open: 1.5, high: 3, low: 1, close: 2, volume: 20 });
+        expect(get.mock.calls.some(([u]) => host(u) === 'mexc' || host(u) === 'gateio')).toBe(false); // chain stopped at bitget
+    });
+
+    const gateStub = (nCandles) => ({
+        gateio: (u, p) => {
+            if (u.endsWith('/contracts')) return Promise.resolve({ data: [{ name: 'SKYAI_USDT', status: 'trading', in_delisting: false, quanto_multiplier: '10' }] });
+            if (u.endsWith('/candlesticks')) {
+                const n = Math.min(nCandles, p.limit);
+                return Promise.resolve({ data: Array.from({ length: n }, (_, i) => ({ t: slot(p.interval) - (n - 1 - i) * step(p.interval), o: '1', h: '1.1', l: '0.9', c: '1', v: 4622, sum: '1' })) });
+            }
+            if (u.endsWith('/contract_stats')) {
+                return Promise.resolve({ data: Array.from({ length: p.limit }, (_, i) => ({ time: slot(p.interval) - (p.limit - 1 - i) * step(p.interval), open_interest: 1000 + i, open_interest_usd: 5000 + i, lsr_account: 1.5, long_users: 60, short_users: 40 })) });
+            }
+            return Promise.reject(new Error(`unexpected ${u}`));
+        },
+    });
+
+    test('liqheat: fapi 418 + Bybit unknown -> Gate candles + contract_stats, tagged gate; oiUsd is open_interest_usd as given', async () => {
+        stub(gateStub(1000));
+        const h = await rest.liqheat('SKYAIUSDT', '12h');
+        expect(h.source).toBe('gate');
+        expect(h).toMatchObject({ symbol: 'SKYAIUSDT', range: '12h', cols: 144 });
+        expect(h.partial).toBeUndefined();
+        const p = await md.pair('SKYAIUSDT', '5m', 288, 289);
+        expect(p.source).toBe('gate');
+        expect(p.oiHist[0].oiUsd).toBe(5000);
+        expect(p.oiHist[p.oiHist.length - 1].oiUsd).toBe(5000 + 288);
+        expect(Object.keys(p.oiHist[0]).sort()).toEqual(['oiUsd', 'ts']);
+        expect(p.candles[0].volume).toBeCloseTo(46220, 6); // 4622 contracts x quanto_multiplier 10
+    });
+
+    test('liqheat: only 100 candles of history -> partial:true, cols 100', async () => {
+        stub(gateStub(100));
+        const h = await rest.liqheat('SKYAIUSDT', '12h');
+        expect(h).toMatchObject({ source: 'gate', cols: 100, partial: true });
+    });
+
+    test('stats: each series asks its own chain; sources lists the providers when they differ', async () => {
+        const G = gateStub(10).gateio;
+        stub({
+            gateio: (u, p) => (u.endsWith('/funding_rate') ? Promise.reject(new Error('down')) : G(u, p)),
+            bitget: (u) => Promise.resolve({ data: u.endsWith('/contracts')
+                ? { code: '00000', data: [{ symbol: 'SKYAIUSDT', symbolStatus: 'normal' }] }
+                : { code: '00000', data: [{ fundingRate: '0.0001', fundingTime: '1000' }] } }),
+        });
+        const d = await rest.stats('SKYAIUSDT', '1h');
+        expect(d.source).toBe('gate');
+        expect(d.sources).toEqual({ openInterest: 'gate', longShort: 'gate', funding: 'bitget' });
+        expect(d.funding).toEqual([{ ts: 1000, rate: 0.0001 }]);
+        expect(d.openInterest[0]).toMatchObject({ oiUsd: expect.any(Number) });
+        expect(d.degraded).toBeUndefined();
+    });
+
+    test('money path: fapi 418 and no WS mark -> markPrice null, no third-party host is ever contacted', async () => {
+        const get = stub({ bitget: () => Promise.resolve({ data: { code: '00000', data: [] } }) });
+        expect(await rest.markPrice('SKYAIUSDT')).toBeNull();
+        expect(get.mock.calls.filter(([u]) => host(u) !== 'binance')).toEqual([]);
+        // overview with a WS-fed row: price/mark/ts stay the WS values; third parties can only fill openInterestUsd
+        rest.ingestTickers([{ s: 'AAAUSDT', c: '110', o: '100', h: '120', l: '90', q: '500' }]);
+        rest.ingestMarks([{ s: 'AAAUSDT', p: '109.5', i: '109', r: '0.0001', T: 77 }]);
+        const rows = await rest.overview();
+        expect(rows[0]).toMatchObject({ lastPrice: 110, markPrice: 109.5, indexPrice: 109 });
+        expect(Date.now() - rows[0].ts).toBeLessThan(1000);
+        expect(get.mock.calls.filter(([u]) => ['bitget', 'gateio', 'mexc'].includes(host(u)))).toEqual([]);
+    });
+
+    test('isKnownSymbol: exchangeInfo never loaded + WS warm -> the mark stream (every symbol) decides; WS cold -> regex only', async () => {
+        jest.spyOn(axios, 'get').mockRejectedValue(err(418));
+        expect(await rest.isKnownSymbol('NOPEUSDT')).toBe(true); // cold: regex only
+        rest._test.reset();
+        rest.ingestTickers([{ s: 'AAAUSDT', c: '1', o: '1', h: '1', l: '1', q: '1' }]); // tickers alone say nothing (may skip quiet perps)
+        expect(await rest.isKnownSymbol('QUIETUSDT')).toBe(true);
+        rest.ingestMarks([{ s: 'AAAUSDT', p: '1', i: '1', r: '0', T: 1 }, { s: 'QUIETUSDT', p: '1', i: '1', r: '0', T: 1 }]);
+        expect(await rest.isKnownSymbol('AAAUSDT')).toBe(true);
+        expect(await rest.isKnownSymbol('QUIETUSDT')).toBe(true); // in marks but not in tickers: known
+        expect(await rest.isKnownSymbol('NOPEUSDT')).toBe(false);
+    });
+
+    test('G1: a failing /contracts list does not trip Gate; the single-contract fallback still runs and klines succeed', async () => {
+        const G = gateStub(5).gateio;
+        const get = stub({
+            gateio: (u, p) => {
+                if (u.endsWith('/contracts')) return Promise.reject(new Error('timeout of 10000ms exceeded'));
+                if (u.endsWith('/contracts/SKYAI_USDT')) return Promise.resolve({ data: { name: 'SKYAI_USDT', status: 'trading', in_delisting: false, quanto_multiplier: '10' } });
+                return G(u, p);
+            },
+        });
+        const k = await rest.klines('SKYAIUSDT', '1h', 2);
+        expect(k.source).toBe('gate');
+        expect(k[0].volume).toBeCloseTo(46220, 6);
+        expect(md.breakers.gate.state().state).toBe('closed');
+        const list = get.mock.calls.find(([u]) => u.endsWith('/contracts') && host(u) === 'gateio');
+        expect(list[1].timeout).toBe(10000);
+        expect(get.mock.calls.some(([u]) => u.endsWith('/contracts/SKYAI_USDT'))).toBe(true);
+    });
+
+    test('G7: liqmap with a healthy Binance answering empty klines does not fall through to third parties', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation((u) => (host(u) === 'binance' ? Promise.resolve({ data: [] }) : Promise.reject(new Error('should not be asked'))));
+        await expect(rest.liqmap('SKYAIUSDT')).rejects.toThrow('no klines');
+        expect(get.mock.calls.filter(([u]) => host(u) !== 'binance')).toEqual([]);
+    });
+
+    test('reset clears breakers, registry and caches of the gateway', async () => {
+        stub();
+        await rest.klines('SKYAIUSDT', '1h', 2).catch(() => {});
+        expect(md.breakers.bitget.state().state).toBe('open'); // network error tripped it
+        rest._test.reset();
+        expect(md.breakers.bitget.state()).toMatchObject({ state: 'closed', lastErrAt: null });
+        expect(md.health().every((r) => r.listed === null)).toBe(true);
+    });
+});

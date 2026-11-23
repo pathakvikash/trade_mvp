@@ -9,6 +9,7 @@ import LiqHeat from '../components/liquidation/LiqHeat';
 import LiqMap from '../components/liquidation/LiqMap';
 import LiveFeed from '../components/liquidation/LiveFeed';
 import CoinDetail from '../components/liquidation/CoinDrawer';
+import AgentLauncher from '../components/ai/AgentLauncher';
 import PairPicker from '../components/ui/PairPicker';
 import { FUT } from '../components/liquidation/shared';
 
@@ -34,7 +35,10 @@ const Liquidation = () => {
             Binance USD-M perpetuals. Realized liquidation data is a sample: Binance publishes at most one liquidation per symbol per second, so real totals are higher.
           </p>
         </div>
-        <PairPicker value={symbol} onChange={setSymbol} />
+        <div className="flex items-center gap-2">
+          <AgentLauncher kind="perp" symbol={symbol} page="liquidation" />
+          <PairPicker value={symbol} onChange={setSymbol} />
+        </div>
       </div>
       <LiqHeat symbol={symbol} />
       <Summary data={data} error={error} />

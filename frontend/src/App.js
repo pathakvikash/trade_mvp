@@ -15,6 +15,7 @@ const Settings = React.lazy(() => import('./pages/Settings'));
 const Login = React.lazy(() => import('./pages/Login'));
 const Register = React.lazy(() => import('./pages/register'));
 const Market = React.lazy(() => import('./pages/Market'));
+const Stocks = React.lazy(() => import('./pages/Stocks'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
     { path: '/login', element: <Login /> },
     { path: '/register', element: <Register /> },
     { path: '/market', element: <Market /> },
+    { path: '/stocks', element: <Stocks /> },
     { path: '/markets', element: <Navigate to="/market" replace /> },
   ];
 

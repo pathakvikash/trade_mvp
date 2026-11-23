@@ -15,12 +15,28 @@ const lineOpts = (l) => ({
   lineStyle: l.style === 'dashed' ? LineStyle.Dashed : LineStyle.Solid, axisLabelVisible: true,
 });
 
-const CandleChart = ({ candles, reloadSeq, label, lines }) => {
+// Strategy marker kinds (evaluate API) -> chart marker look.
+const MARKER = {
+  entry_long: { position: 'belowBar', shape: 'arrowUp', color: UP, text: 'L' },
+  exit_long: { position: 'aboveBar', shape: 'arrowDown', color: '#fbbf24', text: 'xL' },
+  entry_short: { position: 'aboveBar', shape: 'arrowDown', color: DOWN, text: 'S' },
+  exit_short: { position: 'belowBar', shape: 'arrowUp', color: '#fbbf24', text: 'xS' },
+  open_long: { position: 'aboveBar', shape: 'square', color: '#94a3b8', text: 'open' }, // still open on the last bar: not counted in stats
+  open_short: { position: 'belowBar', shape: 'square', color: '#94a3b8', text: 'open' },
+  stop: { position: 'aboveBar', shape: 'circle', color: DOWN, text: 'SL' },
+  target: { position: 'aboveBar', shape: 'circle', color: UP, text: 'TP' },
+};
+const toMarkers = (ms) => (ms || []).filter((m) => MARKER[m.kind]).map((m) => ({ time: m.time, ...MARKER[m.kind] })).sort((a, b) => a.time - b.time);
+const lineData = (o) => (o.data || []).filter((p) => Number.isFinite(p.value));
+
+const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, strategyChip }) => {
   const el = useRef(null);
   const series = useRef(null); // { candle, volume }
   const count = useRef(0);
   const seq = useRef(reloadSeq);
   const priceLines = useRef(new Map()); // id -> { line, sig }
+  const overlaySeries = useRef(new Map()); // id -> { s, sig }
+  const hadMarkers = useRef(false);
   const byTime = useRef(new Map()); // time -> candle, for the crosshair readout
   const [hover, setHover] = useState(null);
 
@@ -40,12 +56,14 @@ const CandleChart = ({ candles, reloadSeq, label, lines }) => {
     chart.subscribeCrosshairMove((p) => {
       setHover(p.time ? byTime.current.get(p.time) || null : null);
     });
-    series.current = { candle, volume };
+    series.current = { candle, volume, chart };
     count.current = 0;
     const pl = priceLines.current;
+    const os = overlaySeries.current;
     return () => {
       chart.remove();
       pl.clear();
+      os.clear();
       series.current = null;
     };
   }, []);
@@ -93,6 +111,40 @@ const CandleChart = ({ candles, reloadSeq, label, lines }) => {
     });
   }, [lines]);
 
+  // Strategy overlays: line series reconciled by id on the same chart (no remount, zoom kept).
+  useEffect(() => {
+    if (!series.current) return;
+    const { chart } = series.current;
+    const map = overlaySeries.current;
+    const next = new Map((overlays || []).map((o) => [o.id, o]));
+    map.forEach(({ s }, id) => {
+      if (!next.has(id)) { chart.removeSeries(s); map.delete(id); }
+    });
+    next.forEach((o, id) => {
+      const d = lineData(o);
+      const color = o.color || '#22d3ee';
+      const sig = `${color}|${d.length}|${d[0]?.time}|${d[d.length - 1]?.time}|${d[d.length - 1]?.value}`;
+      const cur = map.get(id);
+      if (!cur) {
+        const s = chart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        s.setData(d);
+        map.set(id, { s, sig });
+      } else if (cur.sig !== sig) {
+        cur.s.applyOptions({ color });
+        cur.s.setData(d);
+        cur.sig = sig;
+      }
+    });
+  }, [overlays]);
+
+  useEffect(() => {
+    if (!series.current) return;
+    const m = toMarkers(markers);
+    if (!m.length && !hadMarkers.current) return;
+    series.current.candle.setMarkers(m);
+    hadMarkers.current = m.length > 0;
+  }, [markers]);
+
   const last = candles[candles.length - 1];
   const shown = hover || last;
   const up = shown && shown.close >= shown.open;
@@ -109,6 +161,7 @@ const CandleChart = ({ candles, reloadSeq, label, lines }) => {
           <span>Vol <b className="text-slate-300">{fmtCompact(shown.volume)}</b></span>
         </div>
       )}
+      {strategyChip && <div className="absolute bottom-1 left-2 z-10 max-w-[calc(100%-1rem)]">{strategyChip}</div>}
     </div>
   );
 };

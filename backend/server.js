@@ -44,6 +44,7 @@ app.use('/api/market', marketRoutes);
 
 app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/alerts', require('./routes/alertRoutes'));
+app.use('/api/strategies', require('./middleware/auth'), require('./routes/strategyRoutes'));
 
 // Error Handler
 app.use(errorHandler);

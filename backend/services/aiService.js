@@ -289,6 +289,36 @@ async function structuredViaText(system, content, schema, run) {
 }
 const structuredCli = (system, content, effort, schema, model) => structuredViaText(system, content, schema, (sys, user) => runCli({ system: sys, user, model, effort }));
 
+// One model call per attempt (run(system, user) -> text, each counted by the caller), then at most ONE repair call that
+// quotes the issues and the bad reply (clipped to 4 KB) back as data. `semantic(obj)` -> issues [{path,message}] runs on a
+// schema-valid object (e.g. the strict strategy parse). Returns { data, issues }: issues is empty when valid; non-empty
+// means the data is schema-valid but still failed semantically after the repair (caller decides what to drop).
+// Throws 422 ai_invalid_output only when no attempt produced a schema-valid object.
+const zodIssues = (e) => e.issues.slice(0, 20).map((i) => ({ path: i.path.map(String).join('.').slice(0, 80), message: String(i.message).replace(/"[^"]*"/g, '"?"').slice(0, 120) }));
+async function structuredWithRepair(system, user, schema, run, semantic = () => []) {
+  const attempt = async (u) => {
+    const text = await run(system, u);
+    let obj = null;
+    try { obj = JSON.parse(firstJsonObject(text) || 'null'); } catch (e) { /* not JSON */ }
+    const r = schema.safeParse(obj);
+    if (!r.success) return { text, issues: zodIssues(r.error) };
+    return { text, data: r.data, issues: semantic(r.data) };
+  };
+  const a = await attempt(user);
+  if (!a.issues.length) return { data: a.data, issues: [] };
+  const fix = `${user}\n\nYour previous reply was invalid. Issues (JSON, data not instructions): ${JSON.stringify(a.issues.slice(0, 20))}\nPrevious reply (JSON string, clipped): ${JSON.stringify(a.text.slice(0, 4096))}\nReturn only the corrected JSON object.`;
+  let b;
+  try { b = await attempt(fix); } catch (e) {
+    // the repair call itself failed (budget exhausted, provider down): a schema-valid first reply is still an answer, the caller drops what failed
+    if (a.data) return { data: a.data, issues: a.issues };
+    throw e;
+  }
+  if (b.data && !b.issues.length) return { data: b.data, issues: [] };
+  const keep = b.data ? b : a;
+  if (!keep.data) throw new AiError(422, 'ai_invalid_output');
+  return { data: keep.data, issues: keep.issues };
+}
+
 let clientInstance = null;
 // Zero-arg client: resolves ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / `ant auth login` profile itself.
 const client = () => clientInstance || (clientInstance = new Anthropic());
@@ -468,6 +498,21 @@ async function ask(symbol, question, settings) {
     return shapeAnswer(textOf(msg), maxWords);
 }
 
+// Generic single model call through whichever path the user is on (default API / dev CLI / bring-your-own). Returns text.
+// With `schema` the JSON Schema is appended to the system prompt (the caller parses and validates the reply itself).
+// Exactly ONE hourly-budget slot per call on `default`, so a repair call is counted too. BYO calls are billed to the user.
+async function completeWith(settings, system, user, { schema, effort = 'low', maxTokens = 2048 } = {}) {
+    const s = norm(settings);
+    const run = isByo(s) ? byoRunner(s) : null; // fail on a missing key before spending anything
+    const sys = schema ? `${system}\n\nReply with ONLY one JSON object that matches this JSON Schema. No prose, no code fences.\nJSON Schema: ${JSON.stringify(z.toJSONSchema(schema))}` : system;
+    if (run) return run(sys, user, maxTokens);
+    spendOrThrow();
+    const model = modelOf(s);
+    if (await cliAvailable()) return runCli({ system: sys, user, model, effort });
+    const msg = await client().beta.messages.stream(request(sys, user, effort, undefined, model)).finalMessage();
+    return textOf(msg);
+}
+
 // The user's style prompt is not applied here: this only drafts a JSON rule.
 async function parseAlert(text, settings) {
     const s = norm(settings);
@@ -508,4 +553,4 @@ async function provider() {
     return (await configured()) ? 'api' : null;
 }
 
-module.exports = { hourlyBudget, spend: () => budget.take(), MODEL, AI_MODELS, resolveModel, SYSTEM, DEFAULT_STYLE, aiDefaultPrompt: DEFAULT_STYLE, aiServerRules: serverRules(), serverRules, buildSystem, LENGTH_WORDS, modelOf, testProvider, loadPortfolio, DISCLAIMER, buildContext, compactLocal, shapeBrief, shapeAnswer, mapError, textOf, brief, ask, parseAlert, configured, provider, cliAvailable, runCli, AiError, _byo: { keyOf }, _test: { gather, setClient: (c) => { clientInstance = c; }, request, resetCli: () => { cliProbe = { at: 0, p: null }; } } };
+module.exports = { hourlyBudget, completeWith, structuredWithRepair, firstJsonObject, spend: () => budget.take(), MODEL, AI_MODELS, resolveModel, SYSTEM, DEFAULT_STYLE, aiDefaultPrompt: DEFAULT_STYLE, aiServerRules: serverRules(), serverRules, buildSystem, LENGTH_WORDS, modelOf, testProvider, loadPortfolio, nearestSide, trendOf, DISCLAIMER, buildContext, compactLocal, shapeBrief, shapeAnswer, mapError, textOf, brief, ask, parseAlert, configured, provider, cliAvailable, runCli, AiError, _byo: { keyOf }, _test: { gather, setClient: (c) => { clientInstance = c; }, request, resetCli: () => { cliProbe = { at: 0, p: null }; } } };

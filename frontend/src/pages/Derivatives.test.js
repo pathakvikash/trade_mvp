@@ -3,7 +3,9 @@ import { act } from 'react-dom/test-utils';
 import { createRoot } from 'react-dom/client';
 import Derivatives from './Derivatives';
 import usePolling from '../lib/usePolling';
+import useAgentStore from '../store/agentStore';
 
+jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 jest.mock('lightweight-charts', () => ({ createChart: jest.fn() }));
 jest.mock('../lib/usePolling', () => ({ __esModule: true, default: jest.fn() }));
 jest.mock('../components/derivatives/StatChart', () => ({ __esModule: true, default: () => null }));
@@ -17,8 +19,8 @@ beforeAll(() => { global.IS_REACT_ACT_ENVIRONMENT = true; });
 beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
 afterEach(() => { act(() => root.unmount()); container.remove(); jest.clearAllMocks(); });
 
-const render = async ({ ov, st, kl }) => {
-  usePolling.mockImplementation((url) => (url.includes('/overview') ? ov : url.includes('/stats/') ? st : kl));
+const render = async ({ ov, st, kl, sy = ok(null) }) => {
+  usePolling.mockImplementation((url) => (!url ? ok(null) : url.includes('/overview') ? ov : url.includes('/stats/') ? st : url.includes('/symbols') ? sy : kl));
   await act(async () => { root.render(<Derivatives />); });
   return container.textContent;
 };
@@ -48,4 +50,27 @@ test('bybit source: notes on price line, positioning and OI column; empty top/ta
   expect(text).toContain('Open interest is Bybit perpetuals open interest');
   expect(text).not.toContain('Open interest unavailable from this server');
   expect(text).not.toMatch(/null|NaN/);
+});
+
+test('picker lists a symbol outside the overview and selecting it requests that symbol', async () => {
+  await render({ ov: ok(OV, 'ws'), st: ok(STATS), kl: ok([]), sy: ok(['BTCUSDT', 'ETHUSDT', 'SKYAIUSDT'].map((symbol) => ({ symbol }))) });
+  const input = container.querySelector('input[role="combobox"]');
+  await act(async () => { input.focus(); input.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
+  const opt = [...container.querySelectorAll('[role="option"]')].find((o) => o.textContent.startsWith('SKYAI'));
+  expect(opt).toBeTruthy();
+  usePolling.mockClear();
+  await act(async () => { opt.click(); });
+  expect(usePolling.mock.calls.some(([u]) => u.includes('/stats/SKYAIUSDT'))).toBe(true);
+});
+
+test('gate source shows a Gate-specific note', async () => {
+  const text = await render({ ov: ok(OV), st: ok(STATS, 'gate'), kl: ok([], 'gate') });
+  expect(text).toContain('Price line uses Gate perpetual candles');
+  expect(text).toContain('are from Gate');
+});
+
+test('Ask AI opens the dock with the derivatives page context', async () => {
+  await render({ ov: ok(OV), st: ok(STATS), kl: ok([]) });
+  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Ask AI').click());
+  expect(useAgentStore.getState().ctx).toMatchObject({ kind: 'perp', symbol: 'BTCUSDT', page: 'derivatives', interval: '1h' });
 });

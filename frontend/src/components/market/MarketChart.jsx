@@ -4,6 +4,8 @@ import Panel from '../ui/Panel';
 import SegTabs from '../ui/SegTabs';
 import usePersistedState from '../../lib/usePersistedState';
 import CandleChart from '../trade/CandleChart';
+import MaximizeButton, { MaximizeBackdrop } from '../ui/MaximizeButton';
+import useMaximize from '../ui/useMaximize';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id }));
 const CHART_TYPES = [{ id: 'candles', label: 'Candles' }, { id: 'line', label: 'Line' }];
@@ -53,6 +55,7 @@ const Message = ({ tone = 'text-slate-400', children }) => (
 
 // Chart panel for the Markets page: candles (CandleChart, with OHLC readout) or a line view, plus timeframes 1m..1d.
 const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry, className = '' }) => {
+  const mx = useMaximize();
   const [type, setType] = usePersistedState('market.chartType', 'candles', { validate: (v) => CHART_TYPES.some((t) => t.id === v) });
 
   let body;
@@ -79,19 +82,24 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
   }
 
   return (
+    <>
+    <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
     <Panel
       title="Chart"
-      className={className}
+      className={`${className} ${mx.panelClass}`}
+      {...mx.panelProps}
       bodyClassName="relative min-h-[320px] xl:min-h-0 p-1.5 pt-0"
       right={
         <div className="flex flex-wrap items-center gap-2">
           <SegTabs tabs={CHART_TYPES} active={type} onChange={setType} label="Chart type" />
           <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />
+          <MaximizeButton max={mx.max} onToggle={mx.toggle} />
         </div>
       }
     >
       {body}
     </Panel>
+    </>
   );
 };
 

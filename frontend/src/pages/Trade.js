@@ -13,6 +13,11 @@ import { fmtPrice } from '../components/ui/fmt';
 import { FUT, coin as baseOf } from '../components/liquidation/shared';
 import useFuturesStore from '../store/futuresStore';
 import useAlertStore from '../store/alertStore';
+import useStrategyStore from '../store/strategyStore';
+import useStrategyOverlay from '../lib/useStrategyOverlay';
+import strategyTimeframe from '../lib/strategyTimeframe';
+import AgentLauncher from '../components/ai/AgentLauncher';
+import StrategyChip from '../components/ai/StrategyChip';
 import SegTabs from '../components/ui/SegTabs';
 import { buildSymbols } from '../components/trade/SymbolCombobox';
 import SymbolHeader from '../components/trade/SymbolHeader';
@@ -24,6 +29,7 @@ import BottomStrip from '../components/trade/BottomStrip';
 import MarketStatsPanel from '../components/trade/MarketStatsPanel';
 import SymbolLiquidations from '../components/trade/SymbolLiquidations';
 
+const TFS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const SYMBOL_RE = /^[A-Z0-9]{2,20}$/;
 const MOBILE_TABS = [{ id: 'order', label: 'Order' }, { id: 'book', label: 'Book' }, { id: 'trades', label: 'Trades' }];
 
@@ -97,6 +103,16 @@ const Trade = () => {
     if (futuresSymbol) subscribe(futuresSymbol, defaultTf);
   }, [futuresSymbol, subscribe, defaultTf]);
   useEffect(() => unsubscribe, [unsubscribe]);
+
+  const overlay = useStrategyOverlay({ kind: 'perp', symbol: futuresSymbol, interval, candles });
+  // 'Show on chart' from the dock: move the chart to the strategy's timeframe once, when it is set.
+  const active = useStrategyStore((s) => s.active);
+  useEffect(() => {
+    const tf = strategyTimeframe(active, useStrategyStore.getState().applied, { symbol: futuresSymbol, tfs: TFS, current: useFuturesStore.getState().interval });
+    if (tf) setTimeframe(tf);
+    if (active && active.kind === 'perp' && active.symbol === futuresSymbol) useStrategyStore.getState().markApplied(active);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the dock sets a new strategy, not when the user changes symbol
+  }, [active, setTimeframe]);
 
   const ready = storeSymbol === futuresSymbol;
   const reloadSeq = useFuturesStore((s) => s.reloadSeq);
@@ -210,6 +226,10 @@ const klineSource = useFuturesStore((s) => s.klineSource);
           candles={candles}
           klineSource={klineSource}
           lines={lines}
+          overlays={overlay.overlays}
+          markers={overlay.markers}
+          strategyChip={<StrategyChip chip={overlay.chip} />}
+          headerExtra={<AgentLauncher kind="perp" symbol={futuresSymbol} page="trade" interval={interval} />}
           reloadSeq={reloadSeq}
           error={futuresError}
           ready={ready}
