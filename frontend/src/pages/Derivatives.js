@@ -80,6 +80,8 @@ const Derivatives = () => {
         <SegTabs label="Period" tabs={PERIODS} active={period} onChange={setPeriod} />
       </div>
       {kl.source === 'spot' && <Notice>Price line uses Binance spot candles (futures history unavailable from this server).</Notice>}
+      {kl.source === 'bybit' && <Notice>Price line uses Bybit perpetual candles (Binance futures history unavailable from this server).</Notice>}
+      {(st.source === 'bybit' || s?.source === 'bybit') && <Notice>Open interest, long/short ratio and funding are from Bybit (Binance futures unavailable from this server) and differ from Binance. Top-trader and taker series are not available.</Notice>}
       {s?.degraded && <Notice>Positioning data (open interest, long/short ratios) is unavailable from this server.</Notice>}
       {st.error && !s && <Notice tone="error">{is404(st.error) ? `No perpetual market for ${coin(symbol)}.` : `Stats unavailable for ${coin(symbol)} right now.`}</Notice>}
       {!s && st.loading && <ChartsSkeleton />}

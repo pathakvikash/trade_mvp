@@ -39,6 +39,19 @@ describe('data-source header and blocked liqmap', () => {
         expect((await run('/futures/klines/:symbol')).headers['X-Data-Source']).toBe('spot');
     });
 
+    test('stats/liqmap/liqheat objects set X-Data-Source from their source (own or non-enumerable)', async () => {
+        jest.spyOn(futuresRest, 'isKnownSymbol').mockResolvedValue(true);
+        jest.spyOn(futuresRest, 'stats').mockResolvedValue({ symbol: 'BTCUSDT', source: 'bybit' });
+        jest.spyOn(futuresRest, 'liqmap').mockResolvedValue(Object.defineProperty({ levels: [] }, 'source', { value: 'bybit', enumerable: false }));
+        jest.spyOn(futuresRest, 'liqheat').mockResolvedValue({ cols: 1 });
+        const req = (p) => run(p);
+        expect((await req('/futures/stats/:symbol')).headers['X-Data-Source']).toBe('bybit');
+        const m = await req('/futures/liqmap/:symbol');
+        expect(m.headers['X-Data-Source']).toBe('bybit');
+        expect(JSON.stringify(m.body)).not.toContain('bybit');
+        expect((await req('/futures/liqheat/:symbol')).headers['X-Data-Source']).toBeUndefined();
+    });
+
     test('blocked liqmap -> 503 degraded; a plain upstream failure stays 502', async () => {
         jest.spyOn(futuresRest, 'isKnownSymbol').mockResolvedValue(true);
         const liq = jest.spyOn(futuresRest, 'liqmap').mockRejectedValue(Object.assign(new Error('binance rest blocked'), { blocked: true }));

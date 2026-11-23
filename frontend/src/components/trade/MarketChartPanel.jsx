@@ -14,7 +14,7 @@ const LEGEND = [['entry', 'Entry', '#22d3ee'], ['liq', 'Liq', '#f43f5e'], ['tp',
 const noHistory = (interval) => (interval === '1m'
   ? 'No candle history from this server; live candles will build up'
   : 'No candle history from this server. Switch to 1m for live candles.');
-const SOURCE_NOTE = { spot: 'Spot candles (futures history unavailable from this server)' };
+const SOURCE_NOTE = { bybit: 'Candles from Bybit perpetuals (Binance futures history unavailable from this server)', spot: 'Spot candles (futures history unavailable from this server)' };
 
 const Message = ({ tone = 'text-slate-400', children }) => (
   <div className={`absolute inset-0 flex items-center justify-center text-sm ${tone}`}>{children}</div>

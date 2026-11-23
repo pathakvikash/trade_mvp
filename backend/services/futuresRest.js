@@ -7,6 +7,7 @@ const BASE = process.env.BINANCE_FUTURES_REST || 'https://fapi.binance.com';
 const PERIODS = ['5m', '15m', '1h', '4h'];
 const num = (x) => parseFloat(x);
 const pct = (x) => parseFloat((num(x) * 100).toFixed(4)); // fraction -> percent
+const byTs = (a, b) => a.ts - b.ts;
 const SPOT_BASE = process.env.BINANCE_SPOT_REST || 'https://data-api.binance.vision';
 
 // ---- circuit breaker ----
@@ -62,6 +63,90 @@ const warnSpotOnce = (e) => {
     spotWarned = true; // re-armed by the next successful spot call
     logger.warn(`futuresRest: spot fallback failed (${e.message})`);
 };
+
+// ---- Bybit v5 public REST (linear USDT perps, no key) ----
+// Second fallback, used ONLY after Binance failed with fallbackable(e): one API covers klines, OI, account ratio, funding and
+// all-market tickers. Numbers differ from Binance (OI is Bybit-only, ratios are Bybit accounts), so every result is tagged 'bybit'.
+// Every failure here just falls through to the previous behaviour.
+const BYBIT_BASE = process.env.BYBIT_REST || 'https://api.bybit.com';
+const BYBIT_KL = { '1m': '1', '3m': '3', '5m': '5', '15m': '15', '30m': '30', '1h': '60', '2h': '120', '4h': '240', '6h': '360', '12h': '720', '1d': 'D', '1w': 'W' };
+// OI history and account ratio share one period vocabulary; Bybit has no 2h/6h/12h there (unsupported -> empty series)
+const BYBIT_PERIOD = { '5m': '5min', '15m': '15min', '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1d' };
+const BYBIT_STEP_MS = { '5min': 300e3, '15min': 900e3, '30min': 1800e3, '1h': 3600e3, '4h': 4 * 3600e3, '1d': 86400e3 };
+
+// Breaker: no response (timeout/network), 403/418/429/451 or 5xx skips Bybit for 5 min; then one probe (others skipped
+// while it is in flight); a success closes it. ponytail: no Retry-After handling.
+const by = { until: 0, tripped: false };
+const withCap = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('bybit time cap')), ms); })]).finally(() => clearTimeout(t)); };
+
+async function bybitGet(path, params) {
+    if (Date.now() < by.until) throw new Error('bybit skipped (breaker open)');
+    if (by.tripped) by.until = Date.now() + 5000; // probe slot
+    let d;
+    try {
+        d = (await axios.get(BYBIT_BASE + path, { params: { category: 'linear', ...params }, timeout: 4000 })).data;
+    } catch (e) {
+        const st = statusOf(e);
+        if (!st || BLOCK_STATUS.has(st) || st >= 500) { by.tripped = true; by.until = Date.now() + BLOCK_MIN_MS; }
+        throw e;
+    }
+    by.tripped = false; by.until = 0;
+    // unknown symbol (retCode 10001 "Symbol Is Invalid") = unavailable, not a crash
+    if (d.retCode === 10001 && /symbol/i.test(d.retMsg)) return { list: [] };
+    if (d.retCode !== 0) throw new Error(`bybit ${d.retCode}: ${d.retMsg}`);
+    return d.result;
+}
+
+// ascending, normalizeRestKline shape (Bybit returns newest first, strings)
+async function bybitKlines(symbol, interval, limit) {
+    const iv = BYBIT_KL[interval];
+    if (!iv) return [];
+    const { list } = await bybitGet('/v5/market/kline', { symbol, interval: iv, limit: Math.min(1000, limit) });
+    return list.map(normalizeRestKline).sort((a, b) => a.time - b.time);
+}
+
+// USD price for a base-coin amount at ts: open of the candle starting at ts, else close of the last candle before it
+function closeAt(candles) {
+    return (ts) => {
+        let lo = 0;
+        let hi = candles.length - 1;
+        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (candles[m].time * 1000 <= ts) lo = m; else hi = m - 1; }
+        const c = candles[lo];
+        return c.time * 1000 >= ts ? c.open : c.close; // an OI snapshot stamped at a candle start was taken before that candle traded
+    };
+}
+
+// [{ts, oi}] ascending, `count` rows max. 200 rows per call; pages are fetched concurrently: page k ends k*200 steps
+// before the latest aligned slot (endTime is inclusive). ponytail: a hole in Bybit's history shifts older pages by the gap.
+// Uses singleOpenInterest: Bybit's openInterest counts both sides (2x).
+async function bybitOi(symbol, period, count) {
+    const intervalTime = BYBIT_PERIOD[period];
+    if (!intervalTime) return [];
+    const step = BYBIT_STEP_MS[intervalTime];
+    const head = Math.floor(Date.now() / step) * step;
+    const pages = await Promise.all(Array.from({ length: Math.ceil(count / 200) }, (_, k) => bybitGet('/v5/market/open-interest', {
+        symbol, intervalTime, limit: Math.min(200, count - k * 200), ...(k && { endTime: head - k * 200 * step }),
+    })));
+    const byTime = new Map();
+    pages.forEach(({ list }) => list.forEach((r) => byTime.set(Number(r.timestamp), num(r.singleOpenInterest ?? r.openInterest))));
+    return [...byTime].map(([ts, oi]) => ({ ts, oi })).sort(byTs).slice(-count);
+}
+
+// OI rows priced in USD with the Bybit candles of the same interval
+const bybitOiUsd = (oi, candles) => { const px = candles.length ? closeAt(candles) : null; return px ? oi.map((r) => ({ ...r, oiUsd: r.oi * px(r.ts) })) : []; };
+
+// all-market tickers, one call, cached 30s: Map(symbol -> open interest USD, one side: Bybit's openInterestValue is 2x).
+// The overview never waits for it: refreshBybitOi() runs in the background and overviewFromWs reads the last map.
+let bybitOiMap = new Map();
+let bybitWarned = false;
+function refreshBybitOi() {
+    cached('bybitTickers', 30000, async () => new Map(
+        (await bybitGet('/v5/market/tickers', {})).list.map((t) => [t.symbol, num(t.singleOpenInterestValue ?? t.openInterestValue)]),
+    )).then((m) => { bybitOiMap = m; bybitWarned = false; }, (e) => {
+        if (!bybitWarned) logger.warn(`futuresRest: bybit tickers failed (${e.message})`);
+        bybitWarned = true; // re-armed by the next success
+    });
+}
 
 // The fstream WS feeds these (futuresService calls ingest*). Kept here, apart from futuresService's marks/hold/getMark,
 // so the money path keeps its own subscription-based marks and there is no require cycle.
@@ -163,7 +248,7 @@ const fundingIntervals = () => cached('fundingInfo', 3600e3, async () => new Map
     (await get('/fapi/v1/fundingInfo')).map((r) => [r.symbol, num(r.fundingIntervalHours)]),
 )).catch((e) => { logger.warn(`futuresRest: fundingInfo failed (${e.message}); assuming 8h`); return new Map(); });
 
-// Blocked REST: rebuild the rows from the WS all-market streams. No OI (null), funding interval unknown (null; the UI
+// Blocked REST: rebuild the rows from the WS all-market streams. OI null here (overview fills it from Bybit), funding interval unknown (null; the UI
 // shows 8h-based annualisation without a label). `ts` is the mark's receive time so tradeFill's age gate still rejects a stale row.
 function overviewFromWs() {
     pruneLive();
@@ -230,6 +315,9 @@ const overview = () => cached('overview', 10000, async () => {
         if (!fallbackable(e)) throw e;
         const rows = overviewFromWs();
         if (!rows.length) throw e; // WS not warmed up yet: 502 as before
+        // Bybit OI from the last background refresh (null until the first lands); rows stay source 'ws'
+        refreshBybitOi();
+        rows.forEach((r) => { const v = bybitOiMap.get(r.symbol); r.openInterestUsd = v > 0 ? v : null; });
         return tag(rows, 'ws');
     }
 });
@@ -238,7 +326,28 @@ const overview = () => cached('overview', 10000, async () => {
 const ratioRows = (rows) => rows.map((r) => ({
     ts: r.timestamp, ratio: num(r.longShortRatio), longPct: pct(r.longAccount), shortPct: pct(r.shortAccount),
 }));
-const byTs = (a, b) => a.ts - b.ts;
+
+// Same shape as the Binance result; top-trader and taker series have no Bybit equivalent. null when Bybit gave nothing.
+async function bybitStats(symbol, period) {
+    const rp = BYBIT_PERIOD[period];
+    const [oi, kl, ls, fu] = await withCap(Promise.allSettled([
+        bybitOi(symbol, period, 200),
+        bybitKlines(symbol, period, 200),
+        rp ? bybitGet('/v5/market/account-ratio', { symbol, period: rp, limit: 200 }) : { list: [] },
+        bybitGet('/v5/market/funding/history', { symbol, limit: 100 }),
+    ]), 8000);
+    const ok = (r, f) => (r.status === 'fulfilled' ? f(r.value) : []);
+    const out = {
+        symbol, period,
+        openInterest: oi.status === 'fulfilled' && kl.status === 'fulfilled' ? bybitOiUsd(oi.value, kl.value).map((r) => ({ ts: r.ts, oi: r.oi, oiUsd: r.oiUsd })) : [],
+        longShort: ok(ls, (v) => v.list.filter((r) => num(r.sellRatio) > 0).map((r) => ({ ts: Number(r.timestamp), ratio: num(r.buyRatio) / num(r.sellRatio), longPct: pct(r.buyRatio), shortPct: pct(r.sellRatio) }))).sort(byTs),
+        topLongShort: [],
+        takerBuySell: [],
+        funding: ok(fu, (v) => v.list.map((r) => ({ ts: Number(r.fundingRateTimestamp), rate: num(r.fundingRate) }))).sort(byTs),
+        source: 'bybit',
+    };
+    return out.openInterest.length || out.longShort.length || out.funding.length ? out : null;
+}
 
 const stats = (symbol, period) => cached(`stats:${symbol}:${period}`, 30000, async () => {
     const q = { symbol, period, limit: 200 };
@@ -252,7 +361,11 @@ const stats = (symbol, period) => cached(`stats:${symbol}:${period}`, 30000, asy
     const keys = Object.keys(jobs);
     const res = await Promise.allSettled(keys.map((k) => get(jobs[k][0], jobs[k][1])));
     if (res.every((r) => r.status === 'rejected')) {
-        // blocked: no alternative source for these series; answer 200 with empty series so the page shows "no data"
+        // Binance unreachable: Bybit series if it answers, else 200 with empty series so the page shows "no data"
+        if (res.every((r) => fallbackable(r.reason))) {
+            const b = await bybitStats(symbol, period).catch(() => null);
+            if (b) return b;
+        }
         if (res.every((r) => isBlocked(r.reason))) return { symbol, period, ...Object.fromEntries(keys.map((k) => [k, []])), degraded: true, source: 'unavailable' };
         throw res[0].reason;
     }
@@ -262,19 +375,31 @@ const stats = (symbol, period) => cached(`stats:${symbol}:${period}`, 30000, asy
 });
 
 // ---- liquidation map (estimate, see estimateLiqLevels) ----
-const liqmap = (symbol) => cached(`liqmap:${symbol}`, 60000, async () => {
-    const [kl, oi] = await Promise.all([
-        get('/fapi/v1/klines', { symbol, interval: '1h', limit: 500 }),
-        get('/futures/data/openInterestHist', { symbol, period: '1h', limit: 500 }),
-    ]);
-    const klines = kl.map(normalizeRestKline);
-    if (!klines.length) throw new Error('no klines');
-    const oiHist = oi.map((r) => ({ ts: r.timestamp, oiUsd: num(r.sumOpenInterestValue) })).sort(byTs);
+const liqmapOf = (symbol, klines, oiHist) => {
     const price = klines[klines.length - 1].close;
     return {
         symbol, price, generatedAt: Date.now(), method: 'oi-delta-leverage-tiers',
         levels: estimateLiqLevels({ klines, oiHist, price }),
     };
+};
+
+// Binance first; on a fallbackable error the same estimate from Bybit candles + OI, else the original error (route: 503 degraded).
+const liqmap = (symbol) => cached(`liqmap:${symbol}`, 60000, async () => {
+    try {
+        const [kl, oi] = await Promise.all([
+            get('/fapi/v1/klines', { symbol, interval: '1h', limit: 500 }),
+            get('/futures/data/openInterestHist', { symbol, period: '1h', limit: 500 }),
+        ]);
+        const klines = kl.map(normalizeRestKline);
+        if (!klines.length) throw new Error('no klines');
+        const oiHist = oi.map((r) => ({ ts: r.timestamp, oiUsd: num(r.sumOpenInterestValue) })).sort(byTs);
+        return liqmapOf(symbol, klines, oiHist);
+    } catch (e) {
+        if (!fallbackable(e)) throw e;
+        const b = await bybitInputs(symbol, '1h', 500, 500).catch(() => null);
+        if (!b) throw e;
+        return tag(liqmapOf(symbol, b.candles, b.oiHist), 'bybit');
+    }
 });
 
 // ---- predicted liquidation heatmap (see estimateLiqHeat) ----
@@ -299,15 +424,34 @@ async function oiHistory(symbol, period, count) {
     return rows.map((r) => ({ ts: r.timestamp, oiUsd: num(r.sumOpenInterestValue) })).sort(byTs);
 }
 
+// Bybit inputs for liqmap/liqheat: candles + OI rows priced at the candle close; null when either is empty (unknown symbol).
+async function bybitInputs(symbol, iv, candleCount, oiCount) {
+    const [candles, oi] = await withCap(Promise.all([bybitKlines(symbol, iv, candleCount), bybitOi(symbol, iv, oiCount)]), 8000);
+    const oiHist = bybitOiUsd(oi, candles).map(({ ts, oiUsd }) => ({ ts, oiUsd }));
+    return candles.length && oiHist.length ? { candles, oiHist } : null;
+}
+
 // liqheat entries are ~0.3 MB each: own small cache (insertion-ordered, oldest dropped).
 const heatCache = new Map();
 const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () => {
     const { iv, w } = HEAT_RANGES[range];
-    const [kl, oiHist] = await Promise.all([
-        get('/fapi/v1/klines', { symbol, interval: iv, limit: 2 * w }),
-        oiHistory(symbol, iv, 2 * w + 1),
-    ]);
-    const candles = kl.map(normalizeRestKline);
+    let candles;
+    let oiHist;
+    let source;
+    try {
+        const [kl, oi] = await Promise.all([
+            get('/fapi/v1/klines', { symbol, interval: iv, limit: 2 * w }),
+            oiHistory(symbol, iv, 2 * w + 1),
+        ]);
+        candles = kl.map(normalizeRestKline);
+        oiHist = oi;
+    } catch (e) {
+        if (!fallbackable(e)) throw e;
+        const b = await bybitInputs(symbol, iv, 2 * w, 2 * w + 1).catch(() => null);
+        if (!b) throw e;
+        ({ candles, oiHist } = b);
+        source = 'bybit';
+    }
     if (!candles.length) throw new Error('no klines');
     const now = Date.now();
     const from = candles[Math.max(0, candles.length - w)].time * 1000;
@@ -318,7 +462,7 @@ const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () 
     for (const side of ['long', 'short']) {
         heat.open[side].forEach((usd, b) => { if (usd > 0 && (!big || usd > big.usd)) big = { price: heat.priceMin + (b + 0.5) * heat.priceStep, usd, side }; });
     }
-    return {
+    const out = {
         symbol, range, generatedAt: now, method: 'oi-delta-leverage-tiers', leverages: LEV_MIX.map((t) => t.lev), mmr: MMR, colMs: heat.colMs, t0: heat.t0,
         cols: heat.cols, rows: heat.rows, priceMin: heat.priceMin, priceStep: heat.priceStep, max: Math.round(heat.max),
         cells: Array.from(heat.cells, Math.round),
@@ -329,6 +473,7 @@ const liqheat = (symbol, range) => cached(`${symbol}:${range}`, 60000, async () 
         outOfViewUsd: Math.round(heat.outOfViewUsd),
         largest: big && { price: big.price, usd: Math.round(big.usd), side: big.side },
     };
+    return source ? tag(out, source) : out;
 }, heatCache, 40);
 
 // Single-symbol mark price for trade code: null on any failure or unknown symbol, never rejects. Cached 2s.
@@ -353,6 +498,11 @@ const klines = (symbol, interval, limit) => cached(`klines:${symbol}:${interval}
         return (await get('/fapi/v1/klines', { symbol, interval, limit })).map(normalizeRestKline);
     } catch (e) {
         if (!fallbackable(e)) throw e;
+        // real futures candles first (also covers perp-only symbols); any Bybit failure or empty answer falls through to spot
+        try {
+            const b = await bybitKlines(symbol, interval, limit);
+            if (b.length) return tag(b, 'bybit');
+        } catch (e3) { /* spot next */ }
         try {
             return tag((await spotGet('/api/v3/klines', { symbol, interval, limit })).map(normalizeRestKline), 'spot');
         } catch (e2) {
@@ -368,7 +518,7 @@ module.exports = {
     PERIODS, HEAT_RANGES, overview, stats, liqmap, liqheat, klines, markPrice, isKnownSymbol, listSymbols,
     ingestTickers, ingestMarks, isBlocked,
     _test: {
-        reset: () => { symbols = null; symbolsFresh = 0; symbolsP = null; cache.clear(); heatCache.clear(); br.open = false; br.until = 0; br.probing = false; spotWarned = false; liveTickers.clear(); liveMarks.clear(); },
+        reset: () => { symbols = null; symbolsFresh = 0; symbolsP = null; cache.clear(); heatCache.clear(); br.open = false; br.until = 0; br.probing = false; spotWarned = false; liveTickers.clear(); liveMarks.clear(); by.until = 0; by.tripped = false; bybitOiMap = new Map(); bybitWarned = false; },
         resetBreaker: () => { br.open = false; br.until = 0; br.probing = false; },
     },
 };

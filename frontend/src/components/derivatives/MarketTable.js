@@ -83,7 +83,9 @@ const MarketTable = ({ rows, error, source, selected, onSelect }) => {
           {sorted.length === 0 && <Notice>No symbols match.</Notice>}
         </div>
       )}
-      {source === 'ws' && <p className="mt-1 text-[11px] text-slate-500">Open interest unavailable from this server</p>}
+      {source === 'ws' && (rows || []).some((r) => Number.isFinite(r.openInterestUsd))
+        ? <p className="mt-1 text-[11px] text-slate-500">Open interest is Bybit perpetuals open interest (Binance futures unavailable from this server); '--' = not listed on Bybit.</p>
+        : source === 'ws' && <p className="mt-1 text-[11px] text-slate-500">Open interest unavailable from this server</p>}
       <p className="mt-1 text-[11px] text-slate-500">APR = rate x payments per day (24 / funding interval) x 365, simple, not compounded. The interval is shown next to the countdown.</p>
     </Panel>
   );

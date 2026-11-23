@@ -10,6 +10,9 @@ export const coin = (symbol) => (symbol || '').replace(/USDT$/, '');
 
 export const is404 = (e) => e?.response?.status === 404;
 
+// Shown wherever a response carries X-Data-Source: bybit (Binance futures REST is blocked from this server).
+export const BYBIT_NOTE = 'Estimated from Bybit perpetuals data (Binance futures history unavailable from this server). Bybit open interest and positions differ from Binance.';
+
 export const Notice = ({ children, tone = 'muted' }) => (
   <p className={`py-6 text-center text-sm ${tone === 'error' ? 'text-amber-400' : 'text-slate-400'}`}>{children}</p>
 );

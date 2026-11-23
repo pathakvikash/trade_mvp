@@ -179,7 +179,7 @@ describe('fallbacks and breaker', () => {
     });
 
     test('400 from fapi passes through (no fallback, no trip)', async () => {
-        const get = jest.spyOn(axios, 'get').mockRejectedValue(err(400));
+        const get = jest.spyOn(axios, 'get').mockClear().mockRejectedValue(err(400));
         await expect(rest.klines('XUSDT', '1m', 5)).rejects.toMatchObject({ response: { status: 400 } });
         expect(get).toHaveBeenCalledTimes(1);
         await expect(rest.klines('YUSDT', '1m', 5)).rejects.toBeTruthy();
@@ -333,6 +333,185 @@ describe('fallbacks and breaker', () => {
             feed();
             expect(await rest.markPrice('AAAUSDT')).toEqual({ markPrice: 109.5, ts: now });
             expect(await rest.markPrice('NOPEUSDT')).toBeNull();
+        });
+    });
+});
+
+// ---- Bybit fallback (only when Binance fails with a fallbackable error) ----
+describe('bybit fallback', () => {
+    const logger = require('../config/logger');
+    const { normalizeRestKline } = require('../services/futuresUtils');
+    const err = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status, headers: {}, data: {} } });
+    const isBybit = (u) => u.includes('api.bybit.com');
+    const ok = (result) => Promise.resolve({ data: { retCode: 0, retMsg: 'OK', result } });
+    const H = 3600e3;
+    const T = Math.floor(Date.now() / H) * H;
+    const n = 600;
+    // newest first, like Bybit; `from` = oldest requested start when paging with endTime
+    const klRows = (iv, limit) => {
+        const step = { 5: 300e3, 15: 900e3, 60: H }[iv] || H;
+        const t = Math.floor(Date.now() / step) * step;
+        return Array.from({ length: limit }, (_, i) => [String(t - i * step), '90', '101', '89', '100', '1', '100']);
+    };
+    const bybit = (o = {}) => (u, { params } = {}) => {
+        if (!isBybit(u)) return Promise.reject(err(418));
+        if (u.endsWith('/kline')) return o.kline ? o.kline(params) : ok({ list: klRows(params.interval, params.limit) });
+        if (u.endsWith('/open-interest')) {
+            const step = { '5min': 300e3, '15min': 900e3, '1h': H, '4h': 4 * H }[params.intervalTime];
+            const end = params.endTime || Math.floor(Date.now() / step) * step;
+            return ok({ list: Array.from({ length: params.limit }, (_, i) => ({ openInterest: '20', singleOpenInterest: '10', timestamp: String(end - i * step) })) });
+        }
+        if (u.endsWith('/account-ratio')) return ok({ list: [{ buyRatio: '0.6', sellRatio: '0.4', timestamp: '2000' }, { buyRatio: '0.5', sellRatio: '0.5', timestamp: '1000' }, { buyRatio: '1', sellRatio: '0', timestamp: '500' }] });
+        if (u.endsWith('/funding/history')) return ok({ list: [{ fundingRate: '0.0002', fundingRateTimestamp: '2000' }, { fundingRate: '-0.0001', fundingRateTimestamp: '1000' }] });
+        if (u.endsWith('/tickers')) return ok({ list: [{ symbol: 'AAAUSDT', openInterestValue: '2469', singleOpenInterestValue: '1234.5' }, { symbol: 'BBBUSDT', openInterestValue: '0' }] });
+        return Promise.reject(new Error(`unexpected ${u}`));
+    };
+    beforeEach(() => { jest.spyOn(logger, 'warn').mockImplementation(() => {}); });
+
+    test('klines: Binance -> Bybit (ascending, same shape) -> spot; bybit goes before spot', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation(bybit());
+        const k = await rest.klines('BTCUSDT', '1h', 3);
+        expect(k.source).toBe('bybit');
+        expect(k).toHaveLength(3);
+        expect(k[0].time).toBeLessThan(k[2].time);
+        expect(k[2]).toEqual(normalizeRestKline(klRows(60, 1)[0]));
+        expect(Object.keys(k[0]).sort()).toEqual(['close', 'high', 'low', 'open', 'time', 'volume']);
+        expect(get.mock.calls.find(([u]) => isBybit(u))[1].params).toMatchObject({ category: 'linear', symbol: 'BTCUSDT', interval: '60', limit: 3 });
+        expect(get.mock.calls.some(([u]) => u.includes('binance.vision'))).toBe(false); // spot untouched
+    });
+
+    test('klines: interval mapping, unsupported interval skips Bybit, Bybit failure or unknown symbol falls to spot', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation(bybit());
+        await rest.klines('BTCUSDT', '1d', 2);
+        await rest.klines('BTCUSDT', '5m', 2);
+        expect(get.mock.calls.filter(([u]) => isBybit(u)).map(([, { params }]) => params.interval)).toEqual(['D', '5']);
+        const spotRow = [[1000, '1', '2', '0.5', '1.5', '10']];
+        get.mockImplementation((u) => (u.includes('binance.vision') ? Promise.resolve({ data: spotRow }) : Promise.reject(err(418))));
+        expect((await rest.klines('BTCUSDT', '2m', 2)).source).toBe('spot'); // 2m is not a Bybit interval: never asked
+        expect(get.mock.calls.filter(([u]) => isBybit(u))).toHaveLength(2);
+        get.mockImplementation((u, { params } = {}) => (isBybit(u) ? Promise.resolve({ data: { retCode: 10001, retMsg: 'params error: Symbol Is Invalid', result: {} } }) : u.includes('binance.vision') ? Promise.resolve({ data: spotRow }) : Promise.reject(err(418))));
+        expect((await rest.klines('FOOUSDT', '1h', 2)).source).toBe('spot'); // unknown symbol = unavailable, not a crash
+        get.mockImplementation((u) => Promise.reject(u.includes('binance.vision') ? Object.assign(new Error('x'), { response: { status: 400 } }) : err(418)));
+        const none = await rest.klines('FOOUSDT', '4h', 2);
+        expect(none).toEqual([]);
+        expect(none.source).toBe('unavailable'); // previous last resort kept
+    });
+
+    test('Binance healthy: Bybit is never called', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation((u) => Promise.resolve({ data: u.endsWith('/klines') ? [[1000, '1', '2', '0.5', '1.5', '10']] : [] }));
+        await rest.klines('BTCUSDT', '1h', 2);
+        await rest.stats('BTCUSDT', '1h');
+        expect(get.mock.calls.some(([u]) => isBybit(u))).toBe(false);
+    });
+
+    test('stats from Bybit: Binance shape, top/taker empty, source bybit, not degraded', async () => {
+        jest.spyOn(axios, 'get').mockImplementation(bybit());
+        const d = await rest.stats('BTCUSDT', '1h');
+        expect(Object.keys(d).sort()).toEqual(['funding', 'longShort', 'openInterest', 'period', 'source', 'symbol', 'takerBuySell', 'topLongShort']);
+        expect(d).toMatchObject({ symbol: 'BTCUSDT', period: '1h', source: 'bybit', topLongShort: [], takerBuySell: [] });
+        expect(d.degraded).toBeUndefined();
+        expect(d.longShort).toEqual([{ ts: 1000, ratio: 1, longPct: 50, shortPct: 50 }, { ts: 2000, ratio: expect.closeTo(1.5, 10), longPct: 60, shortPct: 40 }]);
+        expect(d.funding).toEqual([{ ts: 1000, rate: -0.0001 }, { ts: 2000, rate: 0.0002 }]);
+        expect(d.openInterest).toHaveLength(200);
+        expect(d.openInterest[0].ts).toBeLessThan(d.openInterest[199].ts);
+        expect(d.openInterest[199]).toEqual({ ts: T, oi: 10, oiUsd: 900 }); // single-side 10 coins (not 20) x OPEN 90 of the candle starting at ts
+        expect(d.longShort.some((r) => r.ts === 500)).toBe(false); // sellRatio 0 dropped
+    });
+
+    test('stats: Bybit failing too keeps the previous empty + degraded result', async () => {
+        jest.spyOn(axios, 'get').mockRejectedValue(err(418));
+        const d = await rest.stats('BTCUSDT', '1h');
+        expect(d).toMatchObject({ openInterest: [], longShort: [], funding: [], degraded: true, source: 'unavailable' });
+    });
+
+    test('liqmap and liqheat from Bybit, tagged; heat pages OI with endTime', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation(bybit());
+        const m = await rest.liqmap('BTCUSDT');
+        expect(m.source).toBe('bybit');
+        expect(Object.keys(m)).not.toContain('source');
+        expect(m).toMatchObject({ symbol: 'BTCUSDT', price: 100, method: 'oi-delta-leverage-tiers' });
+        expect(m.levels).toHaveLength(120);
+        const h = await rest.liqheat('BTCUSDT', '24h');
+        expect(h.source).toBe('bybit');
+        expect(h).toMatchObject({ symbol: 'BTCUSDT', range: '24h', cols: 288, rows: 120 });
+        const oi = get.mock.calls.filter(([u, o]) => u.endsWith('/open-interest') && o.params.intervalTime === '5min');
+        expect(oi.map(([, { params }]) => params.limit)).toEqual([200, 200, 177]); // 2*288+1 rows
+        expect(oi[1][1].params.endTime).toBeLessThan(oi[0][1].params.endTime || Infinity);
+    });
+
+    test('liqmap/liqheat: Bybit failure rethrows the original Binance error (route answers 503)', async () => {
+        jest.spyOn(axios, 'get').mockRejectedValue(err(418));
+        await expect(rest.liqmap('BTCUSDT')).rejects.toMatchObject({ response: { status: 418 } });
+        expect(rest.isBlocked(await rest.liqheat('BTCUSDT', '24h').catch((e) => e))).toBe(true); // breaker is open now
+        // a Binance 400 never reaches Bybit
+        rest._test.reset();
+        const get = jest.spyOn(axios, 'get').mockClear().mockRejectedValue(err(400));
+        await expect(rest.liqmap('ETHUSDT')).rejects.toMatchObject({ response: { status: 400 } });
+        expect(get.mock.calls.some(([u]) => isBybit(u))).toBe(false);
+    });
+
+    test('breaker: after a Bybit failure the next calls do not hit Bybit within 5 min; one probe after; success closes', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation(() => Promise.reject(err(418)));
+        const bybitCalls = () => get.mock.calls.filter(([u]) => isBybit(u)).length;
+        await rest.klines('BTCUSDT', '1h', 2).catch(() => {}); // Binance 418 -> Bybit 418 (trips) -> spot fails -> throws
+        const n1 = bybitCalls();
+        expect(n1).toBe(1);
+        await rest.klines('BTCUSDT', '4h', 2).catch(() => {});
+        await rest.klines('ETHUSDT', '1h', 2).catch(() => {});
+        expect(bybitCalls()).toBe(n1);
+        const now = Date.now();
+        jest.spyOn(Date, 'now').mockReturnValue(now + 301e3);
+        get.mockImplementation(bybit());
+        const k = await rest.klines('BTCUSDT', '15m', 2);
+        expect(k.source).toBe('bybit');
+        expect(bybitCalls()).toBe(n1 + 1);
+        Date.now.mockRestore();
+    });
+
+    test('breaker: network error / timeout (no response) also trips; a plain retCode error does not', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation((u) => (isBybit(u) ? ok({}).then((r) => ({ data: { retCode: 10002, retMsg: 'x', result: {} } })) : Promise.reject(err(418))));
+        await rest.klines('A1USDT', '1h', 2).catch(() => {});
+        await rest.klines('A2USDT', '1h', 2).catch(() => {});
+        expect(get.mock.calls.filter(([u]) => isBybit(u))).toHaveLength(2); // retCode errors do not skip Bybit
+        get.mockImplementation((u) => Promise.reject(isBybit(u) ? new Error('timeout of 4000ms exceeded') : err(418)));
+        await rest.klines('A3USDT', '1h', 2).catch(() => {});
+        await rest.klines('A4USDT', '1h', 2).catch(() => {});
+        expect(get.mock.calls.filter(([u]) => isBybit(u))).toHaveLength(3); // one timeout, then skipped
+    });
+
+    test('stats: Binance errors mixing a 400 and a block are not fallbackable: Bybit unused', async () => {
+        const get = jest.spyOn(axios, 'get').mockImplementation((u) => Promise.reject(u.endsWith('/fundingRate') ? err(400) : err(418)));
+        await expect(rest.stats('BTCUSDT', '1h')).rejects.toBeTruthy();
+        expect(get.mock.calls.some(([u]) => isBybit(u))).toBe(false);
+    });
+
+    describe('overview OI from tickers', () => {
+        const feed = () => {
+            rest.ingestTickers([{ s: 'AAAUSDT', c: '110', o: '100', h: '120', l: '90', q: '500' }, { s: 'BBBUSDT', c: '5', o: '5', h: '6', l: '4', q: '900' }]);
+            rest.ingestMarks([{ s: 'AAAUSDT', p: '109.5', i: '109', r: '0.0001', T: 77 }, { s: 'BBBUSDT', p: '5.1', i: '5', r: '0', T: 78 }]);
+        };
+        test('first overview does not wait (null OI); next one reads the background result (single side, 0 -> null); one tickers call; source ws', async () => {
+            feed();
+            const get = jest.spyOn(axios, 'get').mockImplementation(bybit());
+            const first = await rest.overview();
+            expect(first.every((r) => r.openInterestUsd === null)).toBe(true);
+            await new Promise((r) => setImmediate(r)); // background tickers refresh lands
+            jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 11e3); // overview cache expired, tickers (30 s) not
+            const rows = await rest.overview();
+            Date.now.mockRestore();
+            expect(rows.source).toBe('ws');
+            expect(Object.fromEntries(rows.map((r) => [r.symbol, r.openInterestUsd]))).toEqual({ AAAUSDT: 1234.5, BBBUSDT: null });
+            expect(rows.every((r) => r.fundingIntervalHours === null)).toBe(true);
+            expect(get.mock.calls.filter(([u]) => u.endsWith('/tickers'))).toHaveLength(1);
+        });
+        test('tickers failure: null OI, overview still answers', async () => {
+            feed();
+            jest.spyOn(axios, 'get').mockRejectedValue(err(418));
+            const rows = await rest.overview();
+            expect(rows).toHaveLength(2);
+            expect(rows.every((r) => r.openInterestUsd === null)).toBe(true);
+            await new Promise((r) => setImmediate(r));
+            expect(logger.warn.mock.calls.filter(([m]) => /bybit tickers failed/.test(m))).toHaveLength(1);
         });
     });
 });

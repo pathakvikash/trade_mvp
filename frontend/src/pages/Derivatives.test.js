@@ -39,3 +39,13 @@ test('spot klines note on the price line; no notes for a normal source', async (
   text = await render({ ov: ok(OV, 'binance-futures'), st: ok(STATS), kl: ok([], 'binance-futures') });
   expect(text).not.toMatch(/unavailable from this server|spot candles/);
 });
+
+test('bybit source: notes on price line, positioning and OI column; empty top/taker series render without errors', async () => {
+  const oi = [{ ...OV[0], openInterestUsd: 2.5e9 }];
+  const text = await render({ ov: ok(oi, 'ws'), st: ok({ ...STATS, source: 'bybit' }, 'bybit'), kl: ok([], 'bybit') });
+  expect(text).toContain('Price line uses Bybit perpetual candles');
+  expect(text).toContain('are from Bybit');
+  expect(text).toContain('Open interest is Bybit perpetuals open interest');
+  expect(text).not.toContain('Open interest unavailable from this server');
+  expect(text).not.toMatch(/null|NaN/);
+});

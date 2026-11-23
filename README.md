@@ -218,6 +218,7 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 | `CLAUDE_BIN` | no | `claude` | Code-only. Path of the Claude Code CLI used by the dev-only CLI provider. |
 | `BINANCE_FUTURES_REST` | no | `https://fapi.binance.com` | REST base URL (e.g. a proxy). |
 | `BINANCE_SPOT_REST` | no | `https://data-api.binance.vision` | Spot mirror used only for kline fallback when futures REST is IP-blocked (spot prices, so candles differ slightly). |
+| `BYBIT_REST` | no | `https://api.bybit.com` | Bybit v5 public REST (no key), used only when Binance futures REST is blocked: perpetual candles, open interest, long/short ratio, funding, liquidation map/heatmap inputs. Numbers are Bybit's and differ from Binance. |
 | `BINANCE_FUTURES_WS` | no | `wss://fstream.binance.com` | WebSocket base URL. |
 | `MARKET_POLL_INTERVAL_MS` | no | `30000` | CoinGecko poll interval for the Markets page. |
 

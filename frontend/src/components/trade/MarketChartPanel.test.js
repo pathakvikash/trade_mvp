@@ -20,3 +20,12 @@ test('empty unavailable history: 1m says live candles build up, other timeframes
   expect(text('1h')).toContain('Switch to 1m for live candles.');
   expect(text('1h')).not.toContain('will build up');
 });
+
+test('bybit candles show the Bybit source note', () => {
+  const el = document.createElement('div');
+  const candle = { time: 1, open: 1, high: 2, low: 1, close: 2, volume: 1 };
+  act(() => {
+    createRoot(el).render(<MarketChartPanel ticker="PERP" interval="1h" onInterval={() => {}} candles={[candle]} ready klineSource="bybit" />);
+  });
+  expect(el.textContent).toContain('Candles from Bybit perpetuals (Binance futures history unavailable from this server)');
+});

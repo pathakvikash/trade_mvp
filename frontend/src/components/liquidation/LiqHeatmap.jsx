@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import useCanvas from './useCanvas';
 import SegTabs from '../ui/SegTabs';
-import { Notice, Panel, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
+import { BYBIT_NOTE, Notice, Panel, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
 import { cellAt, heatColor, heatCss, niceTicks, scaleT, timeTicks } from './heat';
 import { LoadingBlock } from '../ui/Skeleton';
 import { Updating } from '../ui/Spinner';
@@ -39,7 +39,7 @@ function buildBitmap(d, bottom, top) {
   return c;
 }
 
-const LiqHeatmap = ({ symbol, range, onRange, data, loading, error, onRefresh, refreshing, highlight }) => {
+const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRefresh, refreshing, highlight }) => {
   const [H, setH] = useState(heightFor);
   useEffect(() => {
     const f = () => setH(heightFor());
@@ -156,6 +156,7 @@ const LiqHeatmap = ({ symbol, range, onRange, data, loading, error, onRefresh, r
       <p className="mb-2 text-xs text-amber-400">
         Estimated model. Exchanges do not publish liquidation prices; levels are inferred from open-interest increases, a leverage mix of 5x–125x and 0.4% maintenance margin. Not financial advice.
       </p>
+      {source === 'bybit' && <p className="mb-2 text-xs text-amber-400">{BYBIT_NOTE}</p>}
       {!ok ? (
         loading ? <LoadingBlock height={H} /> : (
           <Notice tone={error ? 'error' : 'muted'}>

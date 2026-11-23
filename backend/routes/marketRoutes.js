@@ -71,6 +71,9 @@ router.get('/futures/klines/:symbol', async (req, res) => {
     }
 });
 
+// objects (stats, liqmap, liqheat) carry `source` (own property or tag()) -> X-Data-Source, same as the array routes
+const sendObj = (res, d) => { if (d.source) res.set('X-Data-Source', d.source); res.json(d); };
+
 // Upstream failure -> 502 (451 = Binance region block, -1121 = unknown symbol -> 404)
 // `noAlt`: no fallback source exists (liqmap/liqheat), so a blocked REST is 503 + degraded rather than a generic 502
 function upstreamError(res, err, what, noAlt) {
@@ -94,14 +97,14 @@ router.get('/futures/stats/:symbol', async (req, res) => {
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
     if (!futuresRest.PERIODS.includes(period)) return res.status(400).json({ error: 'invalid period' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
-    try { res.json(await futuresRest.stats(symbol, period)); } catch (err) { upstreamError(res, err, 'futures stats'); }
+    try { sendObj(res, await futuresRest.stats(symbol, period)); } catch (err) { upstreamError(res, err, 'futures stats'); }
 });
 
 router.get('/futures/liqmap/:symbol', async (req, res) => {
     const symbol = String(req.params.symbol).toUpperCase();
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
-    try { res.json(await futuresRest.liqmap(symbol)); } catch (err) { upstreamError(res, err, 'liquidation map', true); }
+    try { sendObj(res, await futuresRest.liqmap(symbol)); } catch (err) { upstreamError(res, err, 'liquidation map', true); }
 });
 
 // Predicted liquidation heatmap grid (estimate, see estimateLiqHeat)
@@ -111,7 +114,7 @@ router.get('/futures/liqheat/:symbol', async (req, res) => {
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
     if (!Object.prototype.hasOwnProperty.call(futuresRest.HEAT_RANGES, range)) return res.status(400).json({ error: 'invalid range' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
-    try { res.json(await futuresRest.liqheat(symbol, range)); } catch (err) { upstreamError(res, err, 'liquidation heatmap', true); }
+    try { sendObj(res, await futuresRest.liqheat(symbol, range)); } catch (err) { upstreamError(res, err, 'liquidation heatmap', true); }
 });
 
 // Tradable USDT perpetuals for the pair picker

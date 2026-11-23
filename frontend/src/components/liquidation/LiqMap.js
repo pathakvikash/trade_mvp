@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import usePolling from '../../lib/usePolling';
 import useCanvas from './useCanvas';
 import { LoadingBlock } from '../ui/Skeleton';
-import { FUT, Notice, Panel, coin, fmtPrice, fmtUsd, is404 } from './shared';
+import { BYBIT_NOTE, FUT, Notice, Panel, coin, fmtPrice, fmtUsd, is404 } from './shared';
 
 const H = 300;
 const PAD = { l: 8, r: 56, t: 8, b: 20 };
@@ -20,7 +20,7 @@ export function prepare(levels, price) {
 }
 
 const LiqMap = ({ symbol }) => {
-  const { data, error, loading } = usePolling(`${FUT}/liqmap/${symbol}`, 60000);
+  const { data, error, loading, source } = usePolling(`${FUT}/liqmap/${symbol}`, 60000);
   const [hover, setHover] = useState(null);
   const ok = data && data.symbol === symbol && Array.isArray(data.levels) && data.levels.length > 0;
   const m = useMemo(() => (ok ? prepare(data.levels, data.price) : null), [ok, data]);
@@ -100,6 +100,7 @@ const LiqMap = ({ symbol }) => {
   return (
     <Panel title={`Estimated liquidation map - ${coin(symbol)}`} right={<span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[11px] text-amber-400">Estimated model</span>}>
       <p className="mb-2 text-xs text-amber-400">Estimated model: exchanges do not publish liquidation prices.</p>
+      {source === 'bybit' && <p className="mb-2 text-xs text-amber-400">{BYBIT_NOTE}</p>}
       {!ok ? (
         loading ? <LoadingBlock height={H} /> : <Notice tone={error ? 'error' : 'muted'}>{is404(error) ? 'No perpetual market for this symbol.' : error ? 'Liquidation map unavailable for this symbol right now.' : 'No estimate available.'}</Notice>
       ) : (
