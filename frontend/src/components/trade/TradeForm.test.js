@@ -64,10 +64,11 @@ test('submit sends orderType and limitPrice only for limit orders', async () => 
   expect(onSubmit).toHaveBeenLastCalledWith({ type: 'buy', amount: '1', orderType: 'limit', limitPrice: '90' });
 });
 
-test('submit bar is in normal flow below xl (never covers Price / Estimated total); one Buy/Sell control set', () => {
+test('submit bar is the last sticky element with safe-area bottom padding; one Buy/Sell control set', () => {
   const bar = submitBtn().parentElement;
-  expect(bar.className).not.toMatch(/(^|\s)sticky(\s|$)/);
-  expect(bar.className).toContain('xl:sticky');
+  expect(bar.className).toMatch(/(^|\s)sticky(\s|$)/);
+  expect(bar.className).toContain('safe-area-inset-bottom');
+  expect(bar.nextElementSibling).toBeNull(); // last child of the form: nothing is left hidden under it at scroll end
   expect([...container.querySelectorAll('[aria-label="Side"] button')].map((b) => b.textContent)).toEqual(['Buy', 'Sell']);
-  expect([...container.querySelectorAll('button')].filter((b) => /^(Buy|Sell)\b/.test(b.textContent.trim()) && b.type === 'submit')).toHaveLength(1);
+  expect(container.querySelectorAll('button[type=submit]')).toHaveLength(1);
 });

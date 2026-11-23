@@ -244,7 +244,7 @@ const FuturesForm = ({ coin, symbols = [], overview = [], onSymbol, token, futur
         </div>
       ) : null}
 
-      <div className="-mx-3 xl:sticky xl:bottom-0 xl:z-10 space-y-1 border-t border-slate-800 bg-slate-950 px-3 pb-3 pt-2">
+      <div className="-mx-3 sticky bottom-0 z-10 space-y-1 border-t border-slate-800 bg-slate-950 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-2">
       <button
         type="submit"
         disabled={busy || !!reason}
