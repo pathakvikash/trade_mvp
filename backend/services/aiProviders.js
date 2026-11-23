@@ -18,13 +18,13 @@ const PROVIDERS = [
     { id: 'anthropic', label: 'Anthropic', modelSuggestions: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], needsBaseUrl: false, docsNote: 'Create a key in the Anthropic Console. Calls are billed to your account.' },
     { id: 'openai', label: 'OpenAI', modelSuggestions: ['gpt-5', 'gpt-5-mini'], needsBaseUrl: false, docsNote: 'Create a key in the OpenAI dashboard. Calls are billed to your account.' },
     { id: 'gemini', label: 'Google Gemini', modelSuggestions: ['gemini-2.5-pro', 'gemini-2.5-flash'], needsBaseUrl: false, docsNote: 'Create a key in Google AI Studio.' },
-    { id: 'openrouter', label: 'OpenRouter', modelSuggestions: ['anthropic/claude-sonnet-5-5', 'openai/gpt-5-mini'], needsBaseUrl: false, docsNote: 'One key for many models; use the provider/model id.' },
+    { id: 'openrouter', label: 'OpenRouter', modelSuggestions: ['anthropic/claude-sonnet-5.5', 'anthropic/claude-haiku-5.5', 'openai/gpt-5-mini'], needsBaseUrl: false, docsNote: 'One key for many models; use the provider/model id.' },
     { id: 'custom', label: 'Custom (OpenAI-compatible)', modelSuggestions: [], needsBaseUrl: true, docsNote: 'Any public HTTPS endpoint that speaks the OpenAI chat completions API. Private and local addresses are blocked.' },
     // Local models through LM Studio's OpenAI-compatible server. No key; loopback only (see checkLocalUrl).
     { id: 'lmstudio', label: 'LM Studio (local)', modelSuggestions: ['qwen/qwen3.5-9b'], needsBaseUrl: true, needsKey: false, defaultBaseUrl: 'http://localhost:1234/v1', docsNote: 'Runs a model in LM Studio on this machine. No key needed. Only localhost addresses, and only on a development server or with ALLOW_LOCAL_LLM=true.' },
 ];
 const PROVIDER_IDS = PROVIDERS.map((p) => p.id);
-const DEFAULT_MODELS = { anthropic: 'claude-sonnet-5-5', openai: 'gpt-5-mini', gemini: 'gemini-2.5-flash', openrouter: 'anthropic/claude-sonnet-5-5', custom: '' };
+const DEFAULT_MODELS = { anthropic: 'claude-sonnet-5-5', openai: 'gpt-5-mini', gemini: 'gemini-2.5-flash', openrouter: 'anthropic/claude-sonnet-5.5', custom: '' };
 // LM Studio defaults are read per call so .env changes need only a restart, not a code change.
 const defaultModel = (provider) => (provider === 'lmstudio' ? process.env.LMSTUDIO_MODEL || 'qwen/qwen3.5-9b' : DEFAULT_MODELS[provider] || '');
 const lmstudioBaseUrl = (saved) => saved || process.env.LMSTUDIO_BASE_URL || 'http://localhost:1234/v1';
@@ -201,7 +201,9 @@ async function complete({ provider, apiKey, model, baseUrl, system, user, maxTok
     if (!PROVIDER_IDS.includes(provider)) throw new AiError(400, 'ai_bad_provider');
     const local = provider === 'lmstudio';
     if (!apiKey && !local) throw new AiError(400, 'ai_no_key');
-    const m = model || defaultModel(provider);
+    // OpenRouter ids use dots (anthropic/claude-sonnet-5.5); a saved hyphen form from the direct-Anthropic naming would 404.
+    const m0 = model || defaultModel(provider);
+    const m = provider === 'openrouter' ? m0.replace(/^(anthropic\/claude-[a-z]+)-(\d)-(\d)$/, '$1-$2.$3') : m0;
     if (!m || !MODEL_ID_RE.test(m)) throw new AiError(400, 'ai_no_model');
     const t = typeof temperature === 'number' ? temperature : undefined;
     const bearer = { authorization: `Bearer ${apiKey}` };

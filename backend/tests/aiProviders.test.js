@@ -130,7 +130,12 @@ describe('complete()', () => {
         const calls = fakeRequest(https, { body: { choices: [{ message: { content: 'r' } }] } });
         await expect(P.complete({ ...base, provider: 'openrouter' })).resolves.toBe('r');
         expect(calls[0].opts).toMatchObject({ hostname: 'openrouter.ai', path: '/api/v1/chat/completions' });
-        expect(calls[0].body.model).toBe('anthropic/claude-sonnet-5-5');
+        expect(calls[0].body.model).toBe('anthropic/claude-sonnet-5.5');
+    });
+    test('openrouter: a saved hyphen id is sent with the dotted OpenRouter form', async () => {
+        const calls = fakeRequest(https, { body: { choices: [{ message: { content: 'r' } }] } });
+        await P.complete({ ...base, provider: 'openrouter', model: 'anthropic/claude-sonnet-5-5' });
+        expect(calls[0].body.model).toBe('anthropic/claude-sonnet-5.5');
     });
     test('custom: base URL + /chat/completions, guarded lookup attached, bad or missing URL and missing model refused before any request', async () => {
         const calls = fakeRequest(https, { body: { choices: [{ message: { content: 'c' } }] } });
