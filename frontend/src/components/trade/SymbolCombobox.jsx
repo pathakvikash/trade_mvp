@@ -2,6 +2,15 @@ import React, { useId, useMemo, useRef, useState } from 'react';
 import { fmtPct, fmtPrice } from '../ui/fmt';
 import { filterPairs } from '../ui/pairs';
 
+// Picker tickers: overview (volume order) first, then the rest of /symbols alphabetically; falls back to overview,
+// then fallback (CoinGecko), when /symbols is empty. The selected symbol is always present.
+export const buildSymbols = (listData, overview, fallback, symbol) => {
+  const all = (Array.isArray(listData) ? listData : []).map((x) => String(x?.symbol ?? x).replace(/USDT$/, '')).filter(Boolean);
+  const top = overview.map((r) => r.symbol.replace(/USDT$/, ''));
+  const list = all.length ? [...top, ...[...new Set(all)].filter((b) => !top.includes(b)).sort()] : top.length ? top : fallback;
+  return [...new Set(list.includes(symbol) ? list : [symbol, ...list])];
+};
+
 // Searchable ticker picker for the order card: input + listbox (ARIA combobox, arrow keys / Enter / Escape).
 // symbols: base tickers; overview: futures overview rows (lastPrice, priceChangePercent) for the price and 24h columns.
 const SymbolCombobox = ({ symbols, overview = [], value, onSelect }) => {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { act } from 'react-dom/test-utils';
 import { createRoot } from 'react-dom/client';
-import SymbolCombobox from './SymbolCombobox';
+import SymbolCombobox, { buildSymbols } from './SymbolCombobox';
 
 const row = (symbol, lastPrice, priceChangePercent, quoteVolume) => ({ symbol, lastPrice, markPrice: lastPrice, priceChangePercent, quoteVolume });
 const OVERVIEW = [row('BTCUSDT', 60000, 1.5, 5e9), row('ETHUSDT', 3000, -2.25, 2e9), row('SOLUSDT', 150, 0.5, 1e9)];
@@ -65,4 +65,32 @@ test('Escape closes without selecting; clicking an option selects it', async () 
   await act(async () => { input().click(); }); // still focused, so a click reopens it
   await act(async () => { options()[1].click(); });
   expect(onSelect).toHaveBeenCalledWith('ETH');
+});
+
+const ovr = [{ symbol: 'BTCUSDT', lastPrice: 1 }, { symbol: 'ETHUSDT', lastPrice: 1 }];
+const listed = ['ZZZUSDT', 'HUMAUSDT', 'BTCUSDT', 'ETHUSDT', ...Array.from({ length: 700 }, (_, i) => `C${i}USDT`)].map((s) => ({ base: s.replace('USDT', ''), symbol: s }));
+
+test('buildSymbols: overview first, then /symbols alphabetically, deduped, selected always present', () => {
+  const r = buildSymbols(listed, ovr, ['X'], 'BTC');
+  expect(r.slice(0, 2)).toEqual(['BTC', 'ETH']);
+  expect(r).toContain('HUMA');
+  expect(r.indexOf('HUMA')).toBeLessThan(r.indexOf('ZZZ'));
+  expect(new Set(r).size).toBe(r.length);
+  expect(buildSymbols(listed, ovr, [], 'NEW')[0]).toBe('NEW');
+});
+
+test('buildSymbols: falls back to overview, then CoinGecko, when /symbols is empty', () => {
+  expect(buildSymbols(null, ovr, ['X'], 'BTC')).toEqual(['BTC', 'ETH']);
+  expect(buildSymbols([], [], ['X', 'Y'], 'BTC')).toEqual(['BTC', 'X', 'Y']);
+});
+
+test('a /symbols-only ticker (no overview row) is searchable, shows --, and is selectable; list capped at 50', async () => {
+  const syms = buildSymbols(listed, ovr, [], 'BTC');
+  await act(async () => { root.render(<SymbolCombobox symbols={syms} overview={ovr} value="BTC" onSelect={onSelect} />); });
+  await open();
+  expect(options()).toHaveLength(50);
+  await type('huma');
+  expect(options().map((o) => o.textContent)).toEqual(['HUMA----']);
+  await act(async () => { options()[0].click(); });
+  expect(onSelect).toHaveBeenCalledWith('HUMA');
 });

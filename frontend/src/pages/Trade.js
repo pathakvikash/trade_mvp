@@ -14,6 +14,7 @@ import { FUT, coin as baseOf } from '../components/liquidation/shared';
 import useFuturesStore from '../store/futuresStore';
 import useAlertStore from '../store/alertStore';
 import SegTabs from '../components/ui/SegTabs';
+import { buildSymbols } from '../components/trade/SymbolCombobox';
 import SymbolHeader from '../components/trade/SymbolHeader';
 import MarketChartPanel from '../components/trade/MarketChartPanel';
 import OrderBookPanel from '../components/trade/OrderBookPanel';
@@ -76,10 +77,11 @@ const Trade = () => {
   const ovRow = useMemo(() => overview.find((r) => r.symbol === futuresSymbol) || null, [overview, futuresSymbol]);
   // base symbol -> futures last price, for position P&L (overview covers the top-40 perps only)
   const prices = useMemo(() => Object.fromEntries(overview.map((r) => [baseOf(r.symbol), r.lastPrice ?? r.markPrice])), [overview]);
+  // Every tradable perp (~700) for the picker; the combobox caps what it renders at 50 per filter.
+  const allSyms = usePolling(`${FUT}/symbols`, 300000);
   const symbols = useMemo(() => {
-    const list = overview.length ? overview.map((r) => baseOf(r.symbol)) : availableCoins.map((c) => c.symbol);
-    return list.includes(symbol) ? list : [symbol, ...list];
-  }, [overview, availableCoins, symbol]);
+    return buildSymbols(allSyms.data, overview, availableCoins.map((c) => c.symbol), symbol);
+  }, [allSyms.data, overview, availableCoins, symbol]);
   const candles = useFuturesStore((s) => s.candles);
   const book = useFuturesStore((s) => s.book);
   const mark = useFuturesStore((s) => s.mark);
