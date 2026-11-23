@@ -7,6 +7,7 @@ import { API } from '../lib/api';
 import { landingPath } from '../lib/landing';
 import Spinner from '../components/ui/Spinner';
 import GoogleButton from '../components/auth/GoogleButton';
+import AuthShell, { Field, PasswordInput, inputClass } from '../components/auth/AuthShell';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -91,17 +92,7 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100dvh-4.25rem)] items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
-      <div className="w-full max-w-md rounded-[1.25rem] border border-slate-800 bg-slate-900/90 p-6 shadow-soft backdrop-blur-sm sm:p-8">
-        <div className="mb-8 text-center">
-          <h2 className="bg-gradient-to-r from-blue-400 to-brand-500 bg-clip-text text-4xl font-bold text-transparent">
-            Welcome Back
-          </h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Login to access your crypto portfolio
-          </p>
-        </div>
-
+    <AuthShell title="Welcome back" subtitle="Sign in to your paper trading account" busy={loading}>
         {/* DEV ONLY: remove with /api/auth/dev-hint when hosted */}
         {process.env.NODE_ENV === 'development' && devHint && (
           <div className="mb-6 rounded-2xl border border-amber-500/60 bg-amber-950/40 p-4 text-sm text-amber-200">
@@ -130,50 +121,50 @@ const Login = () => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Email</label>
+          <Field id="login-email" label="Email">
             <input
-              type='email'
-              name='email'
+              id="login-email"
+              type="email"
+              name="email"
+              autoComplete="email"
               value={formData.email}
               onChange={handleChange}
-              placeholder='your@email.com'
+              placeholder="you@email.com"
               required
               disabled={loading}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              className={inputClass}
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Password</label>
-            <input
-              type='password'
-              name='password'
+          <Field id="login-password" label="Password">
+            <PasswordInput
+              id="login-password"
+              name="password"
+              autoComplete="current-password"
               value={formData.password}
               onChange={handleChange}
-              placeholder='••••••••'
+              placeholder="Your password"
               required
               disabled={loading}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
-          </div>
+          </Field>
 
           {error && (
-            <div className="rounded-2xl border border-red-900/70 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            <div role="alert" className="rounded-xl border border-red-900/70 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           )}
 
           <button
-            type='submit'
+            type="submit"
             disabled={loading}
             aria-busy={loading}
-            className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
+            className={`focus-ring inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-900/40 transition hover:bg-brand-500 ${
               loading ? 'cursor-not-allowed opacity-70' : ''
             }`}
           >
             {loading && <Spinner size={14} />}
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
 
           <div className="relative py-1">
@@ -184,23 +175,19 @@ const Login = () => {
           </div>
           <GoogleButton />
 
-          <div className="space-y-4 pt-1 text-center">
-            <Link to='/forgot-password' className="text-sm text-brand-300 transition hover:text-brand-200">
-              Forgot Password?
+          <div className="flex items-center justify-between pt-1 text-sm">
+            <Link to="/forgot-password" className="focus-ring rounded text-brand-300 transition hover:text-brand-200">
+              Forgot password?
             </Link>
-            <div className="relative py-1">
-              <div className="h-px w-full bg-slate-800" />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-900 px-3 text-xs text-slate-500">
-                Don't have an account?
-              </span>
-            </div>
-            <Link to='/register' className="text-sm text-slate-300 transition hover:text-white">
-              Create Account
-            </Link>
+            <span className="text-slate-400">
+              New here?{' '}
+              <Link to="/register" className="focus-ring rounded font-medium text-slate-100 transition hover:text-white">
+                Create account
+              </Link>
+            </span>
           </div>
         </form>
-      </div>
-    </div>
+    </AuthShell>
   );
 };
 

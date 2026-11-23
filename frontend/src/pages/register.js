@@ -6,6 +6,7 @@ import { API } from '../lib/api';
 import { landingPath } from '../lib/landing';
 import Spinner from '../components/ui/Spinner';
 import GoogleButton from '../components/auth/GoogleButton';
+import AuthShell, { Field, PasswordInput, inputClass } from '../components/auth/AuthShell';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -128,110 +129,91 @@ const Register = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100dvh-4.25rem)] items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
-      <div className="w-full max-w-md rounded-[1.25rem] border border-slate-800 bg-slate-900/90 p-6 shadow-soft backdrop-blur-sm sm:p-8">
-        <div className="mb-8 text-center">
-          <h2 className="bg-gradient-to-r from-blue-400 to-brand-500 bg-clip-text text-4xl font-bold text-transparent">
-            Create Account
-          </h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Join thousands of crypto traders worldwide
-          </p>
-        </div>
-
+    <AuthShell title="Create account" subtitle="Start paper trading with a virtual balance" busy={loading}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Full Name</label>
+          <Field id="reg-name" label="Full name">
             <input
-              type='text'
-              name='name'
+              id="reg-name"
+              type="text"
+              name="name"
               value={formData.name}
               onChange={handleChange}
-              placeholder='John Doe'
+              placeholder="John Doe"
               required
               disabled={loading}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              autoComplete="name"
+              className={inputClass}
             />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Email</label>
+          </Field>
+          <Field id="reg-email" label="Email">
             <input
-              type='email'
-              name='email'
+              id="reg-email"
+              type="email"
+              name="email"
               value={formData.email}
               onChange={handleEmailChange}
-              placeholder='your@email.com'
+              placeholder="you@email.com"
               required
               disabled={loading}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              autoComplete="email"
+              className={inputClass}
             />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Username</label>
+          </Field>
+          <Field id="reg-username" label="Username" hint="3-30 characters: letters, numbers and underscore">
             <input
-              type='text'
-              name='username'
+              id="reg-username"
+              type="text"
+              name="username"
               value={formData.username}
               onChange={handleChange}
-              placeholder='johndoe123'
+              placeholder="johndoe123"
               required
               disabled={loading}
-              pattern='[a-zA-Z0-9_]{3,30}'
-              title='3-30 characters: letters, numbers and underscore'
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              autoComplete="username"
+              pattern="[a-zA-Z0-9_]{3,30}"
+              title="3-30 characters: letters, numbers and underscore"
+              className={inputClass}
             />
-            <small className="text-xs text-slate-500">
-              3-30 characters: letters, numbers and underscore
-            </small>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Password</label>
-            <input
-              type='password'
-              name='password'
+          </Field>
+          <Field id="reg-password" label="Password" hint="Password must be 8-72 characters long">
+            <PasswordInput
+              id="reg-password"
+              name="password"
               value={formData.password}
               onChange={handleChange}
-              placeholder='••••••••'
+              placeholder="At least 8 characters"
               required
-              minLength='8'
-              maxLength='72'
               disabled={loading}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              autoComplete="new-password"
+              minLength="8"
+              maxLength="72"
             />
-            <small className="text-xs text-slate-500">
-              Password must be 8-72 characters long
-            </small>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Confirm Password</label>
-            <input
-              type='password'
-              name='confirmPassword'
+          </Field>
+          <Field id="reg-confirm" label="Confirm password">
+            <PasswordInput
+              id="reg-confirm"
+              name="confirmPassword"
               value={formData.confirmPassword}
               onChange={handleChange}
-              placeholder='••••••••'
+              placeholder="Repeat password"
               required
-              minLength='8'
               disabled={loading}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              autoComplete="new-password"
+              minLength="8"
             />
-          </div>
+          </Field>
 
           {error && (
-            <div className="rounded-2xl border border-red-900/70 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            <div role="alert" className="rounded-xl border border-red-900/70 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           )}
 
           <button
-            type='submit'
+            type="submit"
             disabled={loading}
             aria-busy={loading}
-            className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-500 ${
+            className={`focus-ring inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-900/40 transition hover:bg-brand-500 ${
               loading ? 'cursor-not-allowed opacity-70' : ''
             }`}
           >
@@ -247,20 +229,14 @@ const Register = () => {
           </div>
           <GoogleButton />
 
-          <div className="space-y-4 pt-1 text-center">
-            <div className="relative py-1">
-              <div className="h-px w-full bg-slate-800" />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-900 px-3 text-xs text-slate-500">
-                Already have an account?
-              </span>
-            </div>
-            <Link to='/login' className="text-sm text-slate-300 transition hover:text-white">
-              Login Here
+          <p className="pt-1 text-center text-sm text-slate-400">
+            Already have an account?{' '}
+            <Link to="/login" className="focus-ring rounded font-medium text-slate-100 transition hover:text-white">
+              Login here
             </Link>
-          </div>
+          </p>
         </form>
-      </div>
-    </div>
+    </AuthShell>
   );
 };
 
