@@ -21,7 +21,7 @@ test('shows live rows from the overview data, green up and red down', () => {
   render(<AuthShell title="T" subtitle="S"><p>form</p></AuthShell>);
   const strip = container.querySelector('section[aria-label="Live futures prices"]');
   expect(strip.textContent).toContain('BTC');
-  expect(strip.textContent).toContain('60,000.00');
+  expect(strip.textContent).toContain('60,000');
   expect(strip.textContent).toContain('+1.50%');
   expect(strip.textContent).toContain('-2.25%');
   expect(strip.textContent).toContain('Live');

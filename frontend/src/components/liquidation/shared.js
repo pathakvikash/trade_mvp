@@ -5,7 +5,7 @@ import { sourceNote } from '../ui/sourceNote';
 
 export const FUT = `${API}/api/market/futures`;
 
-export { fmtPrice, fmtPct, fmtUsd, fmtTime } from '../ui/fmt';
+export { fmtPrice, fmtMarketPrice, fmtPct, fmtUsd, fmtTime } from '../ui/fmt';
 export { sourceNote, PARTIAL_NOTE } from '../ui/sourceNote';
 export { default as Panel } from '../ui/Panel';
 export const coin = (symbol) => (symbol || '').replace(/USDT$/, '');

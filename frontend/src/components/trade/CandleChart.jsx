@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, LineStyle } from 'lightweight-charts';
 import { needsFullReload } from './candleSync';
-import { fmtCompact, fmtPrice } from '../ui/fmt';
+import { fmtCompact, fmtMarketPrice } from '../ui/fmt';
 
 const UP = '#34d399';
 const DOWN = '#fb7185';
@@ -81,7 +81,7 @@ const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, stra
     if (seq.current !== reloadSeq || needsFullReload(count.current, candles.length)) {
       seq.current = reloadSeq;
       const precision = precisionFor(last.close);
-      candle.applyOptions({ priceFormat: { type: 'price', precision, minMove: 10 ** -precision } });
+      candle.applyOptions({ priceFormat: { type: 'custom', formatter: fmtMarketPrice, minMove: 10 ** -precision } });
       candle.setData(candles);
       volume.setData(candles.map(toVolume));
       byTime.current = new Map(candles.map((c) => [c.time, c]));
@@ -151,13 +151,13 @@ const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, stra
 
   return (
     <div className="absolute inset-0">
-      <div ref={el} className="h-full w-full" role="img" aria-label={`${label}${last ? `, last close ${fmtPrice(last.close)}` : ''}`} />
+      <div ref={el} className="h-full w-full" role="img" aria-label={`${label}${last ? `, last close ${fmtMarketPrice(last.close)}` : ''}`} />
       {shown && (
         <div className="pointer-events-none absolute left-2 top-1 z-10 flex flex-wrap gap-x-3 text-[11px] tabular-nums text-slate-400" aria-label="Candle OHLC">
-          <span>O <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPrice(shown.open)}</b></span>
-          <span>H <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPrice(shown.high)}</b></span>
-          <span>L <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPrice(shown.low)}</b></span>
-          <span>C <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPrice(shown.close)}</b></span>
+          <span>O <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtMarketPrice(shown.open)}</b></span>
+          <span>H <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtMarketPrice(shown.high)}</b></span>
+          <span>L <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtMarketPrice(shown.low)}</b></span>
+          <span>C <b className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtMarketPrice(shown.close)}</b></span>
           <span>Vol <b className="text-slate-300">{fmtCompact(shown.volume)}</b></span>
         </div>
       )}

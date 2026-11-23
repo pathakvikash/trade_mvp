@@ -4,12 +4,17 @@ import axios from 'axios';
 // GET `url` now and every `ms`; pauses while the tab is hidden; aborts on unmount/url change.
 // Pass a falsy url to idle. Optional token: sent as a Bearer header (for authed endpoints). Keeps the last good data when a refresh fails.
 // Optional refreshKey: changing it refetches now WITHOUT clearing the data; `fetching` is then true while in flight.
+// Optional retry (5th arg): while there is an error and no data, refetch after 5 s, then 15 s, then the normal `ms` cadence takes over
+// (a server waking up should not leave an error on screen for a whole poll period).
 // A url change that only alters the query (a timeframe or range) keeps the old data on screen with fetching=true;
 // a change of path (another symbol) clears it, so one symbol's numbers never sit under another's title.
 const pathOf = (u) => (u || '').split('?')[0];
-export default function usePolling(url, ms, refreshKey, token) {
+const RETRY_DELAYS = [5000, 15000];
+export default function usePolling(url, ms, refreshKey, token, retry = false) {
   const [state, setState] = useState({ data: null, error: null, loading: !!url });
   const lastUrl = useRef(null);
+  const [kick, setKick] = useState(0);
+  const attempts = useRef(0);
 
   useEffect(() => {
     if (!url) {
@@ -45,7 +50,14 @@ export default function usePolling(url, ms, refreshKey, token) {
       document.removeEventListener('visibilitychange', onVis);
       if (ctl) ctl.abort();
     };
-  }, [url, ms, refreshKey, token]);
+  }, [url, ms, refreshKey, token, kick]);
+
+  useEffect(() => {
+    if (!retry || !state.error || state.data) { attempts.current = 0; return undefined; }
+    if (attempts.current >= RETRY_DELAYS.length) return undefined;
+    const t = setTimeout(() => { attempts.current += 1; setKick((k) => k + 1); }, RETRY_DELAYS[attempts.current]);
+    return () => clearTimeout(t);
+  }, [retry, state]); // `state` is replaced on every failed fetch, even when the error object is the same
 
   return state;
 }

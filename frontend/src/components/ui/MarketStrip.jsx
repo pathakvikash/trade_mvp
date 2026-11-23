@@ -2,7 +2,7 @@
 import React from 'react';
 import usePolling from '../../lib/usePolling';
 import { API } from '../../lib/api';
-import { fmtPct, fmtPrice } from './fmt';
+import { fmtPct, fmtMarketPrice } from './fmt';
 
 const WANT = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 
@@ -37,7 +37,7 @@ const Row = ({ row, placeholder }) => {
     <li className="flex items-center gap-3 px-3 py-2.5 tabular-nums">
       <span className="w-10 text-sm font-semibold text-slate-200">{sym}</span>
       <RangeBar row={row} up={up} />
-      <span className="ml-auto text-sm text-slate-100">{fmtPrice(row.lastPrice)}</span>
+      <span className="ml-auto text-sm text-slate-100">{fmtMarketPrice(row.lastPrice)}</span>
       <span className={`w-16 text-right text-xs font-medium ${up ? 'text-emerald-400' : 'text-red-400'}`}>{fmtPct(pct)}</span>
     </li>
   );

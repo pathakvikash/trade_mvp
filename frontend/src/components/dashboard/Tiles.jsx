@@ -4,7 +4,7 @@ import Sparkline from './Sparkline';
 import { SplitBar } from './Bars';
 import { fmtFunding, toneCls } from './format';
 import { breadth, fundingSplit, oiShare, weightedFunding } from './stats';
-import { coin, fmtPct, fmtPrice, fmtTime, fmtUsd } from '../liquidation/shared';
+import { coin, fmtPct, fmtMarketPrice, fmtPrice, fmtTime, fmtUsd } from '../liquidation/shared';
 import { describeAlert } from '../alerts/alertLogic';
 
 const UP = 'bg-emerald-400/70';
@@ -20,7 +20,7 @@ export const PriceTile = ({ symbol, row, closes, chartError, loading, error }) =
       label={c}
       loading={loading}
       error={error}
-      value={row ? fmtPrice(row.lastPrice) : '--'}
+      value={row ? fmtMarketPrice(row.lastPrice) : '--'}
       sub={row ? <span className={toneCls(row.priceChangePercent)}>{fmtPct(row.priceChangePercent)} 24h</span> : null}
       visual={closes && closes.length > 1 ? <Sparkline values={closes} /> : chartError ? <span className="text-[11px] text-amber-400">{chartError}</span> : null}
     />

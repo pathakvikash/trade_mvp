@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import usePersistedState from '../../lib/usePersistedState';
 import Panel from '../ui/Panel';
 import { SortTh, coin, useSort } from '../liquidation/shared';
-import { fmtPct, fmtPrice, fmtUsd } from '../ui/fmt';
+import { fmtPct, fmtMarketPrice, fmtUsd } from '../ui/fmt';
 
 const fundingPct = (r) => (r.fundingRate == null ? null : r.fundingRate * 100);
 
@@ -77,7 +77,7 @@ const MarketList = ({ rows, error, onRetry, selected, onSelect, className = '' }
                     className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-900 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400 ${active ? 'bg-cyan-400/10 shadow-[inset_2px_0_0_0_#22d3ee]' : ''}`}
                   >
                     <td className="px-2 py-1.5 font-medium text-slate-200">{coin(r.symbol)}</td>
-                    <td className="px-2 py-1.5 text-right text-slate-200">{fmtPrice(r.lastPrice)}</td>
+                    <td className="px-2 py-1.5 text-right text-slate-200">{fmtMarketPrice(r.lastPrice)}</td>
                     <td className={`px-2 py-1.5 text-right ${tone(r.priceChangePercent)}`}>{fmtPct(r.priceChangePercent)}</td>
                     <td className="px-2 py-1.5 text-right text-slate-400">{fmtUsd(r.quoteVolume)}</td>
                     <td className={`px-2 py-1.5 text-right ${tone(r.fundingRate)}`}>{fmtPct(fundingPct(r), 4)}</td>

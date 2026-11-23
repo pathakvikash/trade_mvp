@@ -63,3 +63,11 @@ test('submit sends orderType and limitPrice only for limit orders', async () => 
   await act(async () => { $('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
   expect(onSubmit).toHaveBeenLastCalledWith({ type: 'buy', amount: '1', orderType: 'limit', limitPrice: '90' });
 });
+
+test('submit bar is in normal flow below xl (never covers Price / Estimated total); one Buy/Sell control set', () => {
+  const bar = submitBtn().parentElement;
+  expect(bar.className).not.toMatch(/(^|\s)sticky(\s|$)/);
+  expect(bar.className).toContain('xl:sticky');
+  expect([...container.querySelectorAll('[aria-label="Side"] button')].map((b) => b.textContent)).toEqual(['Buy', 'Sell']);
+  expect([...container.querySelectorAll('button')].filter((b) => /^(Buy|Sell)\b/.test(b.textContent.trim()) && b.type === 'submit')).toHaveLength(1);
+});

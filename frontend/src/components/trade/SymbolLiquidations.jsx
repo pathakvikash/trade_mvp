@@ -3,7 +3,7 @@ import Panel from '../ui/Panel';
 import Skeleton from '../ui/Skeleton';
 import usePolling from '../../lib/usePolling';
 import { FUT, Notice, coin } from '../liquidation/shared';
-import { fmtPrice, fmtTime, fmtUsd } from '../ui/fmt';
+import { fmtMarketPrice, fmtTime, fmtUsd } from '../ui/fmt';
 
 const LIMIT = 40;
 
@@ -43,7 +43,7 @@ const SymbolLiquidations = ({ symbol, className = '' }) => {
               <tr key={`${e.ts}-${e.price}-${e.qty}-${i}`} className="border-t border-slate-800/60">
                 <td className="px-2 py-1 text-slate-400">{fmtTime(e.ts)}</td>
                 <td className={`px-2 py-1 ${e.side === 'long' ? 'text-emerald-400' : 'text-rose-400'}`}>{e.side === 'long' ? 'Long' : 'Short'}</td>
-                <td className="px-2 py-1 text-right text-slate-300">{fmtPrice(e.price)}</td>
+                <td className="px-2 py-1 text-right text-slate-300">{fmtMarketPrice(e.price)}</td>
                 <td className="px-2 py-1 text-right text-slate-200">{fmtUsd(e.usd)}</td>
               </tr>
             ))}

@@ -37,7 +37,7 @@ const MarketChartPanel = ({
       className={`${className} ${mx.panelClass}`}
       {...mx.panelProps}
       right={
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {headerExtra}
           <Tip text={alertsView ? 'Back to the chart' : 'Price alerts for this symbol'}>
           <button

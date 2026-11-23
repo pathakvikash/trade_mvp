@@ -10,6 +10,13 @@ export const fmtPrice = (n) => {
   return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: a >= 1000 ? 2 : a >= 1 ? 4 : 6 });
 };
 
+// Market-data prices (tickers, lists, book, chart): fmtPrice without trailing zeros, so 61,207.00 -> 61,207 and 1.50 -> 1.5.
+// Money amounts (balances, P&L, fees, totals) keep fmtPrice's fixed 2 decimals.
+export const fmtMarketPrice = (n) => {
+  const s = fmtPrice(n);
+  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+};
+
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 });
 export const fmtUsd = (n) => {
   const v = num(n);

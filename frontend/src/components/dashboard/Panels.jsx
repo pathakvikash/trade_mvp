@@ -6,7 +6,7 @@ import Skeleton from '../ui/Skeleton';
 import { MiniBar } from './Bars';
 import { fmtFunding, toneCls } from './format';
 import { moverList } from './stats';
-import { coin, fmtPct, fmtPrice, fmtTime, fmtUsd } from '../liquidation/shared';
+import { coin, fmtPct, fmtMarketPrice, fmtTime, fmtUsd } from '../liquidation/shared';
 import { fmtQty } from '../ui/fmt';
 import { describeAlert } from '../alerts/alertLogic';
 
@@ -47,7 +47,7 @@ export const MoversPanel = ({ rows, loading, failed }) => {
           <li key={r.symbol}>
             <Link to={`/trade?symbol=${coin(r.symbol)}`} className="focus-ring flex items-center gap-3 rounded px-1 py-1.5 text-sm tabular-nums hover:bg-slate-900/60">
               <span className="w-14 font-medium text-slate-200">{coin(r.symbol)}</span>
-              <span className="flex-1 text-right text-slate-400">{fmtPrice(r.lastPrice)}</span>
+              <span className="flex-1 text-right text-slate-400">{fmtMarketPrice(r.lastPrice)}</span>
               <span className={`w-20 text-right ${toneOf(tab, r)}`}>{textOf(tab, r)}</span>
               <MiniBar pct={max ? Math.abs(metricOf(tab, r)) / max : 0} cls={barOf(tab, r)} />
             </Link>

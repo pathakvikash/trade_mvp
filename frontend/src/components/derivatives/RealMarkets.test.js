@@ -59,7 +59,7 @@ test('stock rows: INR, badges, stale, disclaimer, no trade controls', async () =
   await open();
   const t = container.textContent;
   expect(t).toContain('Test disclaimer');
-  expect(t).toContain('₹1,234.50');
+  expect(t).toContain('₹1,234.5');
   expect(t).toContain('+1.25%');
   expect(t).toContain('09:30 IST');
   expect(t).toContain('Open');
@@ -75,12 +75,12 @@ test('category tabs switch the request and formats', async () => {
   expect(urls().some((u) => u.endsWith('quotes?category=stock'))).toBe(true);
   await tab('Indices');
   expect(urls().some((u) => u.endsWith('quotes?category=index'))).toBe(true);
-  expect(container.textContent).toContain('24,500.50');
+  expect(container.textContent).toContain('24,500.5');
   expect(container.textContent).not.toContain('₹24,500');
   expect(container.textContent).toContain('n/a');
   await tab('Gold & crude');
   expect(urls().some((u) => u.endsWith('quotes?category=commodity'))).toBe(true);
-  expect(container.textContent).toContain('$2,650.40');
+  expect(container.textContent).toContain('$2,650.4');
   await tab('Currency');
   expect(urls().some((u) => u.endsWith('quotes?category=currency'))).toBe(true);
   expect(container.textContent).toContain('84.12');

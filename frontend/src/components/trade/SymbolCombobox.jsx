@@ -1,5 +1,5 @@
 import React, { useId, useMemo, useRef, useState } from 'react';
-import { fmtPct, fmtPrice } from '../ui/fmt';
+import { fmtPct, fmtMarketPrice } from '../ui/fmt';
 import { filterPairs } from '../ui/pairs';
 
 // Picker tickers: overview (volume order) first, then the rest of /symbols alphabetically; falls back to overview,
@@ -72,7 +72,7 @@ const SymbolCombobox = ({ symbols, overview = [], value, onSelect }) => {
               >
                 <span className="font-semibold">{p.base}</span>
                 <span className="flex gap-2">
-                  <span>{o ? fmtPrice(o.lastPrice ?? o.markPrice) : '--'}</span>
+                  <span>{o ? fmtMarketPrice(o.lastPrice ?? o.markPrice) : '--'}</span>
                   <span className={`w-14 text-right ${(o?.priceChangePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{o ? fmtPct(o.priceChangePercent) : '--'}</span>
                 </span>
               </li>

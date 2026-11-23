@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Panel from '../ui/Panel';
-import { fmtPrice, fmtQty } from '../ui/fmt';
+import { fmtMarketPrice, fmtQty } from '../ui/fmt';
 import Skeleton from '../ui/Skeleton';
 
 const DEPTH = 14; // levels per side when the panel is not height-bound (below xl)
@@ -22,7 +22,7 @@ const withCum = (levels, n) => {
 const Row = ({ level, max, text, bar }) => (
   <div className="relative grid grid-cols-3 px-3 py-px text-xs tabular-nums">
     <span className={`absolute inset-y-0 right-0 ${bar}`} style={{ width: `${(level.cum / max) * 100}%` }} aria-hidden="true" />
-    <span className={`relative ${text}`}>{fmtPrice(level.price)}</span>
+    <span className={`relative ${text}`}>{fmtMarketPrice(level.price)}</span>
     <span className="relative text-right text-slate-300">{fmtQty(level.size)}</span>
     <span className="relative text-right text-slate-500">{fmtQty(level.cum)}</span>
   </div>
@@ -87,7 +87,7 @@ const OrderBookPanel = ({ book, loading, className = '' }) => {
             <div className="my-1 flex shrink-0 items-center justify-between border-y border-slate-800/80 px-3 py-1 text-[11px] tabular-nums text-slate-400">
               <span>Spread</span>
               <span className="text-slate-200">
-                {spread == null ? '--' : `$${fmtPrice(spread)}`}
+                {spread == null ? '--' : `$${fmtMarketPrice(spread)}`}
                 {bps != null && <span className="text-slate-500"> · {bps.toFixed(2)} bps</span>}
               </span>
             </div>

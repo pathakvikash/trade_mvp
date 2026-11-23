@@ -61,7 +61,7 @@ const RealMarkets = () => {
   const [cat, setCat] = useState('stock');
   const [sel, setSel] = useState(null);
   const [retry, setRetry] = useState(0);
-  const res = usePolling(open ? `${API}/api/market/instruments/quotes?category=${cat}` : null, 60000, retry);
+  const res = usePolling(open ? `${API}/api/market/instruments/quotes?category=${cat}` : null, 60000, retry, undefined, true);
   const rows = Array.isArray(res.data?.rows) ? res.data.rows : null;
   const selected = rows?.find((r) => r.symbol === sel) || null;
 

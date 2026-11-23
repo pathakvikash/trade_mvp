@@ -67,7 +67,7 @@ test('renders numbers from fixture data', () => {
   expect(text()).toContain('Longs $200K (89%)');
   expect(text()).toContain('Dominant side: longs');
   expect(text()).toContain('#2 of 2');
-  expect(text()).toContain('3,000.00');
+  expect(text()).toContain('3,000');
   expect(text()).toContain('-2.50%');
   expect(text()).toContain('0.0100% / 8h');
   expect(text()).toContain('$5B');

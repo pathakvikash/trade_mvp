@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useMarketStore from '../../store/marketStore';
 import useUserStore from '../../store/userStore';
-import { fmtCountdown, fmtPct, fmtPrice } from '../ui/fmt';
+import { fmtCountdown, fmtPct, fmtMarketPrice } from '../ui/fmt';
 
 const FUNDING_MS = 8 * 3600 * 1000;
 // Most Binance USDS-M perps settle at 00:00, 08:00 and 16:00 UTC, which is every 8h counted from the epoch.
@@ -18,7 +18,7 @@ const Item = ({ c, focusable }) => {
   return (
     <Link to={`/trade?symbol=${c.symbol.toUpperCase()}`} tabIndex={focusable ? undefined : -1} className="focus-ring flex shrink-0 items-baseline gap-1.5 rounded tabular-nums">
       <span className="font-medium text-slate-300">{c.symbol.toUpperCase()}</span>
-      <span className="text-slate-400">{fmtPrice(c.current_price)}</span>
+      <span className="text-slate-400">{fmtMarketPrice(c.current_price)}</span>
       <span className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(c.price_change_percentage_24h)}</span>
     </Link>
   );

@@ -29,7 +29,7 @@ const render = async (res) => {
 test('rows with INR, IST time, disclaimer, badges, no trade controls', async () => {
   const text = await render(ok({ disclaimer: 'Test disclaimer text', rows: ROWS }));
   expect(text).toContain('Test disclaimer text');
-  expect(text).toContain('₹1,234.50');
+  expect(text).toContain('₹1,234.5');
   expect(text).toContain('09:30 IST');
   expect(text).toContain('+1.25%');
   expect(text).toContain('Open');
@@ -83,4 +83,11 @@ test('timeframe switch never draws the previous timeframe candles', async () => 
   await act(async () => { tab5.click(); });
   expect(container.textContent).toContain('Loading candles');
   expect(container.textContent.replace('Loading candles', '')).not.toContain('candles');
+});
+
+test('quotes poll asks usePolling to auto-retry while there is no data', async () => {
+  await render({ data: null, error: new Error('x'), loading: false });
+  const call = usePolling.mock.calls.find(([u]) => u.endsWith('/stocks/quotes'));
+  expect(call[4]).toBe(true);
+  expect(container.textContent).toContain('Retry');
 });

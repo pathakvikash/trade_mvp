@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import usePersistedState from '../../lib/usePersistedState';
-import { Notice, Panel, SortTh, coin, fmtPct, fmtPrice, fmtUsd, useSort } from '../liquidation/shared';
+import { Notice, Panel, SortTh, coin, fmtPct, fmtMarketPrice, fmtUsd, useSort } from '../liquidation/shared';
 import { fmtCountdown } from '../ui/fmt';
 import { sourceNote } from '../ui/sourceNote';
 import Skeleton from '../ui/Skeleton';
@@ -68,7 +68,7 @@ const MarketTable = ({ rows, error, source, selected, onSelect }) => {
                   className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-900 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400 ${r.symbol === selected ? 'bg-cyan-400/10' : ''}`}
                 >
                   <td className="px-2 py-1 font-medium text-slate-200">{coin(r.symbol)}</td>
-                  <td className="px-2 py-1 text-right text-slate-200">{fmtPrice(r.lastPrice)}</td>
+                  <td className="px-2 py-1 text-right text-slate-200">{fmtMarketPrice(r.lastPrice)}</td>
                   <td className={`px-2 py-1 text-right ${cls(r.priceChangePercent)}`}>{fmtPct(r.priceChangePercent)}</td>
                   <td className={`px-2 py-1 text-right ${cls(r.fundingRate)}`}>
                     {Number.isFinite(r.fundingRate) ? `${(r.fundingRate * 100).toFixed(4)}%` : '--'}

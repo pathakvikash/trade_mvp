@@ -49,7 +49,7 @@ const Stocks = () => {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('name');
   const [sel, setSel] = useState(null);
-  const res = usePolling(`${API}/api/market/stocks/quotes`, 60000, retry);
+  const res = usePolling(`${API}/api/market/stocks/quotes`, 60000, retry, undefined, true);
   const all = Array.isArray(res.data?.rows) ? res.data.rows : null;
 
   const rows = useMemo(() => {

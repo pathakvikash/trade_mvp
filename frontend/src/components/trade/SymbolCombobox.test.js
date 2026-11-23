@@ -34,7 +34,7 @@ test('closed by default; opening lists tickers with last price and 24h change', 
   expect(input().value).toBe('BTC');
   await open();
   expect(input().getAttribute('aria-expanded')).toBe('true');
-  expect(options().map((o) => o.textContent)).toEqual(['BTC60,000.00+1.50%', 'ETH3,000.00-2.25%', 'SOL150.00+0.50%']);
+  expect(options().map((o) => o.textContent)).toEqual(['BTC60,000+1.50%', 'ETH3,000-2.25%', 'SOL150+0.50%']);
 });
 
 test('typing filters case-insensitively; no hits shows "No match"', async () => {

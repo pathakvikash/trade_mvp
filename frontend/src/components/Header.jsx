@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useMarketStore from '../store/marketStore';
 import useUserStore from '../store/userStore';
-import { fmtPct, fmtPrice } from './ui/fmt';
+import { fmtPct, fmtMarketPrice } from './ui/fmt';
 import ConnectionChip from './ui/ConnectionChip';
 import CommandPalette from './shell/CommandPalette';
 import { Icon, ICONS } from './shell/nav';
@@ -60,7 +60,7 @@ const Header = ({ onMenu }) => {
           return (
             <Link key={c.id} to={`/trade?symbol=${c.symbol.toUpperCase()}`} className="focus-ring flex shrink-0 items-baseline gap-1.5 rounded tabular-nums max-sm:min-h-9 max-sm:items-center">
               <span className="font-medium text-slate-300">{c.symbol.toUpperCase()}</span>
-              <span className="text-slate-400">{fmtPrice(c.current_price)}</span>
+              <span className="text-slate-400">{fmtMarketPrice(c.current_price)}</span>
               <span className={up ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(c.price_change_percentage_24h)}</span>
             </Link>
           );

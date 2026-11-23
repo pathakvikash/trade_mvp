@@ -83,3 +83,12 @@ test('overlays: line series per id, updated in place, removed on clear; markers 
   expect(mockCandle.setMarkers).toHaveBeenLastCalledWith([]);
   expect(createChart).toHaveBeenCalledTimes(1);
 });
+
+test('price scale uses the shared trimmed formatter (57000 -> 57,000, not 57000.00)', () => {
+  const big = [{ time: 1, open: 1, high: 2, low: 1, close: 57000, volume: 1 }];
+  render(<CandleChart candles={big} reloadSeq={0} label="x" />);
+  const fmt = mockCandle.applyOptions.mock.calls[0][0].priceFormat;
+  expect(fmt.type).toBe('custom');
+  expect(fmt.formatter(57000)).toBe('57,000');
+  expect(fmt.formatter(0.146916)).toBe('0.146916');
+});

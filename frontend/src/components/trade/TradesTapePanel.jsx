@@ -1,6 +1,6 @@
 import React from 'react';
 import Panel from '../ui/Panel';
-import { fmtPrice, fmtQty } from '../ui/fmt';
+import { fmtMarketPrice, fmtQty } from '../ui/fmt';
 import Skeleton from '../ui/Skeleton';
 
 const time = (ts) => new Date(ts).toLocaleTimeString([], { hour12: false });
@@ -23,7 +23,7 @@ const TradesTapePanel = ({ trades, loading, className = '' }) => (
         {trades.map((t, i) => (
           <div key={i} className="grid grid-cols-3 px-3 py-px text-xs tabular-nums">
             <span className={t.side === 'buy' ? 'text-emerald-400' : 'text-rose-400'}>
-              <span aria-hidden="true">{t.side === 'buy' ? '▲' : '▼'} </span><span className="sr-only">{t.side === 'buy' ? 'buy' : 'sell'} </span>{fmtPrice(t.price)}
+              <span aria-hidden="true">{t.side === 'buy' ? '▲' : '▼'} </span><span className="sr-only">{t.side === 'buy' ? 'buy' : 'sell'} </span>{fmtMarketPrice(t.price)}
             </span>
             <span className="text-right text-slate-300">{fmtQty(t.qty)}</span>
             <span className="text-right text-slate-500">{time(t.ts)}</span>

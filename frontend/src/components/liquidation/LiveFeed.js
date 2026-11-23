@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Notice, Panel, coin, fmtPrice, fmtTime, fmtUsd } from './shared';
+import { Notice, Panel, coin, fmtMarketPrice, fmtTime, fmtUsd } from './shared';
 import Skeleton from '../ui/Skeleton';
 
 const BIG = 100000;
@@ -25,7 +25,7 @@ const LiveFeed = ({ recent, error }) => {
                   <td className="px-2 py-1 text-slate-400">{fmtTime(e.ts)}</td>
                   <td className="px-2 py-1 text-slate-200">{coin(e.symbol)}</td>
                   <td className={`px-2 py-1 ${e.side === 'long' ? 'text-emerald-400' : 'text-rose-400'}`}>{e.side === 'long' ? 'Long liq' : 'Short liq'}</td>
-                  <td className="px-2 py-1 text-right text-slate-300">{fmtPrice(e.price)}</td>
+                  <td className="px-2 py-1 text-right text-slate-300">{fmtMarketPrice(e.price)}</td>
                   <td className={`px-2 py-1 text-right ${e.usd >= BIG ? 'text-amber-400' : 'text-slate-200'}`}>{fmtUsd(e.usd)}</td>
                 </tr>
               ))}

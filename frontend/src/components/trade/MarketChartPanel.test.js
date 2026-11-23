@@ -29,3 +29,11 @@ test('bybit candles show the Bybit source note', () => {
   });
   expect(el.textContent).toContain('Candles from Bybit perpetuals (Binance futures history unavailable from this server)');
 });
+
+test('header controls wrap instead of widening the page on narrow screens', () => {
+  const el = document.createElement('div');
+  act(() => { createRoot(el).render(<MarketChartPanel ticker="PERP" interval="1h" onInterval={() => {}} candles={[]} ready klineSource="unavailable" />); });
+  const group = el.querySelector('[role="tablist"], [aria-label="Timeframe"]').parentElement;
+  expect(group.className).toContain('flex-wrap');
+  expect(group.className).toContain('min-w-0');
+});

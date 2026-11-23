@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import usePolling from '../../lib/usePolling';
 import { writePersisted } from '../../lib/usePersistedState';
-import { FUT, Notice, coin, fmtPct, fmtPrice, fmtTime, fmtUsd } from './shared';
+import { FUT, Notice, coin, fmtPct, fmtMarketPrice, fmtPrice, fmtTime, fmtUsd } from './shared';
 import Skeleton from '../ui/Skeleton';
 import { dominantSide, insightText, summarizeCoin } from './coinStats';
 
@@ -89,7 +89,7 @@ const CoinDetail = ({ symbol, bySymbol, onClose }) => {
     const lines = [
       `${c} liquidations, ${sampleNote} (sampled from the Binance forceOrder feed; real totals are higher)`,
       head ? `Total ${fmtUsd(head.total)} | longs ${head.longPct.toFixed(0)}% / shorts ${(100 - head.longPct).toFixed(0)}% | ${head.count} events` : '',
-      mkt ? `Price ${fmtPrice(mkt.lastPrice)} (${fmtPct(mkt.priceChangePercent)} 24h)` : '',
+      mkt ? `Price ${fmtMarketPrice(mkt.lastPrice)} (${fmtPct(mkt.priceChangePercent)} 24h)` : '',
       insight,
     ].filter(Boolean);
     try { await navigator.clipboard.writeText(lines.join('\n')); setCopied('Copied'); } catch { setCopied('Copy failed'); }
@@ -110,7 +110,7 @@ const CoinDetail = ({ symbol, bySymbol, onClose }) => {
           <div className="min-w-0">
             <h2 id="coin-detail-title" className="text-lg font-semibold text-slate-100">{c} liquidations</h2>
             <div className="text-xs tabular-nums text-slate-400">
-              {mkt ? <>{fmtPrice(mkt.lastPrice)} <span className={mkt.priceChangePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(mkt.priceChangePercent)}</span> 24h</> : ov.data ? 'Price: not in the top-40 overview' : ov.error ? 'Price unavailable, retrying' : <Skeleton className="h-3 w-32" />}
+              {mkt ? <>{fmtMarketPrice(mkt.lastPrice)} <span className={mkt.priceChangePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(mkt.priceChangePercent)}</span> 24h</> : ov.data ? 'Price: not in the top-40 overview' : ov.error ? 'Price unavailable, retrying' : <Skeleton className="h-3 w-32" />}
             </div>
           </div>
           <button type="button" data-autofocus onClick={onClose} aria-label="Close details" className="focus-ring rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200">✕</button>
@@ -161,7 +161,7 @@ const CoinDetail = ({ symbol, bySymbol, onClose }) => {
                     <tr key={`${e.ts}${e.price}${e.usd}`} className={`border-t border-slate-800/60 ${e.usd >= BIG ? 'bg-amber-400/10 font-semibold' : ''}`}>
                       <td className="px-2 py-1 text-slate-400">{fmtTime(e.ts)}</td>
                       <td className={`px-2 py-1 ${e.side === 'long' ? 'text-emerald-400' : 'text-rose-400'}`}>{e.side === 'long' ? 'Long liq' : 'Short liq'}</td>
-                      <td className="px-2 py-1 text-right text-slate-300">{fmtPrice(e.price)}</td>
+                      <td className="px-2 py-1 text-right text-slate-300">{fmtMarketPrice(e.price)}</td>
                       <td className={`px-2 py-1 text-right ${e.usd >= BIG ? 'text-amber-400' : 'text-slate-200'}`}>{fmtUsd(e.usd)}</td>
                     </tr>
                   ))}
