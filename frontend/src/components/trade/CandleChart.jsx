@@ -43,6 +43,8 @@ const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, stra
   useEffect(() => {
     const chart = createChart(el.current, {
       autoSize: true,
+      // phones: a vertical drag on the chart scrolls the page; horizontal drags and pinch still pan/zoom the chart
+      handleScroll: { vertTouchDrag: false },
       layout: { background: { color: 'transparent' }, textColor: '#94a3b8', fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(148, 163, 184, 0.08)' } },
       rightPriceScale: { borderColor: '#1e293b', scaleMargins: { top: 0.08, bottom: 0.25 } },

@@ -12,6 +12,8 @@ import AgentLauncher from '../ai/AgentLauncher';
 import StrategyChip from '../ai/StrategyChip';
 import useStrategyOverlay from '../../lib/useStrategyOverlay';
 import freshCandles from '../../lib/freshCandles';
+import useScrollIntoView from '../../lib/useScrollIntoView';
+import QuoteList from '../ui/QuoteList';
 
 const DISCLAIMER = 'Unofficial Yahoo Finance data, may be delayed, view only, not investment advice.';
 const TIMEFRAMES = ['5m', '15m', '1h', '1d'].map((id) => ({ id, label: id }));
@@ -25,6 +27,7 @@ const CATS = [
 const InstrumentChart = ({ row, onClose }) => {
   const [tf, setTf] = useState('1d');
   const mx = useMaximize();
+  const boxRef = useScrollIntoView();
   const k = usePolling(`${API}/api/market/instruments/klines/${encodeURIComponent(row.symbol)}?interval=${tf}&limit=200`, 60000);
   const candles = freshCandles(k.data, row.symbol, tf);
   const ov = useStrategyOverlay({ kind: 'instrument', symbol: row.symbol, interval: tf, candles });
@@ -33,13 +36,12 @@ const InstrumentChart = ({ row, onClose }) => {
   else if (k.loading || !candles.length) body = <LoadingBlock height={320} label="Loading candles…" />;
   else body = <CandleChart key={`${row.symbol}-${tf}`} candles={candles} reloadSeq={0} label={`${row.symbol} ${tf} candlestick chart`} overlays={ov.overlays} markers={ov.markers} strategyChip={<StrategyChip chip={ov.chip} />} />;
   return (
-    <>
+    <div ref={boxRef} className="scroll-mt-3">
       <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
       <Panel
         title={`${row.symbol} · ${row.name}`}
-        className={mx.panelClass}
         {...mx.panelProps}
-        bodyClassName="relative h-[340px] p-1.5 pt-2"
+        className={`shrink-0 ${mx.panelClass}`} bodyClassName="relative h-[340px] min-h-[340px] p-1.5 pt-2"
         right={
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <AgentLauncher kind="instrument" symbol={row.symbol} page="markets" interval={tf} />
@@ -51,7 +53,7 @@ const InstrumentChart = ({ row, onClose }) => {
       >
         {body}
       </Panel>
-    </>
+    </div>
   );
 };
 
@@ -78,7 +80,9 @@ const RealMarkets = () => {
   } else {
     // inner-scrolling table keeps the page itself free of horizontal scroll at 360px
     body = (
-      <div className="max-w-full overflow-x-auto rounded-xl border border-slate-800/80">
+      <>
+      <QuoteList rows={rows} selected={sel} onSelect={setSel} fmt={(r) => price(r, r.price)} empty="No instruments." />
+      <div className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-800/80 sm:block">
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-slate-500">
             <tr>{['Instrument', 'Price', 'Change %', 'Status', 'As of'].map((h) => <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>)}</tr>
@@ -100,6 +104,7 @@ const RealMarkets = () => {
           </tbody>
         </table>
       </div>
+      </>
     );
   }
 

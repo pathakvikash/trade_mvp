@@ -10,6 +10,8 @@ import AgentLauncher from '../components/ai/AgentLauncher';
 import StrategyChip from '../components/ai/StrategyChip';
 import useStrategyOverlay from '../lib/useStrategyOverlay';
 import freshCandles from '../lib/freshCandles';
+import useScrollIntoView from '../lib/useScrollIntoView';
+import QuoteList from '../components/ui/QuoteList';
 
 const DISCLAIMER = 'Unofficial Yahoo Finance data, may be delayed (NSE quotes can lag about 15 min), view only, not investment advice.';
 const TIMEFRAMES = ['5m', '15m', '1h', '1d'].map((id) => ({ id, label: id }));
@@ -17,6 +19,7 @@ const SORTS = [{ id: 'name', label: 'Name' }, { id: 'change', label: 'Change %' 
 
 const StockChart = ({ row, onClose }) => {
   const [tf, setTf] = useState('1d');
+  const boxRef = useScrollIntoView();
   const k = usePolling(`${API}/api/market/stocks/klines/${encodeURIComponent(row.symbol)}?interval=${tf}&limit=200`, 60000);
   // the API answers {candles, interval, ...}; a bare array is accepted too. Another timeframe's response shows the loader.
   const candles = freshCandles(k.data, row.symbol, tf);
@@ -26,9 +29,10 @@ const StockChart = ({ row, onClose }) => {
   else if (k.loading || !candles.length) body = <LoadingBlock height={320} label="Loading candles…" />;
   else body = <CandleChart key={`${row.symbol}-${tf}`} candles={candles} reloadSeq={0} label={`${row.symbol} ${tf} candlestick chart`} overlays={ov.overlays} markers={ov.markers} strategyChip={<StrategyChip chip={ov.chip} />} />;
   return (
+    <div ref={boxRef} className="scroll-mt-3">
     <Panel
       title={`${row.symbol} · ${row.name}`}
-      bodyClassName="relative h-[340px] p-1.5 pt-2"
+      className="shrink-0" bodyClassName="relative h-[340px] min-h-[340px] p-1.5 pt-2"
       right={
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <AgentLauncher kind="instrument" symbol={row.symbol} page="markets" interval={tf} />
@@ -38,8 +42,9 @@ const StockChart = ({ row, onClose }) => {
       }
     >
       {body}
-      <p className="absolute bottom-1 right-2 text-[11px] text-slate-500">Paper trading for stocks is not available yet.</p>
+      <p className="absolute bottom-1 right-2 hidden text-[11px] text-slate-500 sm:block">Paper trading for stocks is not available yet.</p>
     </Panel>
+    </div>
   );
 };
 
@@ -75,7 +80,9 @@ const Stocks = () => {
     );
   } else {
     body = (
-      <div className="max-w-full overflow-x-auto rounded-xl border border-slate-800/80">
+      <>
+      <QuoteList rows={rows} selected={sel} onSelect={setSel} fmt={(r) => inr(r.price)} empty="No stocks match your search." />
+      <div className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-800/80 sm:block">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-slate-500">
             <tr>{['Symbol', 'Name', 'Price', 'Change %', 'Day range', 'Volume', 'Status', 'As of'].map((h) => <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>)}</tr>
@@ -103,6 +110,7 @@ const Stocks = () => {
           </tbody>
         </table>
       </div>
+      </>
     );
   }
 

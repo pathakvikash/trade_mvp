@@ -92,3 +92,8 @@ test('price scale uses the shared trimmed formatter (57000 -> 57,000, not 57000.
   expect(fmt.formatter(57000)).toBe('57,000');
   expect(fmt.formatter(0.146916)).toBe('0.146916');
 });
+
+test('vertical touch drags are left to the page (phone scroll is not trapped by the chart)', () => {
+  render(<CandleChart candles={[{ time: 1, open: 1, high: 2, low: 1, close: 2, volume: 1 }]} reloadSeq={0} label="x" />);
+  expect(createChart.mock.calls[createChart.mock.calls.length - 1][1].handleScroll).toEqual({ vertTouchDrag: false });
+});

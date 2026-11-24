@@ -29,6 +29,9 @@ const loadGsi = () => {
   return gsiLoading;
 };
 
+// GSI wants a pixel width (200..400): match the form's inner width so the button lines up with the inputs on phones.
+const googleWidth = (el) => Math.min(400, Math.max(200, Math.round(el?.clientWidth || 320)));
+
 const GoogleButton = () => {
   const navigate = useNavigate();
   const setLogin = useUserStore((state) => state.setLogin);
@@ -70,7 +73,7 @@ const GoogleButton = () => {
       .then(() => {
         if (cancelled) return;
         window.google.accounts.id.initialize({ client_id: clientId, callback: onCredential });
-        window.google.accounts.id.renderButton(containerRef.current, { theme: 'filled_black', size: 'large', width: 320 });
+        window.google.accounts.id.renderButton(containerRef.current, { theme: 'filled_black', size: 'large', width: googleWidth(containerRef.current) });
       })
       .catch((err) => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };
@@ -90,7 +93,7 @@ const GoogleButton = () => {
           <p className="text-center text-xs text-slate-500">Not configured: set GOOGLE_CLIENT_ID in backend/.env</p>
         </>
       ) : (
-        <div ref={containerRef} className="flex min-h-[44px] justify-center" />
+        <div ref={containerRef} className="flex min-h-[44px] w-full max-w-full justify-center overflow-hidden" />
       )}
 
       {busy && (

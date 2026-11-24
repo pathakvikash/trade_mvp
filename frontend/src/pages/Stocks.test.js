@@ -91,3 +91,19 @@ test('quotes poll asks usePolling to auto-retry while there is no data', async (
   expect(call[4]).toBe(true);
   expect(container.textContent).toContain('Retry');
 });
+
+test('phone list: tappable rows with price, change and status; tap opens the chart and scrolls it into view', async () => {
+  const spy = jest.fn();
+  Element.prototype.scrollIntoView = spy;
+  await render(ok({ rows: ROWS }));
+  const list = container.querySelector('ul');
+  expect(list.className).toContain('sm:hidden');
+  expect(container.querySelector('table').parentElement.className).toContain('hidden');
+  expect(list.textContent).toContain('+1.25%');
+  expect(list.textContent).toContain('Open');
+  await act(async () => { list.querySelector('button').click(); });
+  expect(container.textContent).toContain('candles');
+  expect(container.textContent).toContain('Close');
+  expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
+  delete Element.prototype.scrollIntoView;
+});

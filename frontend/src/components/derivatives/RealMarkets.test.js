@@ -123,3 +123,19 @@ test('timeframe switch never draws the previous timeframe candles', async () => 
   expect(container.textContent).toContain('Loading candles');
   expect(container.textContent.replace('Loading candles', '')).not.toContain('candles');
 });
+
+test('phone list row opens the chart; the panel keeps a fixed-height, non-shrinking body and Close', async () => {
+  const spy = jest.fn();
+  Element.prototype.scrollIntoView = spy;
+  await render();
+  await open();
+  const list = container.querySelector('ul.sm\\:hidden');
+  expect(list.textContent).toContain('Reliance Industries');
+  await act(async () => { list.querySelector('button').click(); });
+  expect(container.textContent).toContain('candles');
+  expect(container.textContent).toContain('Close');
+  const body = container.querySelector('section section > div:last-child');
+  expect(body.className).toContain('shrink-0');
+  expect(spy).toHaveBeenCalled();
+  delete Element.prototype.scrollIntoView;
+});
