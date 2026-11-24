@@ -42,8 +42,8 @@ export function useSort(rows, getters, initialKey, initialDir = 'desc', persistK
   return { sorted, sort, toggle };
 }
 
-export const SortTh = ({ k, sort, toggle, children, left }) => (
-  <th scope="col" aria-sort={sort.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`px-2 py-1.5 font-medium ${left ? 'text-left' : 'text-right'}`}>
+export const SortTh = ({ k, sort, toggle, children, left, className = '' }) => (
+  <th scope="col" aria-sort={sort.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`px-2 py-1.5 font-medium ${left ? 'text-left' : 'text-right'} ${className}`}>
     <button type="button" onClick={() => toggle(k)} className="uppercase tracking-wider hover:text-slate-200">
       {children}{sort.key === k ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
     </button>

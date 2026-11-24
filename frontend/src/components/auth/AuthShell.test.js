@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import AuthShell, { PasswordInput } from './AuthShell';
 import usePolling from '../../lib/usePolling';
 
+jest.mock('react-router-dom', () => ({ __esModule: true, Link: ({ to, children, ...p }) => <a href={to} {...p}>{children}</a> }), { virtual: true });
 jest.mock('axios', () => ({ get: jest.fn() }));
 jest.mock('../../lib/usePolling', () => ({ __esModule: true, default: jest.fn() }));
 
@@ -59,4 +60,17 @@ test('waking-up hint appears only after 4s of busy', () => {
   act(() => { jest.advanceTimersByTime(4100); });
   expect(container.querySelector('[role="status"]').textContent).toContain('Waking up the server');
   jest.useRealTimers();
+});
+
+test('single-column grid and children can shrink (375px card was clipped), brand link labelled', () => {
+  usePolling.mockReturnValue({ data: [] });
+  render(<AuthShell title="T" subtitle="S"><p>form</p></AuthShell>);
+  const grid = container.querySelector('main').parentElement;
+  expect(grid.className).toContain('grid-cols-1');
+  expect(container.querySelector('main').className).toMatch(/min-w-0/);
+  expect(container.querySelector('aside').className).toMatch(/min-w-0/);
+  const links = container.querySelectorAll('a[aria-label="Paperline home"]');
+  expect(links.length).toBe(2); // desktop panel + mobile header; only one is displayed per breakpoint
+  expect(container.textContent).toContain('Paperline');
+  expect(container.textContent).not.toContain('CryptoZen');
 });

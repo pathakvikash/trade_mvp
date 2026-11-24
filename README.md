@@ -1,4 +1,4 @@
-# CryptoZen (trade_mvp)
+# Paperline
 
 A crypto **paper-trading and derivatives-analytics platform**. It pulls real Binance USDS-M futures data (prices, order book, trades, funding, open interest, liquidations), turns it into a liquidation heatmap and market dashboards, adds an AI copilot (market briefs, Q&A, natural-language alert drafting), and lets users practise with **fake money**: spot trading and leveraged futures trading with TP/SL, plus price/funding/liquidation alerts.
 

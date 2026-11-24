@@ -2,6 +2,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import MarketStrip from '../components/ui/MarketStrip';
+import Logo from '../components/ui/Logo';
 
 const PAPER_BALANCE = '$100,000'; // backend/models/User.js PAPER_BALANCE
 
@@ -104,12 +105,13 @@ const Home = () => (
       {/* Hero */}
       <section className="grid items-center gap-10 py-12 sm:py-16 lg:grid-cols-2 lg:gap-16 lg:py-24">
         <div className="animate-auth-rise motion-reduce:animate-none">
+          <Logo withWordmark size={32} className="mb-6" />
           <p className={eyebrow}>Paper trading, real market data</p>
           <h1 className="mt-3 text-4xl font-semibold leading-[1.1] tracking-tight text-white [text-wrap:balance] sm:text-5xl lg:text-6xl">
             Practise leveraged crypto trading without risking real money.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
-            CryptoZen runs a futures simulator on live Binance prices, with a liquidation engine, TP/SL orders and derivatives analytics. Learn how leverage behaves before it costs you anything.
+            Paperline runs a futures simulator on live Binance prices, with a liquidation engine, TP/SL orders and derivatives analytics. Learn how leverage behaves before it costs you anything.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link to="/register" className={`${cta} bg-brand-600 text-white shadow-lg shadow-brand-600/20 hover:bg-brand-500`}>Start free</Link>
@@ -191,7 +193,7 @@ const Home = () => (
       </section>
 
       <footer className="border-t border-slate-800 py-6 text-center text-sm text-slate-400">
-        <p>&copy; {new Date().getFullYear()} CryptoZen. Paper trading only. Not financial advice.</p>
+        <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1"><Logo withWordmark size={18} wordmarkClassName="text-sm font-semibold text-slate-300" className="gap-1.5" /><span>&copy; {new Date().getFullYear()} Paperline. Paper trading only. Not financial advice.</span></p>
       </footer>
     </div>
   </div>

@@ -1,6 +1,6 @@
 # context/ : read this first (AI agents and new engineers)
 
-Project: **CryptoZen / trade_mvp**, a crypto paper-trading and derivatives-analytics app (real Binance futures data, liquidation heatmap, AI copilot, spot + leveraged futures paper trading, alerts). Human-facing overview and deploy guide: `../README.md`.
+Project: **Paperline (repo trade_mvp; formerly CryptoZen)**, a crypto paper-trading and derivatives-analytics app (real Binance futures data, liquidation heatmap, AI copilot, spot + leveraged futures paper trading, alerts). Human-facing overview and deploy guide: `../README.md`.
 
 Snapshot date of these docs: 2026-11-20. The working tree had many uncommitted changes by several agents at that time; the code is the source of truth, these docs describe it.
 

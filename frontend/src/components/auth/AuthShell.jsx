@@ -1,6 +1,8 @@
 // Shared look for /login and /register: brand + live market strip on the left (lg+), form card on the right.
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import MarketStrip from '../ui/MarketStrip';
+import Logo from '../ui/Logo';
 
 const FEATURES = [
   'Live Binance futures prices, streamed',
@@ -38,13 +40,11 @@ export const PasswordInput = ({ id, ...rest }) => {
   );
 };
 
-const Logo = ({ className = '' }) => (
-  <div className={`flex items-center gap-2.5 ${className}`}>
-    <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-brand-500/40 bg-brand-500/10" aria-hidden="true">
-      <svg viewBox="0 0 24 24" className="h-4 w-4 text-brand-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17l5-6 4 3 8-9" /><path d="M15 5h5v5" /></svg>
-    </span>
-    <span className="text-lg font-semibold tracking-tight text-white">CryptoZen</span>
-  </div>
+// One brand link per visible breakpoint (the other is display:none, so it is not announced twice).
+const BrandLink = ({ className = '' }) => (
+  <Link to="/" aria-label="Paperline home" className={`focus-ring inline-flex rounded-lg ${className}`}>
+    <Logo withWordmark />
+  </Link>
 );
 
 // busy = a sign-in request is in flight; after 4s say why it is slow (Render free tier cold start).
@@ -72,10 +72,10 @@ const AuthShell = ({ title, subtitle, busy = false, children }) => {
         <div className="absolute -bottom-40 right-0 h-[24rem] w-[24rem] animate-auth-glow rounded-full bg-emerald-500/10 blur-3xl [animation-delay:-6s] motion-reduce:animate-none" />
       </div>
 
-      <div className="mx-auto grid min-h-[inherit] max-w-6xl items-center gap-8 px-4 py-6 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:py-12">
-        <aside className="order-2 space-y-8 lg:order-1">
+      <div className="mx-auto grid min-h-[inherit] max-w-6xl grid-cols-1 items-center gap-8 px-4 py-6 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:py-12">
+        <aside className="order-2 min-w-0 space-y-8 lg:order-1">
           <div className="hidden space-y-6 lg:block">
-            <Logo />
+            <BrandLink />
             <h2 className="max-w-md text-4xl font-semibold leading-tight tracking-tight text-white">
               Practice leveraged crypto trading with real Binance data. No real money.
             </h2>
@@ -91,8 +91,8 @@ const AuthShell = ({ title, subtitle, busy = false, children }) => {
           <div className="hidden max-w-md lg:block"><MarketStrip /></div>
         </aside>
 
-        <main className="order-1 mx-auto w-full max-w-md animate-auth-rise motion-reduce:animate-none lg:order-2">
-          <Logo className="mb-5 lg:hidden" />
+        <main className="order-1 mx-auto w-full min-w-0 max-w-md animate-auth-rise motion-reduce:animate-none lg:order-2">
+          <BrandLink className="mb-5 lg:hidden" />
           <p className="mb-5 text-sm text-slate-400 lg:hidden">Practice leveraged crypto trading with real Binance data. No real money.</p>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-soft ring-1 ring-inset ring-white/5 backdrop-blur-md sm:p-8">
             <h1 className="text-2xl font-semibold tracking-tight text-white">{title}</h1>

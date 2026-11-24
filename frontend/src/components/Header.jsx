@@ -7,6 +7,7 @@ import ConnectionChip from './ui/ConnectionChip';
 import CommandPalette from './shell/CommandPalette';
 import { Icon, ICONS } from './shell/nav';
 import Avatar from './ui/Avatar';
+import Logo from './ui/Logo';
 
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
@@ -53,6 +54,8 @@ const Header = ({ onMenu }) => {
       <button type="button" onClick={onMenu} className="focus-ring rounded-md p-1.5 text-slate-400 hover:text-slate-100 lg:hidden" aria-label="Open menu">
         <Icon d={ICONS.menu} className="h-[18px] w-[18px]" />
       </button>
+
+      <Link to="/" aria-label="Paperline home" className="focus-ring shrink-0 rounded-md lg:hidden"><Logo size={22} decorative /></Link>
 
       <div role="group" className="hide-scrollbar flex min-w-0 flex-1 items-center gap-4 overflow-x-auto text-xs" aria-label="Live prices">
         {marketData.slice(0, 8).map((c) => {

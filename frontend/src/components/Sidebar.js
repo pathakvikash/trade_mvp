@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, ICONS, NAV } from './shell/nav';
+import Logo from './ui/Logo';
 
 // Desktop: slim rail (collapsible). Below lg: off-canvas drawer opened from the top bar.
 const Sidebar = ({ collapsed, onToggle, mobileOpen, onClose }) => {
@@ -9,8 +10,10 @@ const Sidebar = ({ collapsed, onToggle, mobileOpen, onClose }) => {
     className={`${mobileOpen ? 'fixed inset-y-0 left-0 z-50 flex' : 'hidden'} w-52 shrink-0 flex-col border-r border-slate-800/80 bg-[#070b14] lg:static lg:flex ${collapsed ? 'lg:w-14' : ''}`}
   >
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-slate-800/80 px-3.5">
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-cyan-400/15 text-[11px] font-bold text-cyan-300">TM</span>
-      <span className={`text-sm font-semibold text-slate-100 ${collapsed ? 'lg:hidden' : ''}`}>TradeMVP</span>
+      <NavLink to="/" aria-label="Paperline home" className="focus-ring flex min-w-0 items-center gap-2 rounded-md">
+        <Logo size={24} decorative />
+        <span className={`text-sm font-semibold text-slate-100 ${collapsed ? 'lg:hidden' : ''}`}>Paperline</span>
+      </NavLink>
       <button type="button" onClick={onClose} className="focus-ring ml-auto rounded-md p-1 text-slate-400 hover:text-slate-100 lg:hidden" aria-label="Close menu">
         <Icon d={ICONS.close} />
       </button>

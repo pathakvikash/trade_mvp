@@ -1,4 +1,4 @@
-# CLAUDE.md (trade_mvp / CryptoZen)
+# CLAUDE.md (trade_mvp / Paperline)
 
 Crypto **paper-trading + derivatives analytics** app: real Binance USDS-M data, liquidation heatmap, AI copilot, spot + leveraged futures paper trading (TP/SL, liquidation engine), alerts. No real money.
 

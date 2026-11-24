@@ -75,7 +75,7 @@ const Market = () => {
         <p className="text-xs text-slate-400">Binance USD-M perpetuals: live prices, candles and funding.</p>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
         <MarketList
           className="xl:min-h-0"
           rows={rows}

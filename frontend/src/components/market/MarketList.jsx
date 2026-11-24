@@ -54,14 +54,14 @@ const MarketList = ({ rows, error, onRetry, selected, onSelect, className = '' }
         </div>
       ) : (
         <div className="max-h-[28rem] overflow-auto xl:h-full xl:max-h-none">
-          <table className="w-full min-w-[340px] text-xs tabular-nums">
+          <table className="w-full text-xs tabular-nums">
             <thead className="sticky top-0 z-[1] bg-slate-950 text-[11px] text-slate-500">
               <tr>
                 <SortTh k="symbol" sort={sort} toggle={toggle} left>Market</SortTh>
                 <SortTh k="price" sort={sort} toggle={toggle}>Last</SortTh>
                 <SortTh k="chg" sort={sort} toggle={toggle}>24h</SortTh>
                 <SortTh k="vol" sort={sort} toggle={toggle}>Volume</SortTh>
-                <SortTh k="funding" sort={sort} toggle={toggle}>Funding</SortTh>
+                <SortTh k="funding" sort={sort} toggle={toggle} className="max-sm:hidden">Funding</SortTh>
               </tr>
             </thead>
             <tbody>
@@ -80,7 +80,7 @@ const MarketList = ({ rows, error, onRetry, selected, onSelect, className = '' }
                     <td className="px-2 py-1.5 text-right text-slate-200">{fmtMarketPrice(r.lastPrice)}</td>
                     <td className={`px-2 py-1.5 text-right ${tone(r.priceChangePercent)}`}>{fmtPct(r.priceChangePercent)}</td>
                     <td className="px-2 py-1.5 text-right text-slate-400">{fmtUsd(r.quoteVolume)}</td>
-                    <td className={`px-2 py-1.5 text-right ${tone(r.fundingRate)}`}>{fmtPct(fundingPct(r), 4)}</td>
+                    <td className={`px-2 py-1.5 text-right max-sm:hidden ${tone(r.fundingRate)}`}>{fmtPct(fundingPct(r), 4)}</td>
                   </tr>
                 );
               })}

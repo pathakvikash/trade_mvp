@@ -86,7 +86,7 @@ const Settings = () => {
         <h1 className="mb-2 text-sm font-semibold text-slate-200">Settings</h1>
         {loadErr && <p className="mb-2 text-sm text-amber-400" role="alert">Could not load your settings: {loadErr}</p>}
         {!loaded && <p className="mb-2 text-xs text-slate-500" aria-live="polite">Loading your settings…</p>}
-        <p className="mb-3 text-xs text-slate-500">CryptoZen is paper trading: no real money is ever used.</p>
+        <p className="mb-3 text-xs text-slate-500">Paperline is paper trading: no real money is ever used.</p>
         <Component user={user} meta={meta} notify={notify} />
       </div>
       <Toast toast={toast} onClose={clear} />

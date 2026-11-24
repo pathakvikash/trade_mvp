@@ -120,3 +120,11 @@ test('remembers the list search', async () => {
   await renderAt();
   expect(listedMarkets()).toEqual(['ETH']);
 });
+
+test('narrow screens: Funding column hidden below sm so the list fits at 375px, grid is single-column', async () => {
+  await act(async () => { root.render(<Market />); });
+  const th = [...container.querySelectorAll('th')].find((t) => t.textContent.includes('Funding'));
+  expect(th.className).toContain('max-sm:hidden');
+  expect(container.querySelector('table').className).not.toMatch(/min-w-\[/);
+  expect(container.querySelector('.grid-cols-1')).not.toBeNull();
+});
