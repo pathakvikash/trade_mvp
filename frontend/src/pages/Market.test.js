@@ -121,10 +121,22 @@ test('remembers the list search', async () => {
   expect(listedMarkets()).toEqual(['ETH']);
 });
 
-test('narrow screens: Funding column hidden below sm so the list fits at 375px, grid is single-column', async () => {
+test('responsive list: core columns always, Volume from sm, Funding only sm..lg, no sideways scroll, bounded height', async () => {
   await act(async () => { root.render(<Market />); });
-  const th = [...container.querySelectorAll('th')].find((t) => t.textContent.includes('Funding'));
-  expect(th.className).toContain('max-sm:hidden');
-  expect(container.querySelector('table').className).not.toMatch(/min-w-\[/);
+  const th = (n) => [...container.querySelectorAll('th')].find((t) => t.textContent.includes(n));
+  expect(th('Market').className).not.toMatch(/hidden/);
+  expect(th('Last').className).not.toMatch(/hidden/);
+  expect(th('24h').className).not.toMatch(/hidden/);
+  expect(th('Volume').className).toContain('max-sm:hidden');
+  expect(th('Funding').className).toContain('max-md:hidden');
+  expect(th('Funding').className).toContain('lg:hidden');
+  const table = container.querySelector('table');
+  expect(table.className).not.toMatch(/min-w-\[/);
+  const scroller = table.parentElement;
+  expect(scroller.className).toContain('overflow-x-hidden');
+  expect(scroller.className).toContain('max-lg:max-h-[min(40rem,calc(100dvh-12rem))]');
+  const list = scroller.closest('section');
+  expect(list.className).toContain('lg:sticky');
+  expect(list.className).toContain('xl:h-auto');
   expect(container.querySelector('.grid-cols-1')).not.toBeNull();
 });

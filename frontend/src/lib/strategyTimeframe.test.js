@@ -2,7 +2,7 @@ import strategyTimeframe from './strategyTimeframe';
 import useStrategyStore from '../store/strategyStore';
 
 const TFS = ['1m', '5m', '1h'];
-const act = { kind: 'perp', symbol: 'BTCUSDT', interval: '1h' };
+const act = { kind: 'perp', symbol: 'BTCUSDT', interval: '1h', allTimeframes: false };
 const ctx = { symbol: 'BTCUSDT', tfs: TFS, current: '5m' };
 
 test('switches once; a remount (same active already applied) does not override the user', () => {
@@ -24,4 +24,10 @@ test('clear forgets applied', () => {
   useStrategyStore.getState().markApplied(act);
   useStrategyStore.getState().clear();
   expect(useStrategyStore.getState().applied).toBeNull();
+});
+
+test('all-timeframes mode (flag true or absent on old data) never moves the chart', () => {
+  expect(strategyTimeframe({ ...act, allTimeframes: true }, null, ctx)).toBeNull();
+  const { allTimeframes, ...old } = act;
+  expect(strategyTimeframe(old, null, ctx)).toBeNull();
 });

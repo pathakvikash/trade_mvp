@@ -7,6 +7,9 @@ import AlertsPanel from '../alerts/AlertsPanel';
 import { sourceNote } from '../ui/sourceNote';
 import MaximizeButton, { MaximizeBackdrop } from '../ui/MaximizeButton';
 import useMaximize from '../ui/useMaximize';
+import usePersistedState from '../../lib/usePersistedState';
+import useLiqLevels from '../../lib/useLiqLevels';
+import { LiqToggle, LiqChip } from './LiqLevelsControl';
 
 const TF_NAME = { m: 'minute', h: 'hour', d: 'day' };
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id, title: `${parseInt(id, 10)}-${TF_NAME[id.slice(-1)]} candles` }));
@@ -24,10 +27,12 @@ const Message = ({ tone = 'text-slate-400', children }) => (
 
 const MarketChartPanel = ({
   ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry, klineSource,
-  view = 'chart', onView, alertsSymbol, unread = 0, className = '', lines, overlays, markers, strategyChip, headerExtra,
+  view = 'chart', onView, alertsSymbol, unread = 0, className = '', lines, overlays, markers, strategyChip, headerExtra, liqSymbol,
 }) => {
   const mx = useMaximize();
   const alertsView = view === 'alerts';
+  const [liqOn, setLiqOn] = usePersistedState('chart.liqLevels', false, { validate: (v) => typeof v === 'boolean' });
+  const liq = useLiqLevels(liqSymbol, liqOn && !!liqSymbol && !alertsView);
   const legend = LEGEND.filter(([k]) => (lines || []).some((l) => l.kind === k)).map(([k, t, fb]) => [k, t, lines.find((l) => l.kind === k).color || fb]);
   return (
     <>
@@ -54,6 +59,7 @@ const MarketChartPanel = ({
             )}
           </button>
           </Tip>
+          {liqSymbol && !alertsView && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
           <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" className="[&_button]:min-h-[36px] sm:[&_button]:min-h-0" />
           <MaximizeButton max={mx.max} onToggle={mx.toggle} />
         </div>
@@ -83,7 +89,8 @@ const MarketChartPanel = ({
               ))}
             </div>
           )}
-          <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} lines={lines} overlays={overlays} markers={markers} strategyChip={strategyChip} />
+          {liqOn && liqSymbol && <LiqChip liq={liq} />}
+          <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} lines={lines} priceLines={liqOn ? liq.lines : undefined} overlays={overlays} markers={markers} strategyChip={strategyChip} />
         </>
       )}
     </Panel>

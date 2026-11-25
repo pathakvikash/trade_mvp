@@ -5,6 +5,7 @@ import Derivatives from './Derivatives';
 import usePolling from '../lib/usePolling';
 import useAgentStore from '../store/agentStore';
 
+jest.mock('react-router-dom', () => ({ __esModule: true, useSearchParams: () => [new URLSearchParams(''), jest.fn()] }), { virtual: true });
 jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 jest.mock('lightweight-charts', () => ({ createChart: jest.fn() }));
 jest.mock('../lib/usePolling', () => ({ __esModule: true, default: jest.fn() }));

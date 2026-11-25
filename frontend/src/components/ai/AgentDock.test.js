@@ -102,19 +102,91 @@ test('StrategyCard always shows caveats and the overfitting warning', async () =
   act(() => r.unmount());
 });
 
-test('Show on chart evaluates and sets the active strategy; Save 409 shows limit message', async () => {
-  const strategy = { spec: { a: 1 }, describe: 'Buy dips', backtest: { stats: {}, caveats: ['c'] } };
-  axios.post.mockResolvedValueOnce(reply({ strategy }));
-  await openDock();
-  await send('make one');
-  axios.post.mockResolvedValueOnce({ data: { series: [], markers: [] } });
-  await act(async () => { btn('Show on chart').click(); });
+const proposal = { spec: { a: 1, timeframe: '4h' }, describe: 'Buy dips', backtest: { stats: {}, caveats: ['c'] } };
+const propose = async () => { axios.post.mockResolvedValueOnce(reply({ strategy: proposal })); await openDock(); await send('make one'); };
+
+test('a proposal draws nothing and evaluates nothing until Apply to chart', async () => {
+  await propose();
+  expect(container.textContent).toContain('nothing is drawn on any chart until you apply it');
+  expect(btn('Apply to chart')).toBeTruthy();
+  expect(btn('Save')).toBeTruthy();
+  expect(btn('Decline')).toBeTruthy();
+  expect(axios.post).toHaveBeenCalledTimes(1); // chat only
+  expect(useStrategyStore.getState().active).toBeNull();
+});
+
+test('Apply to chart evaluates on the chart timeframe, applies on all timeframes by default, shows the applied state', async () => {
+  await propose();
+  axios.post.mockResolvedValueOnce({ data: { series: {}, markers: [] } });
+  await act(async () => { btn('Apply to chart').click(); });
   expect(axios.post.mock.calls[1][0]).toContain('/api/strategies/evaluate');
-  expect(useStrategyStore.getState().active).toMatchObject({ symbol: 'BTCUSDT', kind: 'perp', interval: '1h', spec: { a: 1 } });
+  expect(axios.post.mock.calls[1][1]).toMatchObject({ kind: 'perp', symbol: 'BTCUSDT', interval: '1h' }); // chart's 1h, not the spec's 4h
+  expect(useStrategyStore.getState().active).toMatchObject({ symbol: 'BTCUSDT', kind: 'perp', interval: '4h', allTimeframes: true, resultInterval: '1h', spec: { a: 1 } });
+  expect(btn('Applied to chart').disabled).toBe(true);
+  expect(container.textContent).toContain('Applied to the chart');
+});
+
+test('with all timeframes off the strategy is pinned to its own timeframe', async () => {
+  await propose();
+  const cb = [...container.querySelectorAll('label')].find((l) => l.textContent.includes('Apply on all timeframes')).querySelector('input');
+  await act(async () => { cb.click(); });
+  axios.post.mockResolvedValueOnce({ data: { series: {}, markers: [] } });
+  await act(async () => { btn('Apply to chart').click(); });
+  expect(axios.post.mock.calls[1][1].interval).toBe('4h');
+  expect(useStrategyStore.getState().active).toMatchObject({ allTimeframes: false, interval: '4h' });
+});
+
+test('clearing the chart overlay re-enables Apply (applied is derived from the store)', async () => {
+  await propose();
+  axios.post.mockResolvedValueOnce({ data: { series: {}, markers: [] } });
+  await act(async () => { btn('Apply to chart').click(); });
+  expect(btn('Applied to chart').disabled).toBe(true);
+  await act(async () => { useStrategyStore.getState().clear(); });
+  expect(btn('Apply to chart').disabled).toBe(false);
+});
+
+test('Decline removes the card; before apply nothing was drawn, after apply it also clears the chart; saved copy is not deleted', async () => {
+  await propose();
+  await act(async () => { btn('Decline').click(); });
+  expect(container.textContent).not.toContain('Strategy proposal');
+  expect(useStrategyStore.getState().active).toBeNull();
+  axios.post.mockResolvedValueOnce(reply({ strategy: proposal }));
+  await send('again');
+  axios.post.mockResolvedValueOnce({ data: { series: {}, markers: [] } });
+  await act(async () => { btn('Apply to chart').click(); });
+  axios.post.mockResolvedValueOnce({ data: {} });
+  await act(async () => { btn('Save').click(); });
+  expect(axios.post.mock.calls.at(-1)[1]).toMatchObject({ allTimeframes: true, origin: 'ai' });
+  expect(btn('Saved').disabled).toBe(true);
+  await act(async () => { btn('Decline').click(); });
+  expect(useStrategyStore.getState().active).toBeNull();
+  expect(axios.delete).not.toHaveBeenCalled();
+});
+
+test('Apply failing with 400 says not available on this timeframe and applies nothing; Save 409 shows limit message', async () => {
+  await propose();
+  axios.post.mockRejectedValueOnce({ response: { status: 400, data: { error: 'interval not available for this market' } } });
+  await act(async () => { btn('Apply to chart').click(); });
+  expect(container.textContent).toContain('Not available on this timeframe (1h)');
+  expect(useStrategyStore.getState().active).toBeNull();
   axios.post.mockRejectedValueOnce({ response: { status: 409, data: { error: 'STRATEGY_LIMIT' } } });
   await act(async () => { btn('Save').click(); });
   expect(axios.post.mock.calls[2][0]).toMatch(/\/api\/strategies$/);
   expect(container.textContent).toContain('saved-strategy limit');
+});
+
+test('Show on chart for a saved strategy honours allTimeframes (missing = true) and sends the chart interval', async () => {
+  axios.get.mockImplementation((u) => Promise.resolve({ data: u.endsWith('/api/strategies') ? [{ _id: 's1', name: 'Old one', spec: { timeframe: '4h' } }, { _id: 's2', name: 'Pinned one', allTimeframes: false, spec: { timeframe: '4h' } }] : [] }));
+  axios.post.mockResolvedValue({ data: { series: {}, markers: [] } });
+  await openDock();
+  await act(async () => { btn('Strategies').click(); });
+  await act(async () => { btn('Show on chart').click(); });
+  expect(axios.post.mock.calls[0][1]).toMatchObject({ strategyId: 's1', interval: '1h' });
+  expect(useStrategyStore.getState().active).toMatchObject({ allTimeframes: true, interval: '4h', resultInterval: '1h' });
+  const second = [...container.querySelectorAll('button')].filter((b) => b.textContent === 'Show on chart')[1];
+  await act(async () => { second.click(); });
+  expect(axios.post.mock.calls[1][1]).toMatchObject({ strategyId: 's2', interval: '4h' });
+  expect(useStrategyStore.getState().active).toMatchObject({ allTimeframes: false });
 });
 
 test('Strategies tab lists items and deletes', async () => {

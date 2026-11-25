@@ -2,6 +2,8 @@
 const { z } = require('zod');
 
 const TIMEFRAME_SECONDS = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+// Candle intervals a spec can be EVALUATED on (the spec's own timeframe is just its 'designed on' default).
+const EVAL_SECONDS = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200, '1d': 86400 };
 const SERIES = ['open', 'high', 'low', 'close', 'volume'];
 const MULTI = { bollinger: ['upper', 'middle', 'lower'], macd: ['macd', 'signal', 'hist'] };
 const OPS = ['crosses_above', 'crosses_below', 'gt', 'gte', 'lt', 'lte'];
@@ -128,4 +130,4 @@ function parseSpec(raw) {
     return { ok: true, spec: r.data };
 }
 
-module.exports = { parseSpec, STRATEGY_LIMITS, TIMEFRAME_SECONDS, SERIES, MULTI, refTable };
+module.exports = { parseSpec, STRATEGY_LIMITS, TIMEFRAME_SECONDS, EVAL_SECONDS, SERIES, MULTI, refTable };

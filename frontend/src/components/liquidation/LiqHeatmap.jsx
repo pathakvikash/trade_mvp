@@ -1,8 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import useCanvas from './useCanvas';
 import SegTabs from '../ui/SegTabs';
-import { PARTIAL_NOTE, sourceNote, Notice, Panel, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
-import { cellAt, heatColor, heatCss, niceTicks, scaleT, timeTicks } from './heat';
+import { PARTIAL_NOTE, sourceNote, Notice, Panel, StaleNote, coin, fmtPct, fmtPrice, fmtUsd, is404 } from './shared';
+import { buildCursor, cellAt, cellOf, cellTP, closeRow, heatColor, lensKeeps, niceTicks, rampCss, scaleT, sweptBetween, timeTicks } from './heat';
+import HeatControls from './HeatControls';
+import HeatHoverCard from './HeatHoverCard';
+import LayoutMenu from './LayoutMenu';
+import useHeatView from './heatView';
 import { LoadingBlock } from '../ui/Skeleton';
 import { Updating } from '../ui/Spinner';
 
@@ -14,13 +18,21 @@ const BG = '#0b1120';
 const UP = '#10b981'; // app tokens: positive / negative
 const DOWN = '#ef4444';
 const INK = '#94a3b8';
-const RAMP_CSS = `linear-gradient(to right, ${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => heatCss(i / 8)).join(',')})`;
+const MODES = [
+  { id: 'pan', label: 'Pan', title: 'Pan: hover or tap to inspect cells' },
+  { id: 'measure', label: 'Measure', title: 'Measure: click two points to compare price and time' },
+];
+const dur = (ms) => {
+  const m = Math.round(ms / 60000);
+  if (m <= 0) return null;
+  return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`;
+};
 const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const day = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
 // ImageData bitmap, one pixel per cell (row 0 of the data is the bottom row of the image). Zero cells and cells
-// below `bottom` stay transparent so the panel background shows through.
-function buildBitmap(d, bottom, top) {
+// below `bottom` (or on the other side of the price when a long/short lens is on) stay transparent so the panel background shows through.
+function buildBitmap(d, bottom, top, palette, lens) {
   const c = document.createElement('canvas');
   c.width = d.cols;
   c.height = d.rows;
@@ -29,8 +41,8 @@ function buildBitmap(d, bottom, top) {
   for (let col = 0; col < d.cols; col += 1) {
     for (let r = 0; r < d.rows; r += 1) {
       const v = d.cells[col * d.rows + r];
-      if (!(v > 0) || v < bottom) continue;
-      const [R, G, B] = heatColor(scaleT(v, bottom, top));
+      if (!(v > 0) || v < bottom || !lensKeeps(d, lens, r, col)) continue;
+      const [R, G, B] = heatColor(scaleT(v, bottom, top), palette);
       const o = ((d.rows - 1 - r) * d.cols + col) * 4;
       img.data[o] = R; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = 255;
     }
@@ -46,13 +58,42 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
     window.addEventListener('resize', f);
     return () => window.removeEventListener('resize', f);
   }, []);
-  const [lo, setLo] = useState(0); // intensity clamp, both as percent of the largest cell (linear scale)
-  const [hi, setHi] = useState(100);
-  const [hover, setHover] = useState(null);
+  const { lens, setLens, palette, setPalette, display, setDisplay, intensity, setIntensity } = useHeatView();
+  const [lo, hi] = intensity; // intensity clamp, both as percent of the largest cell (linear scale)
+  const [hover, setHover] = useState(null); // {col, row, x, y (plot px), cx, cy (viewport px), touch, t, price}; t/price survive a refresh
+  const [mode, setMode] = useState('pan');
+  const [points, setPoints] = useState([]); // measure mode: up to two {t, price} (time ms, bucket middle): grid indices move when the window refreshes
+  const [shotErr, setShotErr] = useState(false);
+  const touchRef = useRef(false); // the latest pointer was a touch: only then does a click pin the card
+  const plotRef = useRef(null);
+  const cardId = useId();
+  useEffect(() => { setHover(null); setPoints([]); }, [symbol]); // positions belong to one symbol's grid
+  // A refresh moves the window (t0, priceMin): keep a hover/pinned card on the same time and price, drop it when that left the window.
+  useEffect(() => {
+    setHover((h) => {
+      if (!h || !data || !data.cols) return h;
+      const c = cellOf(data, h.t, h.price);
+      if (!c) return null;
+      if (c.col === h.col && c.row === h.row) return h;
+      const b = plotRef.current?.getBoundingClientRect();
+      if (!b) return null;
+      const x = ((c.col + 0.5) / data.cols) * b.width;
+      const y = (1 - (c.row + 0.5) / data.rows) * b.height;
+      return { ...h, ...c, x, y, cx: b.left + x, cy: b.top + y };
+    });
+  }, [data?.t0, data?.priceMin, data?.priceStep, data?.colMs, data?.cols, data?.rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The card is position:fixed at viewport coordinates: scrolling any ancestor or resizing would leave it stranded.
+  useEffect(() => {
+    if (!hover) return undefined;
+    const close = () => setHover(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
+  }, [!!hover]); // eslint-disable-line react-hooks/exhaustive-deps
   const ok = !!data && data.cols > 0 && data.candles?.length > 0;
   const top = ok ? (data.max * hi) / 100 : 0;
   const bottom = ok ? (data.max * lo) / 100 : 0;
-  const bitmap = useMemo(() => (ok && typeof document !== 'undefined' ? buildBitmap(data, bottom, top) : null), [ok, data, bottom, top]);
+  const bitmap = useMemo(() => (ok && typeof document !== 'undefined' ? buildBitmap(data, bottom, top, palette, lens) : null), [ok, data, bottom, top, palette, lens]);
 
   const draw = useCallback((ctx, W, Ht) => {
     if (!ok) return;
@@ -73,7 +114,7 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
     ctx.lineWidth = 1;
     ctx.textAlign = 'left';
     niceTicks(data.priceMin, pMax, 7).forEach((p) => {
-      ctx.beginPath(); ctx.moveTo(PAD.l, Y(p) + 0.5); ctx.lineTo(PAD.l + pw, Y(p) + 0.5); ctx.stroke();
+      if (display.grid) { ctx.beginPath(); ctx.moveTo(PAD.l, Y(p) + 0.5); ctx.lineTo(PAD.l + pw, Y(p) + 0.5); ctx.stroke(); }
       ctx.fillText(fmtPrice(p), PAD.l + pw + 6, Y(p) + 3);
     });
     const t1 = data.t0 + data.cols * data.colMs;
@@ -82,15 +123,30 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
     timeTicks(data.t0, t1, pw).forEach(({ t, x }) => {
       const d = new Date(t).toDateString();
       const px = PAD.l + x * pw;
-      ctx.beginPath(); ctx.moveTo(px + 0.5, PAD.t); ctx.lineTo(px + 0.5, PAD.t + ph); ctx.stroke();
+      if (display.grid) { ctx.beginPath(); ctx.moveTo(px + 0.5, PAD.t); ctx.lineTo(px + 0.5, PAD.t + ph); ctx.stroke(); }
       ctx.fillStyle = prev && prev !== d ? '#e2e8f0' : INK;
       ctx.fillText(prev && prev !== d ? day(t) : hhmm(t), px, Ht - 7);
       prev = d;
     });
+    // key liquidation levels (display toggle): dashed line per level, rose above the price, emerald below
+    if (display.keyLevels && data.keyLevels) {
+      ctx.save();
+      ctx.setLineDash([2, 3]);
+      ctx.lineWidth = 1;
+      ctx.textAlign = 'left';
+      [[data.keyLevels.above, '#fb7185'], [data.keyLevels.below, '#34d399']].forEach(([list, color]) => (list || []).forEach((l) => {
+        const y = Y(l.price);
+        ctx.strokeStyle = color;
+        ctx.beginPath(); ctx.moveTo(PAD.l, y + 0.5); ctx.lineTo(PAD.l + pw, y + 0.5); ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.fillText(fmtUsd(l.usd), PAD.l + 4, y - 3);
+      }));
+      ctx.restore();
+    }
     // candles over the heat: 1px dark halo under the up/down colour so they stay visible on bright bands
     const cw = pw / data.cols;
     const bw = Math.max(1, cw * 0.7);
-    data.candles.forEach((k, i) => {
+    if (display.candles) data.candles.forEach((k, i) => {
       const x = PAD.l + (i + 0.5) * cw;
       const yO = Y(k.open);
       const yC = Y(k.close);
@@ -108,6 +164,7 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
       ctx.fillRect(x - bw / 2, by, bw, bh);
     });
     // current price: dashed line + tag on the right axis
+    if (!display.priceLine) return;
     const yp = Y(data.price);
     ctx.strokeStyle = '#f8fafc';
     ctx.lineWidth = 1;
@@ -119,37 +176,108 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
     ctx.fillStyle = '#0b1120';
     ctx.textAlign = 'left';
     ctx.fillText(fmtPrice(data.price), PAD.l + pw + 4, yp + 3);
-  }, [ok, data, bitmap]);
+  }, [ok, data, bitmap, display]);
 
   const { wrap, canvas } = useCanvas(draw, H);
 
-  const onMove = (e) => {
+  // Plot-area cell under a viewport point, or null.
+  const cellFrom = (e) => {
     const b = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - b.left;
-    const y = e.clientY - b.top;
-    const cell = cellAt(data, x / b.width, y / b.height);
-    setHover(cell && { cell, x, y, w: b.width });
+    const cell = cellAt(data, (e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height);
+    return cell && { col: cell.col, row: cell.row, ...cellTP(data, cell.col, cell.row), x: e.clientX - b.left, y: e.clientY - b.top, cx: e.clientX, cy: e.clientY };
+  };
+  const addPoint = (c) => setPoints((p) => { const pt = { t: c.t, price: c.price }; return p.length === 1 ? [p[0], pt] : [pt]; });
+  // Pointer events: hover follows mouse and pen only; a touch never moves the cursor (its emulated mouse events are not used).
+  // The pointer type is tracked on every event, so a mouse used after a touch hovers again.
+  const onMove = (e) => {
+    touchRef.current = e.pointerType === 'touch';
+    if (touchRef.current) return;
+    const c = cellFrom(e);
+    setHover(c && { ...c, touch: false });
+  };
+  const onClick = (e) => {
+    const c = cellFrom(e);
+    if (!c) return;
+    if (mode === 'measure') addPoint(c);
+    else if (touchRef.current) setHover({ ...c, touch: true }); // a tap shows the card until it is closed
+  };
+  // Keyboard: arrows move the cursor cell, Enter/Space places a measure point, Escape closes the card.
+  const onKey = (e) => {
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
+    if (e.key === 'Escape') { setHover(null); return; }
+    const cur = hover || { col: data.cols - 1, row: closeRow(data) };
+    let { col, row } = cur;
+    if (step) { col = Math.min(data.cols - 1, Math.max(0, col + step[0])); row = Math.min(data.rows - 1, Math.max(0, row + step[1])); } else if (!(e.key === 'Enter' || e.key === ' ')) return;
+    e.preventDefault();
+    const b = e.currentTarget.getBoundingClientRect();
+    const x = ((col + 0.5) / data.cols) * b.width;
+    const y = (1 - (row + 0.5) / data.rows) * b.height;
+    const c = { col, row, ...cellTP(data, col, row), x, y, cx: b.left + x, cy: b.top + y, touch: false };
+    setHover(c);
+    if (!step && mode === 'measure') addPoint(c);
+  };
+  const setMode2 = (m) => { setMode(m); setPoints([]); };
+
+  const screenshot = () => {
+    try {
+      const src = canvas.current;
+      if (!src) throw new Error('no canvas');
+      const out = document.createElement('canvas'); // flatten onto the panel colour: the plot margins are transparent
+      out.width = src.width;
+      out.height = src.height;
+      const c = out.getContext('2d');
+      c.fillStyle = BG;
+      c.fillRect(0, 0, out.width, out.height);
+      c.drawImage(src, 0, 0);
+      out.toBlob((blob) => {
+        if (!blob) { setShotErr(true); return; }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${coin(symbol)}-liquidation-heatmap-${range}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setShotErr(false);
+      }, 'image/png');
+    } catch {
+      setShotErr(true);
+    }
   };
 
   const label = ok
     ? `${coin(symbol)} estimated liquidation heatmap, ${range}: ${fmtUsd(data.totals.longUsd)} of long liquidation levels below ${fmtPrice(data.price)} and ${fmtUsd(data.totals.shortUsd)} of short levels above. ${data.largest ? `Largest level ${fmtUsd(data.largest.usd)} ${data.largest.side}s at ${fmtPrice(data.largest.price)}.` : 'No open levels.'}`
     : '';
-  const hv = hover?.cell;
   const pMax = ok ? data.priceMin + data.rows * data.priceStep : 0;
   const pctY = (p) => `${(1 - (p - data.priceMin) / (pMax - data.priceMin)) * 100}%`;
+  const cursor = ok && hover ? buildCursor(data, hover.col, hover.row) : null;
+  // Points are kept as time + price; the grid cell is worked out against the current window, and a point whose time or
+  // price is no longer inside it is hidden (cell = null).
+  const withCell = (pt) => pt && { ...pt, cell: cellOf(data, pt.t, pt.price) };
+  const pos = (pt) => ({ x: ((pt.cell.col + 0.5) / data.cols) * 100, y: (1 - (pt.cell.row + 0.5) / data.rows) * 100 });
+  const [pa, pb] = ok ? points.map(withCell) : [];
+  const shown = ok ? [pa, pb].filter((pt) => pt && pt.cell) : [];
+  const readout = !ok || mode !== 'measure' ? null : !pa ? 'Measure: click two points on the heatmap.' : !pb ? `Point 1: ${hhmm(pa.t)} at ${fmtPrice(pa.price)}. Click a second point.` : (
+    `Measured: ${fmtPct((pb.price / pa.price - 1) * 100)} in price (${fmtPrice(pa.price)} to ${fmtPrice(pb.price)}), ${dur(Math.abs(pb.t - pa.t)) || 'no time'} apart. ${pb.cell && pa.cell ? `Estimated open liquidation levels between those prices at the second time: ${fmtUsd(sweptBetween(data, pb.cell.col, pa.cell.row, pb.cell.row))} (model estimate).` : 'A point has left the visible window, so the open-level estimate is not available.'}`
+  );
 
   return (
     <Panel
+      id="liq-heatmap"
       title={`Predicted liquidation heatmap - ${coin(symbol)}`}
       right={(
         <div className="flex flex-wrap items-center gap-2">
-          <SegTabs label="Heatmap range" tabs={RANGES} active={range} onChange={(r) => { setHover(null); onRange(r); }} />
+          <SegTabs label="Heatmap range" tabs={RANGES} active={range} onChange={(r) => { setHover(null); setPoints([]); onRange(r); }} />
+          <LayoutMenu value="single" onChange={() => {}} />
+          <SegTabs label="Pointer mode" tabs={MODES} active={mode} onChange={setMode2} />
           {ok && <span className="text-[11px] tabular-nums text-slate-500">Updated {hhmm(data.generatedAt)} · refreshes every 60s</span>}
           <Updating show={!!refreshing} />
           <button type="button" onClick={onRefresh} disabled={refreshing} aria-label="Refresh heatmap" className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:text-slate-100">
             {refreshing && <span aria-hidden="true" className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />}
             Refresh
           </button>
+          {ok && <button type="button" onClick={screenshot} aria-label="Download heatmap screenshot" className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:text-slate-100">Screenshot</button>}
         </div>
       )}
     >
@@ -157,7 +285,10 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
         Estimated model. Exchanges do not publish liquidation prices; levels are inferred from open-interest increases, a leverage mix of 5x–125x and 0.4% maintenance margin. Not financial advice.
       </p>
       {sourceNote(source, 'heatmap') && <p className="mb-2 text-xs text-amber-400">{sourceNote(source, 'heatmap')}</p>}
+      {ok && error && <StaleNote at={data.generatedAt} />}
       {data?.partial && <p className="mb-2 text-xs text-amber-400">{PARTIAL_NOTE}</p>}
+      {shotErr && <p role="status" className="mb-2 text-xs text-amber-400">Screenshot failed in this browser. Try again, or use the system screenshot tool.</p>}
+      {ok && <HeatControls lens={lens} onLens={setLens} palette={palette} onPalette={setPalette} intensity={intensity} onIntensity={setIntensity} max={data.max} display={display} onDisplay={setDisplay} />}
       {!ok ? (
         loading ? <LoadingBlock height={H} /> : (
           <Notice tone={error ? 'error' : 'muted'}>
@@ -169,25 +300,38 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
           <div ref={wrap} className={`relative transition-opacity ${refreshing ? 'opacity-60' : ''}`} style={{ height: H }}>
             <canvas ref={canvas} role="img" aria-label={label} className="block" />
             <div
-              aria-hidden="true"
-              onMouseMove={onMove}
-              onMouseLeave={() => setHover(null)}
-              className="absolute cursor-crosshair"
+              role="group"
+              tabIndex={0}
+              aria-label="Heatmap cell cursor. Arrow keys move between cells, Enter places a measure point, Escape closes the details."
+              aria-describedby={cursor ? cardId : undefined}
+              ref={plotRef}
+              onPointerDown={(e) => { touchRef.current = e.pointerType === 'touch'; }}
+              onPointerMove={onMove}
+              onPointerLeave={(e) => { if (e.pointerType !== 'touch') setHover((h) => (h?.touch ? h : null)); }}
+              onClick={onClick}
+              onKeyDown={onKey}
+              onBlur={() => setHover((h) => (h?.touch ? h : null))}
+              className="absolute cursor-crosshair focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
               style={{ left: PAD.l, top: PAD.t, right: PAD.r, bottom: PAD.b }}
             >
               {highlight != null && (
                 <div className="pointer-events-none absolute inset-x-0 border-y border-white bg-white/20" style={{ top: pctY(highlight + data.priceStep / 2), height: `${100 / data.rows}%`, minHeight: 5 }} />
               )}
+              {mode === 'measure' && shown.length > 0 && (
+                <>
+                  {shown.length === 2 && (
+                    <svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+                      <line x1={pos(pa).x} y1={pos(pa).y} x2={pos(pb).x} y2={pos(pb).y} stroke="#f8fafc" strokeWidth="1.5" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  )}
+                  {shown.map((pt, i) => <span key={i} data-testid="measure-point" className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-cyan-400" style={{ left: `${pos(pt).x}%`, top: `${pos(pt).y}%` }} />)}
+                </>
+              )}
               {hover && (
                 <>
                   <div className="pointer-events-none absolute inset-y-0 w-px bg-slate-200/50" style={{ left: hover.x }} />
                   <div className="pointer-events-none absolute inset-x-0 h-px bg-slate-200/50" style={{ top: hover.y }} />
-                  <div className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs tabular-nums text-slate-200 shadow" style={{ left: Math.min(hover.x + 12, hover.w - 200), top: Math.max(0, hover.y - 72) }}>
-                    <div>{day(hv.time)} {hhmm(hv.time)}</div>
-                    <div className="text-slate-400">{fmtPrice(hv.priceLo)} - {fmtPrice(hv.priceHi)}</div>
-                    <div>Est. open liquidations {hv.usd > 0 ? fmtUsd(hv.usd) : 'none'}</div>
-                    <div className="text-slate-400">{fmtPct(((hv.priceLo + hv.priceHi) / 2 / data.price - 1) * 100)} from price</div>
-                  </div>
+                  <HeatHoverCard cursor={cursor} id={cardId} anchor={{ x: hover.cx, y: hover.cy }} palette={palette} bottom={bottom} top={top} touch={hover.touch} onClose={() => setHover(null)} />
                 </>
               )}
             </div>
@@ -195,21 +339,19 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
               <p className="pointer-events-none absolute inset-x-0 top-1/4 px-4 text-center text-sm text-slate-300">No open liquidation levels estimated in this window.</p>
             )}
           </div>
+          {readout && (
+            <p role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+              <span>{readout}</span>
+              {pa && <button type="button" onClick={() => setPoints([])} className="focus-ring rounded border border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-300 hover:text-slate-100">Clear</button>}
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-slate-400">
             <span className="inline-flex items-center gap-2">
               <span>Intensity (linear)</span>
               <span className="tabular-nums">{fmtUsd(bottom)}</span>
-              <i className="inline-block h-2 w-28 rounded-sm" style={{ background: RAMP_CSS }} aria-hidden="true" />
+              <i className="inline-block h-2 w-28 rounded-sm" style={{ background: rampCss(palette) }} aria-hidden="true" />
               <span className="tabular-nums">{fmtUsd(top)}</span>
             </span>
-            <label className="inline-flex items-center gap-1">Min
-              <input type="range" min="0" max="99" value={lo} aria-label="Intensity minimum, percent of largest cell" onChange={(e) => setLo(Math.min(+e.target.value, hi - 1))} className="w-20 accent-cyan-400" />
-              <span className="w-20 tabular-nums">{lo}% · {fmtUsd(bottom)}</span>
-            </label>
-            <label className="inline-flex items-center gap-1">Max
-              <input type="range" min="1" max="100" value={hi} aria-label="Intensity maximum, percent of largest cell" onChange={(e) => setHi(Math.max(+e.target.value, lo + 1))} className="w-20 accent-cyan-400" />
-              <span className="w-20 tabular-nums">{hi}% · {fmtUsd(top)}</span>
-            </label>
             <span><i className="mr-1 inline-block h-2 w-2" style={{ background: UP }} />up candle <i className="ml-2 mr-1 inline-block h-2 w-2" style={{ background: DOWN }} />down candle</span>
           </div>
         </>

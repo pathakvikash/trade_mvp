@@ -4,10 +4,10 @@ const mongoose = require('mongoose');
 const { createLimiter } = require('../middleware/rateLimit');
 const Strategy = require('../models/Strategy');
 const futuresRest = require('../services/futuresRest');
-const { isValidSymbol, INTERVALS } = require('../services/futuresUtils');
+const { isValidSymbol } = require('../services/futuresUtils');
 const instruments = require('../services/marketData/instruments');
 const yahoo = require('../services/marketData/providers/yahoo');
-const { parseSpec } = require('../services/strategy/schema');
+const { parseSpec, EVAL_SECONDS } = require('../services/strategy/schema');
 const { evaluate } = require('../services/strategy/evaluate');
 const { describe } = require('../services/strategy/describe');
 
@@ -39,6 +39,7 @@ function parseBody(b, keys) {
   const doc = {};
   if ('name' in b) { if (typeof b.name !== 'string' || !b.name.trim() || b.name.length > 60) return { error: 'invalid name (1..60 chars)' }; doc.name = b.name.trim(); }
   if ('symbol' in b) { const sym = String(b.symbol).toUpperCase(); if (typeof b.symbol !== 'string' || (!isValidSymbol(sym) && !instruments.find(sym))) return { error: 'invalid symbol' }; doc.symbol = sym; }
+  if ('allTimeframes' in b) { if (typeof b.allTimeframes !== 'boolean') return { error: 'invalid allTimeframes' }; doc.allTimeframes = b.allTimeframes; }
   if ('origin' in b) { if (!['ai', 'user'].includes(b.origin)) return { error: 'invalid origin' }; doc.origin = b.origin; }
   if ('spec' in b) {
     const p = parseSpec(b.spec);
@@ -87,20 +88,20 @@ router.post('/evaluate', wrap(async (req, res) => {
   if (!p.ok) return invalid(res, p.issues);
 
   const symbol = b.symbol.toUpperCase();
-  // The spec decides its own candle interval: a client interval that disagrees (or is junk) is ignored, never used.
-  const interval = p.spec.timeframe;
+  // The same spec runs on whatever interval the chart is on; spec.timeframe is only the default when none is sent.
+  const interval = b.interval === undefined ? p.spec.timeframe : b.interval;
+  if (!Object.prototype.hasOwnProperty.call(EVAL_SECONDS, interval)) return bad(res, 'invalid interval');
   let rows, fallback;
   try {
     if (b.kind === 'perp') {
       if (!isValidSymbol(symbol)) return bad(res, 'invalid symbol');
-      if (!INTERVALS.includes(interval)) return bad(res, 'invalid interval');
-      if (!(await futuresRest.isKnownSymbol(symbol))) return notFound(res);
+            if (!(await futuresRest.isKnownSymbol(symbol))) return notFound(res);
       rows = await futuresRest.klines(symbol, interval, limit);
       fallback = 'binance-futures';
     } else {
       const inst = instruments.find(symbol);
       if (!inst) return notFound(res);
-      if (!Object.prototype.hasOwnProperty.call(yahoo.INTERVALS, interval)) return bad(res, 'invalid interval');
+      if (!Object.prototype.hasOwnProperty.call(yahoo.INTERVALS, interval)) return bad(res, 'interval not available for this market');
       rows = (await yahoo.klines(inst, interval, limit)).candles;
       fallback = 'yahoo';
     }
@@ -109,8 +110,8 @@ router.post('/evaluate', wrap(async (req, res) => {
   }
   const candlesSource = (rows && rows.source) || fallback;
   try {
-    const out = evaluate(p.spec, rows, { slippagePct });
-    res.json({ ...out, candlesSource });
+    const out = evaluate(p.spec, rows, { slippagePct, interval });
+    res.json({ ...out, candlesSource, interval });
   } catch (e) {
     if (e.message === 'invalid_spec') return invalid(res, e.issues);
     throw e;
@@ -129,7 +130,7 @@ router.get('/:id', wrap(async (req, res) => {
 }));
 
 router.post('/', wrap(async (req, res) => {
-  const { error, issues, doc } = parseBody(req.body, ['name', 'spec', 'symbol', 'origin']);
+  const { error, issues, doc } = parseBody(req.body, ['name', 'spec', 'symbol', 'origin', 'allTimeframes']);
   if (error) return bad(res, error);
   if (issues) return invalid(res, issues);
   if (!doc.spec) return bad(res, 'spec is required');
@@ -141,7 +142,7 @@ router.post('/', wrap(async (req, res) => {
 
 router.put('/:id', wrap(async (req, res) => {
   if (!validId(req.params.id)) return notFound(res);
-  const { error, issues, doc } = parseBody(req.body, ['name', 'spec', 'symbol']);
+  const { error, issues, doc } = parseBody(req.body, ['name', 'spec', 'symbol', 'allTimeframes']);
   if (error) return bad(res, error);
   if (issues) return invalid(res, issues);
   if (!Object.keys(doc).length) return bad(res, 'nothing to update');

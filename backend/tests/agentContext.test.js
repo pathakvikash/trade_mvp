@@ -40,6 +40,11 @@ beforeEach(() => { jest.clearAllMocks(); _test.reset(); wireMarket(); portfolioM
 const perp = (o = {}) => buildAgentContext({ userId: 'u1', kind: 'perp', symbol: 'BTCUSDT', page: 'trade', interval: '1h', deps: instDeps(), ...o });
 
 describe('agentContext', () => {
+    test("page 'dashboard' reaches the context, unknown pages become null", async () => {
+        expect((await perp({ page: 'dashboard' })).ctx.page).toBe('dashboard');
+        expect((await perp({ page: 'admin' })).ctx.page).toBeNull();
+    });
+
     test('includePortfolio false reads neither Position nor User', async () => {
         const r = await perp();
         expect(Position.find).not.toHaveBeenCalled();

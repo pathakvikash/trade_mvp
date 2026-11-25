@@ -6,6 +6,8 @@ import usePersistedState from '../../lib/usePersistedState';
 import CandleChart from '../trade/CandleChart';
 import MaximizeButton, { MaximizeBackdrop } from '../ui/MaximizeButton';
 import useMaximize from '../ui/useMaximize';
+import useLiqLevels from '../../lib/useLiqLevels';
+import { LiqToggle, LiqChip } from '../trade/LiqLevelsControl';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id }));
 const CHART_TYPES = [{ id: 'candles', label: 'Candles' }, { id: 'line', label: 'Line' }];
@@ -44,7 +46,7 @@ const AreaChart = ({ candles, label }) => {
 
   return (
     <div className="absolute inset-0">
-      <div ref={el} className="h-full w-full" role="img" aria-label={label} />
+      <div ref={el} className="h-full w-full overflow-hidden" role="img" aria-label={label} />
     </div>
   );
 };
@@ -57,6 +59,8 @@ const Message = ({ tone = 'text-slate-400', children }) => (
 const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, ready, onRetry, className = '' }) => {
   const mx = useMaximize();
   const [type, setType] = usePersistedState('market.chartType', 'candles', { validate: (v) => CHART_TYPES.some((t) => t.id === v) });
+  const [liqOn, setLiqOn] = usePersistedState('chart.liqLevels', false, { validate: (v) => typeof v === 'boolean' });
+  const liq = useLiqLevels(ticker, liqOn && type === 'candles');
 
   let body;
   if (error === 'no_market') {
@@ -78,7 +82,12 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
   } else if (type === 'line') {
     body = <AreaChart key={`${ticker}-${interval}`} candles={candles} label={`${ticker} ${interval} line chart`} />;
   } else {
-    body = <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} />;
+    body = (
+      <>
+        {liqOn && <LiqChip liq={liq} />}
+        <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} priceLines={liqOn ? liq.lines : undefined} />
+      </>
+    );
   }
 
   return (
@@ -91,6 +100,7 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
       bodyClassName="relative min-h-[320px] xl:min-h-0 p-1.5 pt-0"
       right={
         <div className="flex flex-wrap items-center gap-2">
+          {type === 'candles' && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
           <SegTabs tabs={CHART_TYPES} active={type} onChange={setType} label="Chart type" />
           <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />
           <MaximizeButton max={mx.max} onToggle={mx.toggle} />

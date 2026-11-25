@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import usePolling from '../lib/usePolling';
 import { API } from '../lib/apiBase';
 import Panel from '../components/ui/Panel';
@@ -53,7 +54,12 @@ const Stocks = () => {
   const [retry, setRetry] = useState(0);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('name');
-  const [sel, setSel] = useState(null);
+  // ?symbol= (from the header search) opens that stock's chart. The page stays mounted when Ctrl+K picks another
+  // stock, so the param is synced into `sel` on every change, not just read once.
+  const [params] = useSearchParams();
+  const wanted = params.get('symbol');
+  const [sel, setSel] = useState(wanted);
+  useEffect(() => { if (wanted) setSel(wanted); }, [wanted]);
   const res = usePolling(`${API}/api/market/stocks/quotes`, 60000, retry, undefined, true);
   const all = Array.isArray(res.data?.rows) ? res.data.rows : null;
 

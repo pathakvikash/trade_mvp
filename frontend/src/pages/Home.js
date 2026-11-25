@@ -3,6 +3,9 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import MarketStrip from '../components/ui/MarketStrip';
 import Logo from '../components/ui/Logo';
+import HomeStats from '../components/home/HomeStats';
+import useUserStore from '../store/userStore';
+import { landingPath } from '../lib/landing';
 
 const PAPER_BALANCE = '$100,000'; // backend/models/User.js PAPER_BALANCE
 
@@ -85,7 +88,12 @@ const FAQ = [
   ['Do I need an API key for AI?', 'No. The AI copilot is optional. If you want it, add your own key in Settings; it is stored encrypted and never shown back to you.'],
 ];
 
-const Home = () => (
+const Home = () => {
+  // Same signed-in test as ProtectedRoute (token && user). zustand persist reads localStorage synchronously, so no signed-out flash on first render.
+  const signedIn = useUserStore((s) => !!(s.token && s.user));
+  const dashboard = useUserStore((s) => landingPath(s.user?.preferences));
+  const openDashboard = <Link to={dashboard} className={`${cta} bg-brand-600 text-white shadow-lg shadow-brand-600/20 hover:bg-brand-500`}>Open dashboard</Link>;
+  return (
   <div className="relative isolate overflow-x-hidden bg-[#070b14] text-slate-100">
     <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[40rem]">
       <div
@@ -114,10 +122,12 @@ const Home = () => (
             Paperline runs a futures simulator on live Binance prices, with a liquidation engine, TP/SL orders and derivatives analytics. Learn how leverage behaves before it costs you anything.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link to="/register" className={`${cta} bg-brand-600 text-white shadow-lg shadow-brand-600/20 hover:bg-brand-500`}>Start free</Link>
-            <Link to="/login" className={`${cta} border border-slate-700 bg-slate-900/60 text-slate-100 hover:border-slate-500`}>Sign in</Link>
+            {signedIn ? openDashboard : (<>
+              <Link to="/register" className={`${cta} bg-brand-600 text-white shadow-lg shadow-brand-600/20 hover:bg-brand-500`}>Start free</Link>
+              <Link to="/login" className={`${cta} border border-slate-700 bg-slate-900/60 text-slate-100 hover:border-slate-500`}>Sign in</Link>
+            </>)}
           </div>
-          <p className="mt-4 text-xs text-slate-400">Simulated funds only. No card required.</p>
+          <p className="mt-4 text-xs text-slate-400">{signedIn ? 'Simulated funds only.' : 'Simulated funds only. No card required.'}</p>
         </div>
         <div className="animate-auth-rise motion-reduce:animate-none [animation-delay:120ms]"><MarketStrip /></div>
       </section>
@@ -184,19 +194,25 @@ const Home = () => (
         </div>
       </section>
 
+      <div className="flex flex-col items-start gap-2">
+        <HomeStats />
+        <Link to="/docs" className="focus-ring text-sm font-medium text-brand-300 hover:text-brand-200">Read the docs</Link>
+      </div>
+
       {/* Closing CTA */}
       <section className="py-12 text-center sm:py-16">
         <h2 className="mx-auto max-w-xl text-2xl font-semibold tracking-tight text-white [text-wrap:balance] sm:text-3xl">Try your strategy before the market tries it for you</h2>
         <div className="mt-6 flex justify-center">
-          <Link to="/register" className={`${cta} bg-brand-600 text-white hover:bg-brand-500`}>Start free</Link>
+          {signedIn ? openDashboard : <Link to="/register" className={`${cta} bg-brand-600 text-white hover:bg-brand-500`}>Start free</Link>}
         </div>
       </section>
 
       <footer className="border-t border-slate-800 py-6 text-center text-sm text-slate-400">
-        <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1"><Logo withWordmark size={18} wordmarkClassName="text-sm font-semibold text-slate-300" className="gap-1.5" /><span>&copy; {new Date().getFullYear()} Paperline. Paper trading only. Not financial advice.</span></p>
+        <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1"><Logo withWordmark size={18} wordmarkClassName="text-sm font-semibold text-slate-300" className="gap-1.5" /><span>&copy; {new Date().getFullYear()} Paperline. Paper trading only. Not financial advice.</span> <Link to="/docs" className="underline-offset-2 hover:text-slate-200 hover:underline">Docs</Link></p>
       </footer>
     </div>
   </div>
-);
+  );
+};
 
 export default Home;

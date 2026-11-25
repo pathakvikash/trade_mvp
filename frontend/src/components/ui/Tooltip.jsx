@@ -1,5 +1,6 @@
 import React, { cloneElement, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscLayer } from './escLayers';
 
 // Place a position:fixed `node` next to the trigger rect `r`: above (or below when there is no room, `prefer` flips
 // that), centred and clamped to the viewport. Shared by tooltips and the Close menu.
@@ -14,24 +15,22 @@ export const placeFixed = (node, r, { gap = 6, prefer = 'above', align = 'center
   const fitsBelow = below + h <= vh - 4;
   const useAbove = prefer === 'above' ? fitsAbove || !fitsBelow : !fitsBelow && fitsAbove;
   const top = useAbove ? Math.max(4, above) : Math.max(4, Math.min(below, vh - h - 4));
-  const x = align === 'end' ? r.right - w : r.left + r.width / 2 - w / 2;
+  const x = align === 'end' ? r.right - w : align === 'start' ? r.left : r.left + r.width / 2 - w / 2;
   node.style.left = `${Math.round(Math.min(Math.max(4, x), Math.max(4, vw - w - 4)))}px`;
   node.style.top = `${Math.round(top)}px`;
   node.style.visibility = 'visible';
 };
 
-// Close a floating layer on Esc, on resize, and when a scroll moves its anchor (capture catches scrolling tables and
+// Close a floating layer on Esc (topmost only), on resize, and when a scroll moves its anchor (capture catches scrolling tables and
 // panels too; live lists elsewhere on the page that scroll themselves are ignored).
 export const useDismiss = (open, close, anchor) => {
+  useEscLayer(open, close); // Esc closes only the topmost open layer
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') close(e); };
     const onScroll = (e) => { if (e.type === 'resize' || !anchor?.current || e.target.contains?.(anchor.current)) close(); };
-    window.addEventListener('keydown', onKey);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
     return () => {
-      window.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
     };

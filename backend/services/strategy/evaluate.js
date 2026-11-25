@@ -1,4 +1,4 @@
-const { parseSpec, STRATEGY_LIMITS, TIMEFRAME_SECONDS, MULTI } = require('./schema');
+const { parseSpec, STRATEGY_LIMITS, EVAL_SECONDS, MULTI } = require('./schema');
 const ind = require('./indicators');
 const { simulate, stats, CAVEATS, SMALL_SAMPLE, OPEN_TRADE } = require('./backtest');
 
@@ -56,7 +56,7 @@ function groupSignals(m, g, n) {
 }
 
 // spec is re-validated here so a caller can never feed an unchecked object to the interpreter.
-// opts.now in ms; the last candle is dropped while still forming (time + interval > now).
+// opts.interval = candle interval the rows are on (default spec.timeframe); opts.now in ms; the last candle is dropped while still forming (time + interval > now).
 function evaluate(rawSpec, rawCandles, opts = {}) {
     const p = parseSpec(rawSpec);
     if (!p.ok) { const e = new Error('invalid_spec'); e.issues = p.issues; throw e; }
@@ -68,7 +68,8 @@ function evaluate(rawSpec, rawCandles, opts = {}) {
         .map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume }))
         .sort((a, b) => a.time - b.time)
         .slice(-STRATEGY_LIMITS.maxCandles);
-    const iv = TIMEFRAME_SECONDS[spec.timeframe];
+    // the forming-candle cut uses the interval actually evaluated (opts.interval), not the spec's designed-on timeframe
+    const iv = EVAL_SECONDS[opts.interval] || EVAL_SECONDS[spec.timeframe];
     if (candles.length && (candles[candles.length - 1].time + iv) * 1000 > now) candles = candles.slice(0, -1);
     const n = candles.length;
     const m = computeSeries(spec, candles);

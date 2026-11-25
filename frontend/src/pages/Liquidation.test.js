@@ -9,7 +9,11 @@ jest.mock('react-router-dom', () => {
   const React = require('react');
   return { __esModule: true, useSearchParams: () => [new URLSearchParams(mockQuery), jest.fn()] };
 }, { virtual: true });
-jest.mock('../lib/usePolling', () => ({ __esModule: true, default: () => ({ data: null, error: null }) }));
+const mockOverview = [
+  { symbol: 'BTCUSDT', quoteVolume: 900 }, { symbol: 'ETHUSDT', quoteVolume: 800 }, { symbol: 'SOLUSDT', quoteVolume: 700 }, { symbol: 'BADCOIN', quoteVolume: 9999 },
+  ...Array.from({ length: 25 }, (_, i) => ({ symbol: `C${i}USDT`, quoteVolume: i })),
+];
+jest.mock('../lib/usePolling', () => ({ __esModule: true, default: (url) => ({ data: url && url.includes('/overview') ? mockOverview : null, error: null }) }));
 jest.mock('../components/LiquidationHeatmap', () => () => null);
 jest.mock('../components/liquidation/Summary', () => () => null);
 jest.mock('../components/liquidation/CoinTreemap', () => () => null);
@@ -53,4 +57,20 @@ test('Ask AI opens the dock with the liquidation page context', () => {
   act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Ask AI').click());
   expect(useAgentStore.getState().open).toBe(true);
   expect(useAgentStore.getState().ctx).toMatchObject({ kind: 'perp', symbol: 'BTCUSDT', page: 'liquidation' });
+});
+
+test('below the feed: related tools, other coins (top 20 by volume, not the current coin), FAQ', () => {
+  render();
+  expect(container.textContent).toContain('Related tools');
+  const links = [...container.querySelectorAll('ul[aria-label="Other coins"] a')].map((a) => a.textContent);
+  expect(links).toHaveLength(20);
+  expect(links[0]).toBe('ETH Liquidation Heatmap'); // BTCUSDT is the current symbol, BADCOIN is not a valid perp symbol
+  expect(links).not.toContain('BTC Liquidation Heatmap');
+  expect(container.textContent).toContain('About these numbers');
+});
+
+test('picking another coin switches the page symbol', () => {
+  render();
+  act(() => [...container.querySelectorAll('ul[aria-label="Other coins"] a')].find((a) => a.textContent.startsWith('SOL')).click());
+  expect(title()).toContain('SOLUSDT');
 });

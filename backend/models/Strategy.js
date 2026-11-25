@@ -7,6 +7,7 @@ const strategySchema = new mongoose.Schema({
   spec: { type: mongoose.Schema.Types.Mixed, required: true },
   specHash: { type: String, required: true }, // sha256 of the canonical (key-sorted) JSON
   symbol: { type: String, maxlength: 20 },
+  allTimeframes: { type: Boolean, default: true }, // follow the chart's timeframe; false = pinned to spec.timeframe. Old docs lack it = true
   origin: { type: String, enum: ['ai', 'user'], default: 'user' },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

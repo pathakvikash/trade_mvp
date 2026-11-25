@@ -77,7 +77,7 @@ const Market = () => {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
         <MarketList
-          className="xl:min-h-0"
+          className="lg:sticky lg:top-0 lg:h-[calc(100dvh-9.5rem)] xl:static xl:h-auto xl:min-h-0"
           rows={rows}
           error={ov.error}
           onRetry={() => setRetryKey((k) => k + 1)}

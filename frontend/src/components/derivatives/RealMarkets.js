@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import usePolling from '../../lib/usePolling';
 import { API } from '../../lib/apiBase';
 import { asOf, pct, price, StatusBadges } from '../../lib/instrumentFormat';
@@ -59,9 +60,18 @@ const InstrumentChart = ({ row, onClose }) => {
 
 // Curated real-world instruments, view only. Idle (no request) until the panel is opened.
 const RealMarkets = () => {
-  const [open, setOpen] = useState(false);
-  const [cat, setCat] = useState('stock');
-  const [sel, setSel] = useState(null);
+  // ?instrument=GOLD&category=commodity (from the header search) opens the panel on that instrument
+  // The page stays mounted when a later search lands on /derivatives again, so sync on change instead of reading once.
+  const [params] = useSearchParams();
+  const wanted = params.get('instrument');
+  const wantedCat = CATS.some((c) => c.id === params.get('category')) ? params.get('category') : 'stock';
+  const [open, setOpen] = useState(!!wanted);
+  const [cat, setCat] = useState(wantedCat);
+  const [sel, setSel] = useState(wanted);
+  useEffect(() => {
+    if (!wanted) return;
+    setOpen(true); setCat(wantedCat); setSel(wanted);
+  }, [wanted, wantedCat]);
   const [retry, setRetry] = useState(0);
   const res = usePolling(open ? `${API}/api/market/instruments/quotes?category=${cat}` : null, 60000, retry, undefined, true);
   const rows = Array.isArray(res.data?.rows) ? res.data.rows : null;

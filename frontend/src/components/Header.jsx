@@ -74,7 +74,7 @@ const Header = ({ onMenu }) => {
         type="button"
         onClick={() => setPaletteOpen(true)}
         className="focus-ring flex h-7 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2 text-xs text-slate-500 hover:border-slate-700 hover:text-slate-300 sm:w-52"
-        aria-label="Search coins and pages"
+        aria-label="Search tokens and pages"
         aria-haspopup="dialog"
       >
         <Icon d={ICONS.search} className="h-3.5 w-3.5" />

@@ -15,6 +15,12 @@ const lineOpts = (l) => ({
   lineStyle: l.style === 'dashed' ? LineStyle.Dashed : LineStyle.Solid, axisLabelVisible: true,
 });
 
+// Generic lines (liquidation levels): width/colour come from the caller; the axis label shows only with a title.
+const extraOpts = (l) => ({
+  price: l.price, color: l.color, title: l.title || '', lineWidth: l.width || 1,
+  lineStyle: l.style === 'solid' ? LineStyle.Solid : LineStyle.Dashed, axisLabelVisible: !!l.title,
+});
+
 // Strategy marker kinds (evaluate API) -> chart marker look.
 const MARKER = {
   entry_long: { position: 'belowBar', shape: 'arrowUp', color: UP, text: 'L' },
@@ -29,12 +35,13 @@ const MARKER = {
 const toMarkers = (ms) => (ms || []).filter((m) => MARKER[m.kind]).map((m) => ({ time: m.time, ...MARKER[m.kind] })).sort((a, b) => a.time - b.time);
 const lineData = (o) => (o.data || []).filter((p) => Number.isFinite(p.value));
 
-const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, strategyChip }) => {
+const CandleChart = ({ candles, reloadSeq, label, lines, priceLines, overlays, markers, strategyChip }) => {
   const el = useRef(null);
   const series = useRef(null); // { candle, volume }
   const count = useRef(0);
   const seq = useRef(reloadSeq);
-  const priceLines = useRef(new Map()); // id -> { line, sig }
+  const entryLines = useRef(new Map()); // id -> { line, sig }
+  const extraLines = useRef(new Map()); // same, for the `priceLines` prop (liquidation levels)
   const overlaySeries = useRef(new Map()); // id -> { s, sig }
   const hadMarkers = useRef(false);
   const byTime = useRef(new Map()); // time -> candle, for the crosshair readout
@@ -60,11 +67,13 @@ const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, stra
     });
     series.current = { candle, volume, chart };
     count.current = 0;
-    const pl = priceLines.current;
+    const pl = entryLines.current;
+    const xl = extraLines.current;
     const os = overlaySeries.current;
     return () => {
       chart.remove();
       pl.clear();
+      xl.clear();
       os.clear();
       series.current = null;
     };
@@ -97,21 +106,23 @@ const CandleChart = ({ candles, reloadSeq, label, lines, overlays, markers, stra
   }, [candles, reloadSeq]);
 
   // Reconcile by id: create / applyOptions in place (no recreate, no zoom reset) / remove.
-  useEffect(() => {
-    if (!series.current) return;
+  const reconcile = (map, list, opts) => {
     const { candle } = series.current;
-    const map = priceLines.current;
-    const next = new Map((lines || []).map((l) => [l.id, l]));
+    const next = new Map((list || []).map((l) => [l.id, l]));
     map.forEach(({ line }, id) => {
       if (!next.has(id)) { candle.removePriceLine(line); map.delete(id); }
     });
     next.forEach((l, id) => {
-      const sig = JSON.stringify(lineOpts(l));
+      const sig = JSON.stringify(opts(l));
       const cur = map.get(id);
-      if (!cur) map.set(id, { line: candle.createPriceLine(lineOpts(l)), sig });
-      else if (cur.sig !== sig) { cur.line.applyOptions(lineOpts(l)); cur.sig = sig; }
+      if (!cur) map.set(id, { line: candle.createPriceLine(opts(l)), sig });
+      else if (cur.sig !== sig) { cur.line.applyOptions(opts(l)); cur.sig = sig; }
     });
-  }, [lines]);
+  };
+  /* eslint-disable react-hooks/exhaustive-deps -- reconcile only reads refs */
+  useEffect(() => { if (series.current) reconcile(entryLines.current, lines, lineOpts); }, [lines]);
+  useEffect(() => { if (series.current) reconcile(extraLines.current, priceLines, extraOpts); }, [priceLines]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // Strategy overlays: line series reconciled by id on the same chart (no remount, zoom kept).
   useEffect(() => {

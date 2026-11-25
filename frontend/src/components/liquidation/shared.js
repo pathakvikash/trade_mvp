@@ -49,3 +49,10 @@ export const SortTh = ({ k, sort, toggle, children, left, className = '' }) => (
     </button>
   </th>
 );
+
+// usePolling keeps the last good data when a refresh fails: say so, with the time those numbers are from when known.
+export const StaleNote = ({ at }) => (
+  <p role="status" className="mb-2 text-xs text-amber-400">
+    {at ? `Showing data from ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: refresh failed, retrying.` : 'Showing the last data received: refresh failed, retrying.'}
+  </p>
+);

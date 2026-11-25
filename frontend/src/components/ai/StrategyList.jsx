@@ -23,9 +23,11 @@ const StrategyList = () => {
 
   const show = (s) => {
     const id = s._id || s.id;
-    const body = { strategyId: id, kind: ctx.kind, symbol: ctx.symbol, interval: ctx.interval || '1h' };
+    const allTf = s.allTimeframes !== false; // old documents have no flag: all timeframes
+    const evalOn = allTf ? ctx.interval || s.spec.timeframe : s.spec.timeframe;
+    const body = { strategyId: id, kind: ctx.kind, symbol: ctx.symbol, interval: evalOn };
     return axios.post(`${API}/api/strategies/evaluate`, body, authed(token))
-      .then((r) => { useStrategyStore.getState().setActive({ spec: s.spec, symbol: ctx.symbol, kind: ctx.kind, interval: body.interval, result: r.data }); setErr(null); })
+      .then((r) => { useStrategyStore.getState().setActive({ spec: s.spec, symbol: ctx.symbol, kind: ctx.kind, interval: s.spec.timeframe, allTimeframes: allTf, result: r.data, resultInterval: evalOn }); setErr(null); })
       .catch((e) => setErr(errText(e)));
   };
 
@@ -38,7 +40,7 @@ const StrategyList = () => {
         const id = s._id || s.id;
         return (
           <div key={id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 p-2 text-sm">
-            <span className="min-w-0 truncate text-slate-200">{s.name}</span>
+            <span className="min-w-0 truncate text-slate-200">{s.name} <span className="text-xs text-slate-500">{s.allTimeframes === false ? `pinned to ${s.spec?.timeframe}` : 'all timeframes'}</span></span>
             <span className="flex shrink-0 gap-1.5">
               <button type="button" disabled={!ctx} onClick={() => show(s)} className="focus-ring rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-900 disabled:opacity-50">Show on chart</button>
               <button type="button" aria-label={`Delete ${s.name}`} onClick={() => del(id)} className="focus-ring rounded-md border border-rose-400/40 px-2 py-1 text-xs text-rose-300 hover:bg-rose-400/10">Delete</button>

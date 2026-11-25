@@ -220,6 +220,7 @@ const klineSource = useFuturesStore((s) => s.klineSource);
           view={view}
           onView={onView}
           alertsSymbol={futuresSymbol}
+          liqSymbol={futuresSymbol}
           unread={unread}
           interval={interval}
           onInterval={setTimeframe}

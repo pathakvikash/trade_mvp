@@ -15,7 +15,7 @@ const router = express.Router();
 
 const MAX_CONVERSATIONS = 10;
 const MAX_MESSAGES = 40;
-const PAGES = ['trade', 'derivatives', 'liquidation', 'markets'];
+const PAGES = ['trade', 'derivatives', 'liquidation', 'markets', 'dashboard'];
 const isObj = (b) => b && typeof b === 'object' && !Array.isArray(b);
 const bad = (res, error) => res.status(400).json({ error });
 const notFound = (res) => res.status(404).json({ error: 'not_found' });

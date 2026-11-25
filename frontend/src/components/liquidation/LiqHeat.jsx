@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import usePersistedState from '../../lib/usePersistedState';
 import usePolling from '../../lib/usePolling';
 import LiqHeatmap, { RANGES } from './LiqHeatmap';
+import LegendFab from './LegendFab';
 import { KeyLevels, Overview } from './LiqSide';
 import { FUT } from './shared';
 
@@ -23,6 +24,8 @@ const LiqHeat = ({ symbol }) => {
           </div>
         </div>
       )}
+      {/* fixed bottom-right toggle; mounted here because the legend needs this heatmap's largest cell */}
+      <LegendFab max={ok ? data.max : undefined} />
     </div>
   );
 };

@@ -97,3 +97,22 @@ test('vertical touch drags are left to the page (phone scroll is not trapped by 
   render(<CandleChart candles={[{ time: 1, open: 1, high: 2, low: 1, close: 2, volume: 1 }]} reloadSeq={0} label="x" />);
   expect(createChart.mock.calls[createChart.mock.calls.length - 1][1].handleScroll).toEqual({ vertTouchDrag: false });
 });
+
+test('priceLines prop: created, resized in place, removed by id; untitled lines get no axis label; absent prop leaves `lines` alone', () => {
+  const P = (o) => ({ id: 'long:1', price: 90, color: 'red', width: 2, title: '$1M long', style: 'dashed', ...o });
+  const node = (pl) => <CandleChart candles={candles} reloadSeq={0} label="x" lines={[L()]} priceLines={pl} />;
+  const { rerender } = render(node([P(), P({ id: 'long:2', title: '' })]));
+  const calls = mockCandle.createPriceLine.mock.calls.map((c) => c[0]);
+  expect(calls).toHaveLength(3); // 1 entry line + 2 liq lines
+  expect(calls[1]).toMatchObject({ lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: '$1M long' });
+  expect(calls[2]).toMatchObject({ axisLabelVisible: false });
+  const first = mockCandle.createPriceLine.mock.results[1].value;
+
+  rerender(node([P({ width: 3 }), P({ id: 'long:2', title: '' })]));
+  expect(mockCandle.createPriceLine).toHaveBeenCalledTimes(3);
+  expect(first.applyOptions).toHaveBeenCalledTimes(1);
+
+  rerender(node(undefined));
+  expect(mockCandle.removePriceLine).toHaveBeenCalledTimes(2); // only the liq lines; entry line stays
+  expect(createChart).toHaveBeenCalledTimes(1);
+});

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
 
+jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), isCancel: () => false } }));
 jest.mock('lightweight-charts', () => ({ LineStyle: { Solid: 0, Dashed: 2 }, createChart: jest.fn() }));
 jest.mock('../alerts/AlertsPanel', () => ({ __esModule: true, default: () => null }));
 

@@ -4,6 +4,9 @@ import { createRoot } from 'react-dom/client';
 import RealMarkets from './RealMarkets';
 import usePolling from '../../lib/usePolling';
 
+// react-router-dom is not loadable under Jest; the page only needs useSearchParams, fed from mockQuery.
+let mockQuery = '';
+jest.mock('react-router-dom', () => ({ __esModule: true, useSearchParams: () => [new URLSearchParams(mockQuery), jest.fn()] }), { virtual: true });
 jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 jest.mock('lightweight-charts', () => ({ createChart: jest.fn() }));
 jest.mock('../../lib/usePolling', () => ({ __esModule: true, default: jest.fn() }));
@@ -29,7 +32,7 @@ let container;
 let root;
 beforeAll(() => { global.IS_REACT_ACT_ENVIRONMENT = true; });
 beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
-afterEach(() => { act(() => root.unmount()); container.remove(); jest.clearAllMocks(); });
+afterEach(() => { act(() => root.unmount()); container.remove(); jest.clearAllMocks(); mockQuery = ''; });
 
 const render = async (res) => {
   usePolling.mockImplementation((url) => {
@@ -138,4 +141,16 @@ test('phone list row opens the chart; the panel keeps a fixed-height, non-shrink
   expect(body.className).toContain('shrink-0');
   expect(spy).toHaveBeenCalled();
   delete Element.prototype.scrollIntoView;
+});
+
+test('?instrument= opens the panel on it and switches when the param changes while mounted', async () => {
+  await render();
+  expect(urls()).toEqual([]); // no param: stays closed
+  mockQuery = 'category=index&instrument=NIFTY50';
+  await act(async () => { root.render(<RealMarkets />); });
+  expect(urls().some((u) => u.includes('category=index'))).toBe(true);
+  expect(container.textContent).toContain('NIFTY50 · NIFTY 50');
+  mockQuery = 'category=commodity&instrument=GOLD';
+  await act(async () => { root.render(<RealMarkets />); });
+  expect(container.textContent).toContain('GOLD · Gold');
 });

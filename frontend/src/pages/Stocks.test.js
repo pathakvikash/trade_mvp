@@ -4,6 +4,9 @@ import { createRoot } from 'react-dom/client';
 import Stocks from './Stocks';
 import usePolling from '../lib/usePolling';
 
+// react-router-dom is not loadable under Jest; the page only needs useSearchParams, fed from mockQuery.
+let mockQuery = '';
+jest.mock('react-router-dom', () => ({ __esModule: true, useSearchParams: () => [new URLSearchParams(mockQuery), jest.fn()] }), { virtual: true });
 jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 jest.mock('lightweight-charts', () => ({ createChart: jest.fn() }));
 jest.mock('../lib/usePolling', () => ({ __esModule: true, default: jest.fn() }));
@@ -19,7 +22,7 @@ let container;
 let root;
 beforeAll(() => { global.IS_REACT_ACT_ENVIRONMENT = true; });
 beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
-afterEach(() => { act(() => root.unmount()); container.remove(); jest.clearAllMocks(); });
+afterEach(() => { act(() => root.unmount()); container.remove(); jest.clearAllMocks(); mockQuery = ''; });
 const render = async (res) => {
   usePolling.mockImplementation((url) => (url.includes('/klines/') ? ok([{ time: 1, open: 1, high: 2, low: 1, close: 2, volume: 1 }]) : res));
   await act(async () => { root.render(<Stocks />); });
@@ -106,4 +109,13 @@ test('phone list: tappable rows with price, change and status; tap opens the cha
   expect(container.textContent).toContain('Close');
   expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
   delete Element.prototype.scrollIntoView;
+});
+
+test('?symbol= opens that stock and follows later changes while mounted', async () => {
+  mockQuery = 'symbol=RELIANCE';
+  await render(ok({ rows: ROWS }));
+  expect(container.textContent).toContain('RELIANCE · Reliance Industries');
+  mockQuery = 'symbol=TCS'; // Ctrl+K picked another stock on /stocks: same mounted page, new param
+  await act(async () => { root.render(<Stocks />); });
+  expect(container.textContent).toContain('TCS · Tata Consultancy');
 });

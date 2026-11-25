@@ -207,6 +207,14 @@ describe('repair and strategy handling', () => {
         expect(yahoo.klines).toHaveBeenCalledWith(expect.objectContaining({ symbol: 'NIFTY50' }), '1h', 500);
     });
 
+    test("page enum: 'dashboard' is accepted, unknown pages stay 400", async () => {
+        const id = byoUser();
+        complete.mockResolvedValue(reply({ answer: 'ok' }));
+        expect((await chat(id, { context: { ...CTX, page: 'dashboard' } })).status).toBe(200);
+        expect((await chat(id, { context: { ...CTX, page: 'Dashboard' } })).status).toBe(400);
+        expect((await chat(id, { context: { ...CTX, page: 'home' } })).status).toBe(400);
+    });
+
     test('model text in a reply is clipped and never executed: answer <= 2000 chars', async () => {
         const id = byoUser();
         complete.mockResolvedValue(reply({ answer: '<img src=x onerror=alert(1)> '.repeat(200) }));

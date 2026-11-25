@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import usePolling from '../../lib/usePolling';
 import useCanvas from './useCanvas';
 import { LoadingBlock } from '../ui/Skeleton';
-import { PARTIAL_NOTE, sourceNote, FUT, Notice, Panel, coin, fmtPrice, fmtUsd, is404 } from './shared';
+import { PARTIAL_NOTE, sourceNote, FUT, Notice, StaleNote, Panel, coin, fmtPrice, fmtUsd, is404 } from './shared';
 
 const H = 300;
 const PAD = { l: 8, r: 56, t: 8, b: 20 };
@@ -98,9 +98,10 @@ const LiqMap = ({ symbol }) => {
   const label = ok ? `${coin(symbol)} estimated liquidation map: ${fmtUsd(totalShort)} short liquidations above ${fmtPrice(data.price)}, ${fmtUsd(totalLong)} long liquidations below` : '';
 
   return (
-    <Panel title={`Estimated liquidation map - ${coin(symbol)}`} right={<span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[11px] text-amber-400">Estimated model</span>}>
+    <Panel id="liq-map" title={`Estimated liquidation map - ${coin(symbol)}`} right={<span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[11px] text-amber-400">Estimated model</span>}>
       <p className="mb-2 text-xs text-amber-400">Estimated model: exchanges do not publish liquidation prices.</p>
       {sourceNote(source, 'heatmap') && <p className="mb-2 text-xs text-amber-400">{sourceNote(source, 'heatmap')}</p>}
+      {ok && error && <StaleNote at={data.generatedAt} />}
       {data?.partial && <p className="mb-2 text-xs text-amber-400">{PARTIAL_NOTE}</p>}
       {!ok ? (
         loading ? <LoadingBlock height={H} /> : <Notice tone={error ? 'error' : 'muted'}>{is404(error) ? 'No perpetual market for this symbol.' : error ? 'Liquidation map unavailable for this symbol right now.' : 'No estimate available.'}</Notice>

@@ -10,7 +10,7 @@ import StrategyCard from './StrategyCard';
 
 export const DISCLAIMER = 'Analysis only, not financial advice. Paper trading.';
 const NO_KEY = ['ai_no_key', 'ai_not_configured', 'ai_unconfigured'];
-const PAGES = { trade: 'Trade', derivatives: 'Derivatives', liquidation: 'Liquidation', markets: 'Markets' };
+const PAGES = { trade: 'Trade', derivatives: 'Derivatives', liquidation: 'Liquidation', markets: 'Markets', dashboard: 'Dashboard' };
 const chipText = (c) => [c.symbol, PAGES[c.page] || c.page, c.interval].filter(Boolean).join(' · ');
 
 const Sources = ({ sources = [] }) => (
@@ -30,20 +30,35 @@ const Reply = ({ m, ctx }) => {
   const [note, setNote] = useState(null);
   const [gone, setGone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [allTf, setAllTf] = useState(true);
   const r = m.reply;
   const st = r?.strategy;
+  // Derived, not local state: Clear on the chart chip or applying another strategy changes the store, which re-enables Apply.
+  const applied = useStrategyStore((s) => !!st && s.active?.spec === st.spec);
 
-  const show = () => {
+  // Accept: only now is anything evaluated for the chart and stored as the active overlay.
+  const apply = () => {
     setBusy(true);
-    const body = { spec: st.spec, kind: ctx.kind, symbol: ctx.symbol, interval: ctx.interval || '1h' };
+    const evalOn = allTf ? ctx.interval || st.spec.timeframe : st.spec.timeframe; // pinned: its own timeframe
+    const body = { spec: st.spec, kind: ctx.kind, symbol: ctx.symbol, interval: evalOn };
     axios.post(`${API}/api/strategies/evaluate`, body, authed(token))
-      .then((x) => { useStrategyStore.getState().setActive({ spec: st.spec, symbol: ctx.symbol, kind: ctx.kind, interval: body.interval, result: x.data }); setNote(null); })
-      .catch((e) => setNote(aiError(e).msg)).finally(() => setBusy(false));
+      .then((x) => {
+        useStrategyStore.getState().setActive({ spec: st.spec, symbol: ctx.symbol, kind: ctx.kind, interval: st.spec.timeframe, allTimeframes: allTf, result: x.data, resultInterval: evalOn });
+        setNote(null);
+      })
+      .catch((e) => setNote(errStatus(e) === 400 ? `Not available on this timeframe (${evalOn}).` : aiError(e).msg)).finally(() => setBusy(false));
+  };
+  // Decline drops the proposal (and its overlay if it is the one on the chart); a saved copy is never touched.
+  const decline = () => {
+    const a = useStrategyStore.getState().active;
+    if (a && a.spec === st.spec) useStrategyStore.getState().clear();
+    setGone(true);
   };
   const save = () => {
     setBusy(true);
-    axios.post(`${API}/api/strategies`, { name: st.describe.slice(0, 60), spec: st.spec, symbol: ctx.symbol, origin: 'ai' }, authed(token))
-      .then(() => setNote('Saved.'))
+    axios.post(`${API}/api/strategies`, { name: st.describe.slice(0, 60), spec: st.spec, symbol: ctx.symbol, origin: 'ai', allTimeframes: allTf }, authed(token))
+      .then(() => { setSaved(true); setNote(null); })
       .catch((e) => setNote(e?.response?.data?.error === 'STRATEGY_LIMIT' || errStatus(e) === 409 ? 'You have reached the saved-strategy limit. Delete one in the Strategies tab first.' : aiError(e).msg))
       .finally(() => setBusy(false));
   };
@@ -52,7 +67,7 @@ const Reply = ({ m, ctx }) => {
     <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-sm text-slate-200">
       <p className="whitespace-pre-wrap break-words">{m.text}</p>
       {r?.strategyDropped && <p className="mt-2 text-xs text-amber-300">The strategy the AI proposed was invalid and was dropped.</p>}
-      {st && !gone && <StrategyCard strategy={st} busy={busy} note={note} onShow={show} onSave={save} onDiscard={() => setGone(true)} />}
+      {st && !gone && <StrategyCard strategy={st} status={applied ? 'applied' : 'proposed'} saved={saved} allTimeframes={allTf} onAllTimeframes={setAllTf} busy={busy} note={note} onApply={apply} onSave={save} onDecline={decline} />}
       {r?.dataGaps?.length > 0 && <p className="mt-2 text-xs text-slate-500">Missing data: {r.dataGaps.map(String).join(', ')}</p>}
       <Sources sources={r?.sources} />
     </div>

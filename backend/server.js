@@ -42,6 +42,7 @@ app.use('/api/futures', require('./routes/futuresRoutes'));
 const marketRoutes = require('./routes/marketRoutes');
 app.use('/api/market', marketRoutes);
 
+app.use('/api/news', require('./routes/newsRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/alerts', require('./routes/alertRoutes'));
 app.use('/api/strategies', require('./middleware/auth'), require('./routes/strategyRoutes'));

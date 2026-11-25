@@ -328,6 +328,12 @@ Futures error codes: `INSUFFICIENT_BALANCE`, `MIN_NOTIONAL`, `LEVERAGE_TOO_HIGH`
 | GET | `/instruments/quotes?category=`, `/instruments/klines/:symbol` | Same for all curated markets: `stock`, `index` (`NIFTY50`, `BANKNIFTY`, `NIFTYIT`), `commodity` (`GOLD`, `SILVER`, `CRUDEOIL`, `BRENT`), `currency` (`USDINR`, `EURINR`, `GBPINR`, `EURUSD`) |
 | GET | `/providers` | Health of each data source: name, capabilities, breaker state, listed-symbol count (no URLs or errors) |
 
+### News headlines (`/api/news`, public, 60/min per IP)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/news?limit=30&category=all\|crypto\|india` | Headlines only (`{items:[{id,title,link,source,category,publishedAt}], sources:[{name,category,ok,at}], stale?, disclaimer}`), from 3 crypto and 3 Indian-markets RSS feeds; limit 1..50; cached 10 min; `stale: true` when every source fails and an older answer is served (up to 24 h); 502 `News unavailable` otherwise. `X-Data-Source: rss`. Titles are text-only, links http(s) only; no descriptions, images or full text. External headlines, not our analysis, not investment advice. |
+
 Every futures response carries `X-Data-Source`: `binance-futures` (default), `ws`, `bybit`, `bitget`, `gate`, `mexc`, `spot`, `unavailable` or `yahoo`. Anything other than `binance-futures` is third-party or reduced data and the UI says so. `/futures/liqheat` adds `partial: true` when the history is shorter than the range (new listing). Third-party data is analytics only: fills, marks, liquidations, TP/SL and alerts use Binance prices only.
 
 Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** (`BTCUSDT`); trading routes use the **base ticker** (`BTC`).

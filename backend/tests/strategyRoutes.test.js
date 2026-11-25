@@ -106,6 +106,18 @@ describe('CRUD', () => {
         expect(list.body).toHaveLength(1);
         expect(String(list.body[0].userId)).toBe(A);
     });
+    test('allTimeframes round-trips on create/update, must be boolean; docs without it stay absent (client treats as true)', async () => {
+        const r = await create(A, { allTimeframes: false });
+        expect(r.status).toBe(201);
+        expect(r.body.allTimeframes).toBe(false);
+        const id = String(r.body._id);
+        expect((await call('put', '/:id', { params: { id }, body: { allTimeframes: true } })).body.allTimeframes).toBe(true);
+        expect((await create(A, { allTimeframes: 'no' })).status).toBe(400);
+        expect((await call('put', '/:id', { params: { id }, body: { allTimeframes: 1 } })).status).toBe(400);
+        const old = await create(A);
+        expect(old.status).toBe(201);
+        expect(old.body.allTimeframes).not.toBe(false);
+    });
     test('the hash ignores key order', async () => {
         const reordered = Object.fromEntries(Object.entries(SPEC).reverse());
         const [x, y] = [await create(), await call('post', '/', { body: { spec: reordered } })];
@@ -177,20 +189,51 @@ describe('evaluate', () => {
         expect(yahoo.klines).toHaveBeenCalledWith(expect.objectContaining({ symbol: 'NIFTY50', yahoo: expect.anything() }), '1h', 50);
         expect(r.body.candlesSource).toBe('yahoo');
         expect((await ev({ kind: 'instrument', symbol: 'NOPE', interval: '1h', spec: SPEC })).status).toBe(404);
-        expect((await ev({ kind: 'instrument', symbol: 'NIFTY50', interval: '1h', spec: { ...SPEC, timeframe: '4h' } })).status).toBe(400); // yahoo has no 4h
+        expect((await ev({ kind: 'instrument', symbol: 'NIFTY50', spec: { ...SPEC, timeframe: '4h' } })).status).toBe(400); // no interval sent: the spec's 4h; yahoo has no 4h
     });
-    test('the spec timeframe is the candle interval; a mismatching or junk client interval is ignored', async () => {
-        for (const interval of ['1d', '9m', undefined]) {
+    test('no interval = the spec timeframe (designed-on default); an allowed interval overrides it for the same spec', async () => {
+        await ev({ ...EVAL, interval: undefined, spec: SPEC });
+        expect(futuresRest.klines).toHaveBeenLastCalledWith('BTCUSDT', '1h', 100);
+        for (const interval of ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d']) {
             futuresRest.klines.mockClear();
-            expect((await ev({ ...EVAL, interval, spec: SPEC })).status).toBe(200);
-            expect(futuresRest.klines).toHaveBeenCalledWith('BTCUSDT', '1h', 100);
+            const r = await ev({ ...EVAL, interval, spec: SPEC }, oid());
+            expect(r.status).toBe(200);
+            expect(r.body.interval).toBe(interval);
+            expect(futuresRest.klines).toHaveBeenCalledWith('BTCUSDT', interval, 100);
         }
         futuresRest.klines.mockClear();
-        await ev({ ...EVAL, interval: '1h', spec: { ...SPEC, timeframe: '4h' } });
-        expect(futuresRest.klines).toHaveBeenCalledWith('BTCUSDT', '4h', 100);
-        yahoo.klines.mockClear();
-        await ev({ kind: 'instrument', symbol: 'NIFTY50', interval: '1d', spec: SPEC });
-        expect(yahoo.klines).toHaveBeenCalledWith(expect.anything(), '1h', 500);
+        await ev({ ...EVAL, interval: '5m', spec: { ...SPEC, timeframe: '4h' } });
+        expect(futuresRest.klines).toHaveBeenCalledWith('BTCUSDT', '5m', 100);
+    });
+    test('unknown intervals are 400 and fetch nothing; instruments only take yahoo intervals', async () => {
+        for (const interval of ['9m', '1w', '1H', '__proto__', 'constructor']) {
+            const r = await ev({ ...EVAL, interval, spec: SPEC }, oid());
+            expect(r.status).toBe(400);
+        }
+        expect(futuresRest.klines).not.toHaveBeenCalled();
+        const r = await ev({ kind: 'instrument', symbol: 'NIFTY50', interval: '15m', spec: SPEC });
+        expect(r.status).toBe(400);
+        expect(r.body.error).toMatch(/not available/);
+        expect(yahoo.klines).not.toHaveBeenCalled();
+        expect((await ev({ kind: 'instrument', symbol: 'NIFTY50', interval: '1d', spec: SPEC })).status).toBe(200);
+        expect(yahoo.klines).toHaveBeenCalledWith(expect.anything(), '1d', 500);
+    });
+    test('the forming candle is dropped by the interval evaluated, not the spec timeframe', async () => {
+        const now = Date.now();
+        const t = Math.floor(now / 1000);
+        const mk = (iv) => Array.from({ length: 60 }, (_, i) => ({ time: t - (59 - i) * iv - 10, open: 100, high: 101, low: 99, close: 100, volume: 1 }));
+        // last candle opened 10 s ago: still forming on 1d (spec is 1h and would have kept it: 10 s + 1h > now too, so use 5m)
+        futuresRest.klines.mockResolvedValue(mk(300));
+        const r5 = await ev({ ...EVAL, interval: '5m', spec: { ...SPEC, timeframe: '1d' } });
+        expect(r5.body.stats.bars).toBe(59); // 5m candle opened 10 s ago is forming -> dropped
+        futuresRest.klines.mockResolvedValue(mk(60));
+        const r1 = await ev({ ...EVAL, interval: '1m', spec: { ...SPEC, timeframe: '1d' } });
+        expect(r1.body.stats.bars).toBe(59);
+        // 1m candle opened 90 s ago is closed on 1m but would still be "forming" under the spec's 1d timeframe
+        const old = mk(60).map((c) => ({ ...c, time: c.time - 90 }));
+        futuresRest.klines.mockResolvedValue(old);
+        const r2 = await ev({ ...EVAL, interval: '1m', spec: { ...SPEC, timeframe: '1d' } });
+        expect(r2.body.stats.bars).toBe(60);
     });
     test('limit > 1000, bad kind, bad symbol, bad slippage, both/neither of spec+strategyId -> 400', async () => {
         for (const patch of [{ limit: 1001 }, { limit: 0 }, { limit: '5' }, { kind: 'x' }, { symbol: 'btc/usdt' }, { interval: 5 }, { costs: { slippagePct: 2 } }, { costs: { feePct: 0 } }]) {
