@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import SegTabs from '../../components/ui/SegTabs';
 import useUserStore from '../../store/userStore';
 import { API, authed } from '../../lib/api';
 import { CONTEXT_TOO_SMALL, REASONING_BUDGET } from '../../components/ai/CopilotPanel';
+import ModelCombobox from './ModelCombobox';
 import { Field, SaveBar, SectionCard, Spin, btnGhost, btnPrimary, inputCls, isDirty, serverMsg, useDraft } from './shared';
 
 // Used only when the server (older build) does not send aiProviders.
@@ -40,10 +41,17 @@ export const TEST_ERRORS = {
   ai_key_unreadable: 'The saved key could not be read. Remove it and save it again.',
   ai_reasoning_budget: REASONING_BUDGET,
   ai_context_too_small: CONTEXT_TOO_SMALL,
+  ai_bad_response: 'The provider answered in a format we do not recognise, so no model list could be read.',
+  ai_list_too_large: 'This provider’s model list is too large to load. Type the model id instead.',
+  rate_limited: 'Too many requests. Wait a minute and retry.',
   ai_local_disabled: 'Local models are turned off on this server (production). The server admin can set ALLOW_LOCAL_LLM=true.',
 };
 
 const KEY_RE = /^\S{8,300}$/;
+
+// Last loaded model list per provider, kept in memory for this browser session only. Holds model names, never a key.
+const modelCache = {};
+export const clearModelCache = () => { Object.keys(modelCache).forEach((k) => delete modelCache[k]); };
 
 const AiSection = ({ user, meta, notify }) => {
   const token = useUserStore((s) => s.token);
@@ -70,6 +78,10 @@ const AiSection = ({ user, meta, notify }) => {
   const [test, setTest] = useState(null);
   const [localModels, setLocalModels] = useState(null); // null = not fetched; { ok, models | text }
   const [fetching, setFetching] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsErr, setModelsErr] = useState(null);
+  const [lists, setLists] = useState({ ...modelCache });
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -83,7 +95,7 @@ const AiSection = ({ user, meta, notify }) => {
   const info = providers.find((p) => p.id === pid);
   const pState = ai.providers?.[pid] || {};
   const setProviderField = (field, value) => setDraft({ ...draft, providers: { ...draft.providers, [pid]: { ...draft.providers[pid], [field]: value } } });
-  const choose = (id) => { setDraft({ ...draft, provider: id }); setApiKey(''); setReplacing(false); setTest(null); setLocalModels(null); };
+  const choose = (id) => { setDraft({ ...draft, provider: id }); setApiKey(''); setReplacing(false); setTest(null); setLocalModels(null); setModelsErr(null); loadSeq.current += 1; setLoadingModels(false); };
   const keyless = info?.needsKey === false;
   const local = pid === 'lmstudio';
   // The models route reads the SAVED base URL, so an unsaved edit to it would list the wrong server.
@@ -147,11 +159,32 @@ const AiSection = ({ user, meta, notify }) => {
     try {
       const r = await axios.post(`${API}/api/ai/test`, { provider: pid }, authed(token));
       setTest({ ok: true, text: `Connected${r.data.model ? ` to ${r.data.model}` : ''} in ${r.data.latencyMs} ms.` });
+      if (Array.isArray(r.data.models) && r.data.models.length) { modelCache[pid] = r.data.models; setLists({ ...modelCache }); setModelsErr(null); }
     } catch (e) {
       const code = e.response?.data?.error;
       setTest({ ok: false, text: TEST_ERRORS[code] || (e.response ? serverMsg(e) : 'Could not run the test.') });
     }
     setTesting(false);
+  };
+
+  // The typed key (if any) is sent for this one request and never kept anywhere else; without it the server uses the saved key.
+  const loadModels = async () => {
+    const typed = showKeyInput && KEY_RE.test(apiKey) ? apiKey : '';
+    const seq = ++loadSeq.current;
+    setLoadingModels(true);
+    setModelsErr(null);
+    try {
+      const r = await axios.post(`${API}/api/ai/models`, { provider: pid, ...(typed ? { apiKey: typed, ...(info?.needsBaseUrl ? { baseUrl: draft.providers[pid]?.baseUrl || '' } : {}) } : {}) }, authed(token));
+      if (seq !== loadSeq.current) return;
+      const models = Array.isArray(r.data?.models) ? r.data.models : [];
+      if (!models.length) setModelsErr('The provider returned no models for this key.');
+      else { modelCache[pid] = models; setLists({ ...modelCache }); }
+    } catch (e) {
+      if (seq !== loadSeq.current) return;
+      const code = e.response?.data?.error;
+      setModelsErr(TEST_ERRORS[code] || (e.response ? serverMsg(e) : 'Could not reach the server.'));
+    }
+    if (seq === loadSeq.current) setLoadingModels(false);
   };
 
   const fetchModels = async () => {
@@ -172,6 +205,11 @@ const AiSection = ({ user, meta, notify }) => {
   const modelOptions = [{ id: null, label: 'Server default', note: "The server's configured model." }, ...aiModels];
   const showKeyInput = byo && !keyless && (!pState.keySet || replacing);
   const keyId = 'ai-key';
+  const pList = lists[pid];
+  const typedKeyOk = showKeyInput && KEY_RE.test(apiKey);
+  const baseMissing = !!info?.needsBaseUrl && !(draft.providers[pid]?.baseUrl || '');
+  // With no typed key the server reads the SAVED key and SAVED base URL, so an unsaved base URL edit would list the wrong server.
+  const canLoad = !loadingModels && !baseMissing && (typedKeyOk || (pState.keySet && !(info?.needsBaseUrl && baseUrlDirty)));
 
   return (
     <div className="space-y-3">
@@ -214,9 +252,15 @@ const AiSection = ({ user, meta, notify }) => {
 
         {byo && (
           <div className="mt-4 grid gap-3">
-            <Field id="ai-model-text" label="Model" hint={local ? 'Empty = the server default. Fetch models lists what LM Studio has loaded.' : 'Pick a suggestion or type any model id your provider supports.'}>
-              <input id="ai-model-text" list={`ai-models-${pid}`} className={inputCls} placeholder={local ? info?.modelSuggestions?.[0] || '' : undefined} value={draft.providers[pid]?.model || ''} onChange={(e) => setProviderField('model', e.target.value)} maxLength={100} autoComplete="off" />
-              <datalist id={`ai-models-${pid}`}>{[...new Set([...(localModels?.models || []), ...(info?.modelSuggestions || [])])].map((m) => <option key={m} value={m} />)}</datalist>
+            <Field id="ai-model-text" label="Model" hint={local ? 'Empty = the server default. Fetch models lists what LM Studio has loaded.' : pList ? 'Pick from your provider’s list, or type a full id and choose “Use custom id”.' : 'Press Load models below to pick from your provider’s list, or type any model id.'}>
+              {!local && pList ? (
+                <ModelCombobox id="ai-model-text" value={draft.providers[pid]?.model || ''} models={pList} onChange={(m) => setProviderField('model', m)} />
+              ) : (
+                <>
+                  <input id="ai-model-text" list={`ai-models-${pid}`} className={inputCls} placeholder={local ? info?.modelSuggestions?.[0] || '' : undefined} value={draft.providers[pid]?.model || ''} onChange={(e) => setProviderField('model', e.target.value)} maxLength={100} autoComplete="off" />
+                  <datalist id={`ai-models-${pid}`}>{[...new Set([...(localModels?.models || []), ...(info?.modelSuggestions || [])])].map((m) => <option key={m} value={m} />)}</datalist>
+                </>
+              )}
             </Field>
             {local && (
               <div className="flex flex-wrap items-center gap-2">
@@ -256,7 +300,14 @@ const AiSection = ({ user, meta, notify }) => {
                   {replacing && <button type="button" className={btnGhost} onClick={() => { setReplacing(false); setApiKey(''); }}>Cancel</button>}
                 </form>
               )}
-              <p className="mt-1 text-[11px] text-slate-500">Encrypted on the server and never shown again. Only the last 4 characters are displayed.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button type="button" className={`${btnGhost} min-h-[44px]`} disabled={!canLoad} onClick={loadModels}>{loadingModels && <Spin />}Load models</button>
+                {baseMissing && <span className="text-[11px] text-slate-500">Enter a base URL first.</span>}
+                {!baseMissing && !typedKeyOk && pState.keySet && info?.needsBaseUrl && baseUrlDirty && <span className="text-[11px] text-slate-500">Save the base URL first.</span>}
+                {pList && !loadingModels && !modelsErr && <span className="text-[11px] text-slate-400" aria-live="polite">{pList.length} models loaded.</span>}
+              </div>
+              {modelsErr && <p role="alert" className="mt-1 text-sm text-amber-300">{modelsErr}</p>}
+              <p className="mt-1 text-[11px] text-slate-500">{showKeyInput ? 'Your key is sent to our server only to ask the provider for its model list; it is stored encrypted only when you press Save key. ' : 'Load models uses your saved key (stored encrypted on the server). '}Only the last 4 characters are ever displayed.</p>
             </div>
             )}
           </div>

@@ -8,6 +8,7 @@ import { API, authed, errStatus } from '../../lib/api';
 import { aiError } from './CopilotPanel';
 import StrategyCard from './StrategyCard';
 import StructuredAnswer from './StructuredAnswer';
+import PromptTemplatePicker from './PromptTemplatePicker';
 import { TRADE_INTENT, mdLines } from '../../lib/agentReply';
 
 export const DISCLAIMER = 'Analysis only, not financial advice. Paper trading.';
@@ -109,17 +110,19 @@ const AgentChat = () => {
   const { ctx, messages, loading, error, conversationId, lastMessage } = useAgentStore();
   const [text, setText] = useState('');
   const [wantStrategy, setWant] = useState(false);
+  const [showTpl, setShowTpl] = useState(false);
   const close = useAgentStore((s) => s.close);
   const end = useRef(null);
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [messages, loading]);
 
-  const send = (retryMsg) => {
-    const message = (typeof retryMsg === 'string' ? retryMsg : text).trim();
+  // override: text to send instead of the input; opts.retry re-sends without a new bubble, opts.strategy forces strategy mode
+  const send = (override, opts = {}) => {
+    const message = (typeof override === 'string' ? override : text).trim();
     if (!message || loading || !ctx) return;
     const { patch } = useAgentStore.getState();
-    patch({ messages: typeof retryMsg === 'string' ? messages : [...messages, { role: 'user', text: message }], loading: true, error: null, lastMessage: message });
+    patch({ messages: opts.retry ? messages : [...messages, { role: 'user', text: message }], loading: true, error: null, lastMessage: message });
     setText('');
-    const body = { conversationId: conversationId || undefined, context: ctx, message, ...(wantStrategy || TRADE_INTENT.test(message) ? { wantStrategy: true } : {}) };
+    const body = { conversationId: conversationId || undefined, context: ctx, message, ...(wantStrategy || opts.strategy || TRADE_INTENT.test(message) ? { wantStrategy: true } : {}) };
     const ctl = useAgentStore.getState().beginChat();
     axios.post(`${API}/api/ai/agent/chat`, body, { ...authed(token), signal: ctl.signal })
       .then((r) => {
@@ -137,13 +140,26 @@ const AgentChat = () => {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {showTpl && (
+        <PromptTemplatePicker
+          ctx={ctx}
+          onClose={() => setShowTpl(false)}
+          onUse={(t) => { setText(t); setWant(true); setShowTpl(false); }}
+          onSend={(t) => { setWant(true); setShowTpl(false); send(t, { strategy: true }); }}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-2 text-xs">
         {ctx && <span className="rounded-full border border-brand-500/40 px-2 py-0.5 text-brand-400">{chipText(ctx)}</span>}
         {!includes && <span className="text-slate-500">Portfolio not included. <Link to="/settings/security" onClick={close} className="text-cyan-400 hover:underline">Include my portfolio</Link></span>}
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-        {messages.length === 0 && <p className="text-sm text-slate-500">Ask about this market. The AI sees the data on this page; it cannot place orders.</p>}
+        {messages.length === 0 && (
+          <div className="space-y-2">
+            <p className="text-sm text-slate-500">Ask about this market. The AI sees the data on this page; it cannot place orders.</p>
+            <button type="button" onClick={() => setShowTpl(true)} className="focus-ring min-h-[44px] rounded-md border border-brand-500/40 px-3 text-sm text-brand-400 hover:bg-brand-500/10">Start from a template</button>
+          </div>
+        )}
         {messages.map((m, i) => m.role === 'user'
           ? <p key={i} className="ml-8 whitespace-pre-wrap break-words rounded-lg bg-brand-500/15 p-2 text-sm text-slate-100">{m.text}</p>
           : <Reply key={i} m={m} ctx={ctx} />)}
@@ -154,11 +170,12 @@ const AgentChat = () => {
           </div>
         )}
         {error?.msg && <p role="alert" className="text-sm text-rose-400">{error.msg}</p>}
-        {(error?.msg || error?.unconfigured) && lastMessage && !error.unconfigured && <button type="button" onClick={() => send(lastMessage)} className="focus-ring min-h-[44px] rounded-md border border-slate-700 px-3 text-sm text-slate-200">Retry</button>}
+        {(error?.msg || error?.unconfigured) && lastMessage && !error.unconfigured && <button type="button" onClick={() => send(lastMessage, { retry: true })} className="focus-ring min-h-[44px] rounded-md border border-slate-700 px-3 text-sm text-slate-200">Retry</button>}
         <div ref={end} />
       </div>
       <div className="border-t border-slate-800 p-3">
         <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Quick prompts">
+          <button type="button" disabled={loading} onClick={() => setShowTpl(true)} className="focus-ring min-h-[44px] rounded-full border border-brand-500/40 px-3 text-xs text-brand-400 hover:bg-brand-500/10 disabled:opacity-50">Templates</button>
           {QUICK.map((q) => <button key={q} type="button" disabled={loading} onClick={() => { setText(q); if (TRADE_INTENT.test(q)) setWant(true); }} className="focus-ring min-h-[44px] rounded-full border border-slate-700 px-3 text-xs text-slate-300 hover:bg-slate-900 disabled:opacity-50">{q}</button>)}
         </div>
         <label className="mb-2 flex min-h-[44px] items-center gap-2 text-xs text-slate-400">

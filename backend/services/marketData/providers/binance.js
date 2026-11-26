@@ -19,6 +19,9 @@ const get = (path, params) => breaker.run(async () => (await axios.get(BASE + pa
 const spotKlines = (symbol, interval, limit) => axios.get(SPOT_BASE + '/api/v3/klines', { params: { symbol, interval, limit }, timeout: 10000 })
     .then((r) => r.data.map(normalizeRestKline));
 
+// Raw spot rows (keeps field 9, taker buy base volume, which normalizeRestKline drops). Used by the CVD service only.
+const spotKlinesRaw = (symbol, interval, limit) => axios.get(SPOT_BASE + '/api/v3/klines', { params: { symbol, interval, limit }, timeout: 10000 }).then((r) => r.data);
+
 const klines = async (symbol, interval, limit) => (await get('/fapi/v1/klines', { symbol, interval, limit })).map(normalizeRestKline);
 
 const ratioRows = (rows) => rows.map((r) => ({
@@ -48,7 +51,7 @@ async function oiHistory(symbol, period, count) {
 }
 
 module.exports = {
-    name: 'binance', breaker, get, spotKlines, oiHistory,
+    name: 'binance', breaker, get, spotKlines, spotKlinesRaw, oiHistory,
     has: new Set(['klines', 'oiHist', 'ratio', 'topRatio', 'taker', 'funding']),
     klines, oiHist, ratio, topRatio, taker, funding,
 };

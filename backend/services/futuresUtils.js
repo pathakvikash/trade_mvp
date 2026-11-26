@@ -106,7 +106,7 @@ function liqEntries(klines, oiHist, mix) {
                 const usd = delta * 0.5 * w * ew;
                 const d = 1 / lev - MMR;
                 if (d <= 0) continue; // liq price would not be on the losing side of entry
-                out.push({ i, side: 'long', price: entry * (1 - d), usd }, { i, side: 'short', price: entry * (1 + d), usd });
+                out.push({ i, lev, side: 'long', price: entry * (1 - d), usd }, { i, lev, side: 'short', price: entry * (1 + d), usd });
             }
         }
     }
@@ -121,14 +121,27 @@ function firstCross(K, e) {
     return j;
 }
 
+// Leverage tiers shown on the liquidation map (stacked bars). Index = position in the per-row longTier/shortTier arrays.
+const LIQ_TIERS = [
+    { id: 'l10', label: '<=10x', max: 10 },
+    { id: 'l25', label: '15-25x', max: 25 },
+    { id: 'l50', label: '33-50x', max: 50 },
+    { id: 'l125', label: '75x+', max: Infinity },
+];
+const tierIndex = (lev) => LIQ_TIERS.findIndex((t) => lev <= t.max);
+
+// Rows: {price, longUsd, shortUsd, longTier[], shortTier[]} (tier arrays sum to longUsd / shortUsd; additive fields).
 function estimateLiqLevels({ klines, oiHist, price, buckets = 120, span = 0.15, tiers = LEV_MIX }) {
     const lo = price * (1 - span);
     const width = (2 * span * price) / buckets;
-    const rows = Array.from({ length: buckets }, (_, i) => ({ price: lo + (i + 0.5) * width, longUsd: 0, shortUsd: 0 }));
+    const rows = Array.from({ length: buckets }, (_, i) => ({ price: lo + (i + 0.5) * width, longUsd: 0, shortUsd: 0, longTier: LIQ_TIERS.map(() => 0), shortTier: LIQ_TIERS.map(() => 0) }));
     for (const e of liqEntries(klines, oiHist, tiers)) {
         if (firstCross(klines, e) < klines.length) continue;
         const b = Math.floor((e.price - lo) / width);
-        if (b >= 0 && b < buckets) rows[b][e.side === 'long' ? 'longUsd' : 'shortUsd'] += e.usd;
+        if (b < 0 || b >= buckets) continue;
+        const long = e.side === 'long';
+        rows[b][long ? 'longUsd' : 'shortUsd'] += e.usd;
+        rows[b][long ? 'longTier' : 'shortTier'][tierIndex(e.lev)] += e.usd;
     }
     return rows;
 }
@@ -204,4 +217,4 @@ function liqKeyLevels(open, priceMin, step, price, n = 7) {
     return { above: side(open.short, (p) => p > price), below: side(open.long, (p) => p < price) };
 }
 
-module.exports = { SYMBOL_RE, INTERVALS, isValidSymbol, normalizeForceOrder, normalizeKline, normalizeRestKline, normalizeAggTrade, summarizeLiquidations, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, MMR };
+module.exports = { SYMBOL_RE, INTERVALS, isValidSymbol, normalizeForceOrder, normalizeKline, normalizeRestKline, normalizeAggTrade, summarizeLiquidations, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, LIQ_TIERS, MMR };

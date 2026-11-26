@@ -15,7 +15,7 @@ import StatChart from '../derivatives/StatChart';
 const stub = () => ({ setData: jest.fn(), update: jest.fn(), applyOptions: jest.fn(), createPriceLine: jest.fn(), removePriceLine: jest.fn() });
 const chartStub = () => ({
   addCandlestickSeries: stub, addHistogramSeries: stub, addLineSeries: stub, removeSeries: jest.fn(),
-  priceScale: () => ({ applyOptions: jest.fn() }), timeScale: () => ({ fitContent: jest.fn() }),
+  priceScale: () => ({ applyOptions: jest.fn() }), timeScale: () => ({ fitContent: jest.fn(), subscribeVisibleLogicalRangeChange: jest.fn(), unsubscribeVisibleLogicalRangeChange: jest.fn() }),
   subscribeCrosshairMove: jest.fn(), remove: jest.fn(),
 });
 

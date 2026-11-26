@@ -5,6 +5,7 @@ const { limitBy } = require('../middleware/rateLimit');
 const secretBox = require('../services/secretBox');
 const { PROVIDER_IDS, AiError, listLocalModels } = require('../services/aiProviders');
 const ai = require('../services/aiService');
+const providers = require('../services/aiProviders');
 const { settingsFor, limited } = require('../services/ai/aiAccess');
 const User = require('../models/User');
 const { isValidSymbol } = require('../services/futuresUtils');
@@ -132,12 +133,34 @@ router.get('/lmstudio/models', async (req, res) => {
     try { res.json({ models: await listLocalModels((await settingsFor(req.user.userId, 'lmstudio')).baseUrl) }); } catch (err) { fail(res, err); }
 });
 
+// Model list for the settings picker. A typed apiKey is used for this one request only and never stored (saving stays
+// PUT /keys). Without one the SAVED key is used, and then only the SAVED base URL: a body baseUrl must never be able to
+// send a stored key to another host.
+const modelsLimit = limitBy({ limit: 10, windowMs: 60000 }, (req) => req.user.userId);
+const listFor = async (st, over = {}) => providers.listModels({ provider: st.provider, apiKey: over.apiKey || ai._byo.keyOf(st), baseUrl: over.apiKey ? over.baseUrl || st.baseUrl : st.baseUrl });
+
+router.post('/models', modelsLimit, async (req, res) => {
+    const b = req.body || {};
+    const id = b.provider;
+    if (typeof id !== 'string' || !PROVIDER_IDS.includes(id)) return res.status(400).json({ error: 'invalid provider' });
+    const k = b.apiKey;
+    if (k !== undefined && k !== null && k !== '' && (typeof k !== 'string' || k.length < 8 || k.length > 300 || /\s/.test(k))) return res.status(400).json({ error: 'apiKey must be 8..300 characters with no whitespace' });
+    if (b.baseUrl !== undefined && b.baseUrl !== null && (typeof b.baseUrl !== 'string' || b.baseUrl.length > 300)) return res.status(400).json({ error: 'invalid baseUrl' });
+    try { res.json({ models: await listFor(await settingsFor(req.user.userId, id), { apiKey: k || '', baseUrl: b.baseUrl || '' }) }); } catch (err) { fail(res, err); }
+});
+
 // The only place a test call is made on demand: one tiny real request with the saved key/model/base URL.
 router.post('/test', async (req, res) => {
     const id = req.body && req.body.provider;
     if (typeof id !== 'string' || !(id === 'default' || PROVIDER_IDS.includes(id))) return res.status(400).json({ error: 'invalid provider' });
     if (limited(req, res)) return;
-    try { res.json(await ai.testProvider(await settingsFor(req.user.userId, id))); } catch (err) { fail(res, err); }
+    try {
+        const st = await settingsFor(req.user.userId, id);
+        const out = await ai.testProvider(st);
+        // The key works, so also hand back the model list (best effort: a list failure never fails the test).
+        if (id !== 'default') out.models = await listFor(st).catch(() => undefined);
+        res.json(out);
+    } catch (err) { fail(res, err); }
 });
 
 module.exports = router;

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import axios from 'axios';
 import Settings from './Settings';
 import useUserStore from '../store/userStore';
+import { clearModelCache } from './settings/AiSection';
 
 // Router mock: the location and route param are mutable so each test picks its section.
 const mockRoute = { splat: 'profile' };
@@ -249,4 +250,116 @@ test('mobile pill row: the active pill is scrolled into view (centered), instant
     delete Element.prototype.scrollIntoView;
     delete document.documentElement.dataset.reduceMotion;
   }
+});
+
+describe('AI provider: load models', () => {
+  const KEY = 'sk-or-test-PASTED-1234';
+  const LIST = [
+    { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', contextLength: 200000, pricePerMTokIn: 3, pricePerMTokOut: 15 },
+    { id: 'meta/llama:free', name: 'Llama', free: true },
+  ];
+  const orUser = (keySet, model = 'anthropic/claude-sonnet-5.5') => ({ ...USER, ai: { ...USER.ai, provider: 'openrouter', providers: { openrouter: { model, keySet, keyLast4: keySet ? '1234' : null } } } });
+  const setup = (u) => {
+    useUserStore.setState({ token: 't', user: u });
+    axios.get.mockImplementation((url) => Promise.resolve({ data: url.endsWith('/api/ai/status') ? { provider: 'openrouter', configured: true } : { ...ME, user: u, aiProviders: [{ id: 'openrouter', label: 'OpenRouter', modelSuggestions: ['x/y'], needsBaseUrl: false }] } }));
+  };
+  beforeEach(() => clearModelCache());
+  afterEach(() => clearModelCache());
+  const loadBtn = () => byText('button', 'Load models');
+
+  test('disabled until a valid key is typed or a saved key exists', async () => {
+    setup(orUser(false));
+    await mount('ai');
+    expect(loadBtn().disabled).toBe(true);
+    await type(container.querySelector('#ai-key'), 'short');
+    expect(loadBtn().disabled).toBe(true);
+    await type(container.querySelector('#ai-key'), KEY);
+    expect(loadBtn().disabled).toBe(false);
+    act(() => root.unmount()); container.remove();
+    setup(orUser(true));
+    await mount('ai');
+    expect(loadBtn().disabled).toBe(false);
+  });
+
+  test('typed key: sends it once to /models, shows the spinner while loading, fills the picker, key never rendered or stored', async () => {
+    setup(orUser(false));
+    let resolve;
+    axios.post.mockReturnValue(new Promise((r) => { resolve = r; }));
+    await mount('ai');
+    await type(container.querySelector('#ai-key'), KEY);
+    await click(loadBtn());
+    expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/ai/models'), { provider: 'openrouter', apiKey: KEY }, expect.anything());
+    expect(loadBtn().disabled).toBe(true);
+    expect(loadBtn().querySelector('svg')).not.toBeNull();
+    await act(async () => { resolve({ data: { models: LIST } }); });
+    expect(container.textContent).toContain('2 models loaded.');
+    const combo = container.querySelector('#ai-model-text');
+    expect(combo.getAttribute('role')).toBe('combobox');
+    expect(combo.value).toBe('anthropic/claude-sonnet-5.5'); // saved model preselected
+    expect(container.querySelector('#ai-key').type).toBe('password');
+    expect(container.textContent).not.toContain(KEY); // only the masked password field holds it
+    expect(Object.keys(localStorage).map((k) => localStorage.getItem(k)).join('|')).not.toContain(KEY);
+    expect(JSON.stringify(useUserStore.getState())).not.toContain(KEY);
+    expect(container.textContent).toContain('sent to our server only to ask the provider for its model list');
+  });
+
+  test('picking a model sets the draft and saves it; the custom-id path saves a typed id', async () => {
+    setup(orUser(true));
+    axios.post.mockResolvedValue({ data: { models: LIST } });
+    axios.patch.mockResolvedValue({ data: { user: orUser(true) } });
+    await mount('ai');
+    await click(loadBtn());
+    expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/ai/models'), { provider: 'openrouter' }, expect.anything()); // saved key: no apiKey in the body
+    const combo = container.querySelector('#ai-model-text');
+    await act(async () => { combo.focus(); combo.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
+    await act(async () => { container.querySelectorAll('[role="option"]')[1].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(container.querySelector('#ai-model-text').value).toBe('meta/llama:free');
+    await click(byText('button', 'Save'));
+    expect(axios.patch.mock.calls[0][1].ai.providers.openrouter.model).toBe('meta/llama:free');
+    // custom id
+    const c2 = container.querySelector('#ai-model-text');
+    await act(async () => { c2.focus(); c2.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
+    await type(c2, 'my/custom:9');
+    await act(async () => { c2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(container.querySelector('#ai-model-text').value).toBe('my/custom:9');
+    expect(container.textContent).toContain('is not in the loaded list');
+  });
+
+  test.each([
+    ['ai_auth_failed', /provider rejected the key/],
+    ['ai_rate_limited', /rate limiting/],
+    ['ai_unreachable', /Could not reach the provider/],
+    ['ai_bad_response', /format we do not recognise/],
+    ['rate_limited', /Too many requests/],
+  ])('error %s is shown inline in plain words', async (code, re) => {
+    setup(orUser(true));
+    axios.post.mockRejectedValue({ response: { status: 502, data: { error: code } } });
+    await mount('ai');
+    await click(loadBtn());
+    expect(container.querySelector('[role="alert"]').textContent).toMatch(re);
+    expect(container.querySelector('#ai-model-text').getAttribute('role')).toBeNull(); // still the plain input
+    expect(loadBtn().disabled).toBe(false);
+  });
+
+  test('a successful Test also fills the list (no second request)', async () => {
+    setup(orUser(true));
+    axios.post.mockImplementation((url) => Promise.resolve({ data: url.endsWith('/api/ai/test') ? { ok: true, model: 'm', latencyMs: 5, models: LIST } : {} }));
+    await mount('ai');
+    await click(byText('button', 'Test connection'));
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('#ai-model-text').getAttribute('role')).toBe('combobox');
+    expect(container.textContent).toContain('2 models loaded.');
+  });
+
+  test('the loaded list is remembered in memory when the section is reopened, without a request', async () => {
+    setup(orUser(true));
+    axios.post.mockResolvedValue({ data: { models: LIST } });
+    await mount('ai');
+    await click(loadBtn());
+    act(() => root.unmount()); container.remove();
+    axios.post.mockClear();
+    await mount('ai');
+    expect(container.querySelector('#ai-model-text').getAttribute('role')).toBe('combobox');
+    expect(axios.post).not.toHaveBeenCalled();
+  });
 });

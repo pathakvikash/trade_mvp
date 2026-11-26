@@ -29,6 +29,7 @@ beforeEach(() => {
     addHistogramSeries: () => ({ setData: jest.fn(), update: jest.fn() }),
     priceScale: () => ({ applyOptions: jest.fn() }),
     subscribeCrosshairMove: jest.fn(),
+    timeScale: () => ({ subscribeVisibleLogicalRangeChange: jest.fn(), unsubscribeVisibleLogicalRangeChange: jest.fn(), width: () => 400, height: () => 26, getVisibleLogicalRange: () => ({ from: 0, to: 1 }), timeToCoordinate: () => null }),
     remove: jest.fn(),
   }));
 });

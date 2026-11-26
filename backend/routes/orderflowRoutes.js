@@ -17,7 +17,7 @@ const view = (read) => async (req, res) => {
     let known = true;
     try { known = await futuresRest.isKnownSymbol(symbol); } catch (e) { /* list unavailable: regex-only, same as the rest of the page */ }
     if (!known) return res.status(404).json({ error: 'no_futures', message: 'No futures market for this symbol' });
-    const body = collector[read](symbol);
+    const body = collector[read](symbol, req.query || {});
     if (body.error === 'busy') return res.status(503).json({ error: 'collector_busy', degraded: true });
     if (body.source) res.set('X-Data-Source', body.source);
     return res.status(body.status === 'unavailable' ? 503 : 200).json(body.status === 'unavailable' ? { ...body, error: 'Order book data is unavailable from this server', degraded: true } : body);

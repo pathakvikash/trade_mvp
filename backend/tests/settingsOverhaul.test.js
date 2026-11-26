@@ -586,3 +586,61 @@ describe('LM Studio provider: settings, status, test, models', () => {
         expect(http.request.mock.calls[0][0]).toMatchObject({ method: 'GET', hostname: '127.0.0.1', port: '1234', path: '/v1/models' });
     });
 });
+
+describe('POST /models and the model list on /test', () => {
+    afterEach(() => jest.restoreAllMocks());
+    const UID4 = '64b7f0c2a1b2c3d4e5f6071b';
+    const mApi = (m, p, o = {}) => run(aiRoutes, m, p, { token: tokenFor({}, UID4), ...o });
+    const mUser = (ai) => User.__seed({ _id: UID4, username: 'dave', email: 'dave@x.io', name: 'Dave', password: 'x', ai });
+    const LIST = [{ id: 'a/b', name: 'A B' }];
+
+    test('requires auth', async () => {
+        await expect(run(aiRoutes, 'post', '/models', { body: { provider: 'openai' } })).resolves.toMatchObject({ status: 401 });
+    });
+    test('rejects bad provider / key shape before any upstream call', async () => {
+        const spy = jest.spyOn(providers, 'listModels').mockResolvedValue(LIST);
+        mUser({});
+        for (const body of [{}, { provider: 'default' }, { provider: 'nope' }, { provider: 'openai', apiKey: 'short' }, { provider: 'openai', apiKey: 'has space in it' }, { provider: 'openai', apiKey: 12345678 }, { provider: 'custom', baseUrl: 'x'.repeat(301) }]) {
+            expect((await mApi('post', '/models', { body })).status).toBe(400);
+        }
+        expect(spy).not.toHaveBeenCalled();
+    });
+    test('typed key is used for the call only: not stored, not echoed, not in the response', async () => {
+        const spy = jest.spyOn(providers, 'listModels').mockResolvedValue(LIST);
+        mUser({});
+        const r = await mApi('post', '/models', { body: { provider: 'openrouter', apiKey: KEY } });
+        expect(r).toMatchObject({ status: 200, body: { models: LIST } });
+        expect(spy.mock.calls[0][0]).toEqual({ provider: 'openrouter', apiKey: KEY, baseUrl: '' });
+        expect(JSON.stringify(r)).not.toContain(KEY);
+        expect(JSON.stringify([...User.__store.values()])).not.toContain(KEY);
+    });
+    test('no typed key: the SAVED key is decrypted and used, with the SAVED base URL only', async () => {
+        const spy = jest.spyOn(providers, 'listModels').mockResolvedValue(LIST);
+        mUser({ providers: { custom: { baseUrl: 'https://saved.example.com/v1', keyEnc: secretBox.encrypt(KEY, UID4, 'custom'), keyLast4: KEY.slice(-4) } } });
+        const r = await mApi('post', '/models', { body: { provider: 'custom', baseUrl: 'https://evil.example.com/v1' } });
+        expect(r.status).toBe(200);
+        expect(spy.mock.calls[0][0]).toEqual({ provider: 'custom', apiKey: KEY, baseUrl: 'https://saved.example.com/v1' });
+        expect(JSON.stringify(r)).not.toContain(KEY);
+    });
+    test('no typed key and none saved -> ai_no_key; provider errors map to codes with no key in the body', async () => {
+        mUser({});
+        expect(await mApi('post', '/models', { body: { provider: 'openai' } })).toMatchObject({ status: 400, body: { error: 'ai_no_key' } });
+        jest.spyOn(providers, 'listModels').mockRejectedValue(new providers.AiError(502, 'ai_auth_failed'));
+        const r = await mApi('post', '/models', { body: { provider: 'openai', apiKey: KEY } });
+        expect(r).toMatchObject({ status: 502, body: { error: 'ai_auth_failed' } });
+        expect(JSON.stringify(r)).not.toContain(KEY);
+    });
+    test('/test also returns the model list when the key works, and still succeeds if the list fails', async () => {
+        mUser({ providers: { openai: { model: 'gpt-5', keyEnc: secretBox.encrypt(KEY, UID4, 'openai'), keyLast4: KEY.slice(-4) } } });
+        jest.spyOn(providers, 'complete').mockResolvedValue('OK');
+        const list = jest.spyOn(providers, 'listModels').mockResolvedValue(LIST);
+        const ok = await mApi('post', '/test', { body: { provider: 'openai' } });
+        expect(ok.body).toMatchObject({ ok: true, provider: 'openai', models: LIST });
+        expect(list.mock.calls[0][0]).toMatchObject({ provider: 'openai', apiKey: KEY });
+        expect(JSON.stringify(ok)).not.toContain(KEY);
+        list.mockRejectedValue(new providers.AiError(502, 'ai_bad_response'));
+        const soft = await mApi('post', '/test', { body: { provider: 'openai' } });
+        expect(soft.status).toBe(200);
+        expect(soft.body.models).toBeUndefined();
+    });
+});

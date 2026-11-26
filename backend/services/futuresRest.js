@@ -2,7 +2,7 @@
 // then the marketData gateway (Bybit, Bitget, Gate, MEXC, spot) after a fallbackable Binance failure. The gateway is analytics only:
 // markPrice and the overview's price/mark/ts columns never come from it (money path: tradeFill reads them).
 const logger = require('../config/logger');
-const { isValidSymbol, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, MMR } = require('./futuresUtils');
+const { isValidSymbol, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, LIQ_TIERS, MMR } = require('./futuresUtils');
 const { cached, clear: clearCache } = require('./marketData/cache');
 const { isBlocked, fallbackable } = require('./marketData/breaker');
 const binance = require('./marketData/providers/binance');
@@ -233,7 +233,7 @@ const stats = (symbol, period) => cached(`stats:${symbol}:${period}`, 30000, asy
 const liqmapOf = (symbol, klines, oiHist) => {
     const price = klines[klines.length - 1].close;
     return {
-        symbol, price, generatedAt: Date.now(), method: 'oi-delta-leverage-tiers',
+        symbol, price, generatedAt: Date.now(), method: 'oi-delta-leverage-tiers', tiers: LIQ_TIERS.map(({ id, label }) => ({ id, label })),
         levels: estimateLiqLevels({ klines, oiHist, price }),
     };
 };

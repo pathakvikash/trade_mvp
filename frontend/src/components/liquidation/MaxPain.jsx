@@ -29,7 +29,7 @@ const MaxPain = ({ symbol, range, data, source, loading, error }) => {
   const max = m ? Math.max(1, ...above.map((l) => l.usd), ...below.map((l) => l.usd)) : 1;
   const lp = m && m.longUsd + m.shortUsd > 0 ? Math.round((m.longUsd / (m.longUsd + m.shortUsd)) * 100) : 0;
   return (
-    <Panel id="liq-max-pain" title={`Liquidation max pain - ${coin(symbol)}`} right={<span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[11px] text-amber-400">Estimate</span>}>
+    <Panel id="liq-max-pain-quick" title={`Liquidation max pain - ${coin(symbol)}`} right={<span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[11px] text-amber-400">Estimate</span>}>
       <p className="mb-2 text-xs text-amber-400">Estimate based on inferred positions, not exchange data. Not advice.</p>
       {sourceNote(source, 'heatmap') && <p className="mb-2 text-xs text-amber-400">{sourceNote(source, 'heatmap')}</p>}
       {m && error && <StaleNote at={data.generatedAt} />}

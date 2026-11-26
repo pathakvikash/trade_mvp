@@ -30,27 +30,10 @@ test('candles by default: no heatmap mounted', () => {
   expect(tab(el, 'Chart').getAttribute('aria-selected')).toBe('true');
 });
 
-test('Heatmap tab mounts the shared heatmap for the symbol, persists, and swaps timeframes for its own ranges', () => {
+test('the separate Heatmap tab is gone (heat is an overlay on the candles now), even with a futures symbol', () => {
+  expect(tab(draw({}), 'Heatmap')).toBeUndefined();
+  localStorage.setItem('tm:v1:anon:chart.view', JSON.stringify('heatmap')); // an old stored choice is ignored
   const el = draw({});
-  act(() => tab(el, 'Heatmap').click());
-  const h = el.querySelector('[data-testid="heat"]');
-  expect(h.dataset.symbol).toBe('BTCUSDT');
-  expect(h.dataset.embedded).toBe('true');
-  expect(h.dataset.range).toBe('24h');
-  expect(el.querySelector('[data-testid="candles"]')).toBeNull();
-  expect(el.querySelector('[aria-label="Timeframe"]')).toBeNull();
-  expect(localStorage.getItem('tm:v1:anon:chart.view')).toContain('heatmap');
-  expect(draw({ liqSymbol: 'ETHUSDT' }).querySelector('[data-testid="heat"]').dataset.symbol).toBe('ETHUSDT'); // remembered, follows the symbol
-  act(() => tab(el, 'Chart').click());
+  expect(el.querySelector('[data-testid="heat"]')).toBeNull();
   expect(el.querySelector('[data-testid="candles"]')).not.toBeNull();
-});
-
-test('hidden without a futures symbol or market: candles stay, tab absent', () => {
-  localStorage.setItem('tm:v1:anon:chart.view', JSON.stringify('heatmap'));
-  const el = draw({ liqSymbol: undefined });
-  expect(tab(el, 'Heatmap')).toBeUndefined();
-  expect(el.querySelector('[data-testid="candles"]')).not.toBeNull();
-  const nm = draw({ error: 'no_market' });
-  expect(tab(nm, 'Heatmap')).toBeUndefined();
-  expect(nm.querySelector('[data-testid="heat"]')).toBeNull();
 });

@@ -146,7 +146,7 @@ const LOCAL_TIMEOUT_MS = 180e3; // local models are slow: a 9B model on a laptop
 const MAX_BYTES = 1024 * 1024;
 
 // bodyObj null -> GET. lookup: a guard hook (guardedLookup / loopbackLookup) or undefined for fixed public hosts.
-function send(url, headers, bodyObj, { lookup, timeoutMs = TIMEOUT_MS } = {}) {
+function send(url, headers, bodyObj, { lookup, timeoutMs = TIMEOUT_MS, maxBytes = MAX_BYTES, overCode = 'ai_bad_response' } = {}) {
     return new Promise((resolve, reject) => {
         const data = bodyObj === null ? null : Buffer.from(JSON.stringify(bodyObj));
         const lib = url.protocol === 'http:' ? http : https;
@@ -163,7 +163,7 @@ function send(url, headers, bodyObj, { lookup, timeoutMs = TIMEOUT_MS } = {}) {
             let bytes = 0;
             res.on('data', (d) => {
                 bytes += d.length;
-                if (bytes > MAX_BYTES) { req.destroy(); return done(new AiError(502, 'ai_bad_response')); }
+                if (bytes > maxBytes) { req.destroy(); return done(new AiError(502, overCode)); }
                 chunks.push(d);
             });
             res.on('end', () => done(null, { status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
@@ -300,4 +300,68 @@ async function listLocalModels(baseUrl) {
     return j.data.map((m) => m && m.id).filter((id) => typeof id === 'string' && MODEL_ID_RE.test(id) && !/embed/i.test(id)).slice(0, 100);
 }
 
-module.exports = { AiError, PROVIDERS, PROVIDER_IDS, MODEL_ID_RE, defaultModel, lmstudioBaseUrl, isBlockedIp, checkBaseUrl, checkLocalUrl, guardedLookup, loopbackLookup, complete, listLocalModels };
+// ---- Model lists (POST /api/ai/models and the Test button) ----
+const MAX_MODELS = 500;
+const LIST_MAX_BYTES = 4 * 1024 * 1024; // model lists only (OpenRouter's is large); chat calls keep the 1 MB cap
+const NOT_CHAT_RE = /embed|whisper|tts|dall-e|moderation|davinci|babbage|transcribe|image|audio|realtime|search-preview/i;
+const clip = (v, n) => String(v).slice(0, n);
+const perM = (v) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? Math.round(n * 1e6 * 1e4) / 1e4 : undefined; }; // per-token string -> USD per 1M tokens (OpenRouter sends -1 for variable-price routers)
+const pos = (n) => (Number.isFinite(n) && n > 0 ? n : undefined);
+const entry = (id, name, extra = {}) => {
+    const o = { id, name: name && name !== id ? clip(name, 100) : id, ...extra };
+    Object.keys(o).forEach((k) => o[k] === undefined && delete o[k]);
+    return o;
+};
+const okId = (id) => typeof id === 'string' && MODEL_ID_RE.test(id);
+
+// Per-provider list shape -> [{ id, name, contextLength?, pricePerMTokIn?, pricePerMTokOut?, free? }]. Pure; throws
+// ai_bad_response when the body is not the shape we know. Anthropic keeps the API's newest-first order, others sort by id.
+function normalizeModels(provider, j) {
+    const bad502 = () => new AiError(502, 'ai_bad_response');
+    let list;
+    if (provider === 'gemini') {
+        if (!j || !Array.isArray(j.models)) throw bad502();
+        list = j.models.filter((m) => m && Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+            .map((m) => { const id = typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''; return okId(id) && entry(id, m.displayName, { contextLength: pos(m.inputTokenLimit) }); });
+    } else {
+        if (!j || !Array.isArray(j.data)) throw bad502();
+        if (provider === 'openrouter') {
+            list = j.data.map((m) => {
+                if (!m || !okId(m.id)) return null;
+                const pin = perM(m.pricing && m.pricing.prompt);
+                const pout = perM(m.pricing && m.pricing.completion);
+                const free = (pin === 0 && pout === 0) || /:free$/.test(m.id);
+                return entry(m.id, m.name, { contextLength: pos(m.context_length), pricePerMTokIn: pin, pricePerMTokOut: pout, free: free || undefined });
+            });
+        } else if (provider === 'anthropic') {
+            list = j.data.map((m) => m && okId(m.id) && entry(m.id, m.display_name));
+        } else {
+            const skip = provider === 'openai' ? NOT_CHAT_RE : provider === 'lmstudio' ? /embed/i : null;
+            list = j.data.map((m) => m && okId(m.id) && !(skip && skip.test(m.id)) && entry(m.id));
+        }
+    }
+    list = list.filter(Boolean).slice(0, MAX_MODELS);
+    return provider === 'anthropic' ? list : list.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+// Lists the models a provider offers for this key. Same hosts, headers, SSRF guards and 4 MB (lists only) / no-redirect rules as
+// complete(); 8 s timeout. apiKey is used only for the request header and masked out of logged upstream text.
+async function listModels({ provider, apiKey, baseUrl }) {
+    if (!PROVIDER_IDS.includes(provider)) throw new AiError(400, 'ai_bad_provider');
+    const local = provider === 'lmstudio';
+    if (!apiKey && !local) throw new AiError(400, 'ai_no_key');
+    let url; let headers; let lookup;
+    if (provider === 'anthropic') { url = new URL('https://api.anthropic.com/v1/models?limit=1000'); headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }; }
+    else if (provider === 'gemini') { url = new URL('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000'); headers = { 'x-goog-api-key': apiKey }; }
+    else if (provider === 'openai') { url = new URL('https://api.openai.com/v1/models'); headers = { authorization: `Bearer ${apiKey}` }; }
+    else if (provider === 'openrouter') { url = new URL('https://openrouter.ai/api/v1/models'); headers = { authorization: `Bearer ${apiKey}` }; }
+    else if (local) { url = endpoint(lmstudioBaseUrl(baseUrl), '/models', checkLocalUrl); headers = { authorization: 'Bearer lm-studio' }; lookup = loopbackLookup; }
+    else { if (!baseUrl) throw new AiError(400, 'ai_bad_base_url'); url = endpoint(baseUrl, '/models', checkBaseUrl); headers = { authorization: `Bearer ${apiKey}` }; lookup = guardedLookup; }
+    const r = await send(url, headers, null, { lookup, timeoutMs: 8e3, maxBytes: LIST_MAX_BYTES, overCode: 'ai_list_too_large' });
+    checkStatus(r, provider, apiKey);
+    let j;
+    try { j = JSON.parse(r.text); } catch (e) { throw new AiError(502, 'ai_bad_response'); }
+    return normalizeModels(provider, j);
+}
+
+module.exports = { listModels, normalizeModels, AiError, PROVIDERS, PROVIDER_IDS, MODEL_ID_RE, defaultModel, lmstudioBaseUrl, isBlockedIp, checkBaseUrl, checkLocalUrl, guardedLookup, loopbackLookup, complete, listLocalModels };

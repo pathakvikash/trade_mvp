@@ -10,17 +10,19 @@
 // wider on alts), and fast order changes between snapshots are invisible. Upgrade path: the @depth stream, if Render allows it.
 const logger = require('../../config/logger');
 const providers = require('./providers');
+const { BANDS, GRIDS, snap, median, depthWithin, ladder } = require('./bookStats');
+const { newTracker, trackWalls, wallView } = require('./walls');
 
 const DEFAULTS = {
     sampleMs: 5000, tradesEvery: 3, retainMs: 2 * 3600e3, idleMs: 5 * 60e3, maxActive: 5, evictAfterMs: 30e3,
     maxCols: 1440, maxRows: 160, maxBytes: 4 * 1024 * 1024, maxTrades: 2000, staleMs: 60e3,
     minLevels: 5, maxSpreadPct: 2, // thin book: fewer levels per side than this, or a wider spread (%), is not worth a heatmap
-    wallMult: 10, tradeMult: 10, minTradesForLarge: 50,
+    wallMult: 10, wallConfirmMs: 30e3, tradeMult: 10, minTradesForLarge: 50,
     outCols: 240, outRows: 120,
+    maxBubbles: 300, imbKeepMs: 15 * 60e3, imbDeltaMs: 5 * 60e3, ladderLevels: 20,
 };
 const COL_OVERHEAD = 64; // rough object cost on top of the typed array
 
-const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : 0; };
 const niceStep = (x) => { const m = 10 ** Math.floor(Math.log10(x)); return [1, 2, 5, 10].map((k) => k * m).find((v) => v >= x); };
 
 function createCollector({ fetchBook = providers.fetchBook, fetchTrades = providers.fetchTrades, now = Date.now, ...over } = {}) {
@@ -32,7 +34,7 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
     const totalBytes = () => { let n = 0; for (const s of states.values()) n += s.bytes; return n; };
     const dropCol = (s) => { const c = s.cols.shift(); if (c) s.bytes -= bytesOf(c); };
 
-    function reset(s) { s.cols = []; s.bytes = 0; s.trades = []; s.seen = new Set(); s.step = 0; s.startedAt = null; s.lastBook = null; }
+    function reset(s) { s.cols = []; s.bytes = 0; s.trades = []; s.seen = new Set(); s.step = 0; s.startedAt = null; s.lastBook = null; s.wt = newTracker(); s.imb = []; }
 
     function enforce(s) {
         const t = now();
@@ -80,6 +82,10 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
         s.bytes += bytesOf(col);
         if (!s.startedAt) s.startedAt = t;
         enforce(s);
+        trackWalls(s.wt, { bids, asks, t, bestBid, bestAsk, cols: s.cols, trades: s.trades, wallMult: cfg.wallMult, confirmMs: cfg.wallConfirmMs });
+        // imbalance per depth band, kept ~15 min so the UI can show "5 min ago" (a band is stored as it was then, partial or not)
+        s.imb.push({ t, v: BANDS.map((b) => depthWithin(bids, asks, mid, b).imbalance) });
+        while (s.imb.length && t - s.imb[0].t > cfg.imbKeepMs) s.imb.shift();
     }
 
     function ingestTrades(s, res) {
@@ -153,7 +159,8 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
     };
 
     // Dense, downsampled grid in the shape of liqheat (col-major cells, row 0 = lowest price) so the client can reuse heat.js.
-    function heatmap(symbol) {
+    // opts.grid: price bucket as a multiple of the base bucket (1,2,5,10,20); opts.band: depth band percent (0.5,1,2,5).
+    function heatmap(symbol, opts = {}) {
         const r = touch(symbol);
         if (r.error) return r;
         const s = r.state;
@@ -166,7 +173,9 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
         const n = Math.floor(span / colMs) + 1;
         const rows = cfg.outRows;
         const price = s.lastBook.mid;
-        const lo = Math.floor(price / s.step) - rows / 2;
+        const m = snap(opts.grid, GRIDS, 1);
+        const step = s.step * m; // coarser grid: m adjacent base buckets summed into one row
+        const lo = Math.floor(price / step) - rows / 2;
         const sum = new Float64Array(n * rows);
         const cnt = new Uint16Array(n);
         const midSum = new Float64Array(n);
@@ -175,7 +184,7 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
             cnt[g] += 1;
             midSum[g] += c.mid;
             for (let k = 0; k < c.v.length; k += 1) {
-                const row = c.i0 + k - lo;
+                const row = Math.floor((c.i0 + k) / m) - lo;
                 if (row >= 0 && row < rows) sum[g * rows + row] += c.v[k];
             }
         }
@@ -193,7 +202,26 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
         nz.sort((a, b) => a - b);
         const max = nz.length ? nz[Math.min(nz.length - 1, Math.floor(nz.length * 0.99))] : 0; // p99: one huge wall must not wash out the rest
         const mids = Array.from({ length: n }, (_, g) => (cnt[g] ? midSum[g] / cnt[g] : null));
-        return { ...h, cols: n, rows, t0, colMs, priceMin: lo * s.step, priceStep: s.step, price, max, cells, mids, gaps };
+        return { ...h, cols: n, rows, t0, colMs, priceMin: lo * step, priceStep: step, grid: m, price, max, cells, mids, gaps, ...liveView(s, snap(opts.band, BANDS, 1), t0, step) };
+    }
+
+    // Latest book ladder, depth within the band, imbalance (+ the value ~5 min ago), walls, wall events and taker-trade bubbles.
+    function liveView(s, band, tStart, width) {
+        const { bids, asks, mid, at } = s.lastBook;
+        const bestBid = Math.max(...bids.map((l) => l[0]));
+        const bestAsk = Math.min(...asks.map((l) => l[0]));
+        const depth = depthWithin(bids, asks, mid, band);
+        const bi = BANDS.indexOf(band);
+        const old = [...s.imb].reverse().find((x) => at - x.t >= cfg.imbDeltaMs); // newest sample at least 5 min old
+        const w = wallView(s.wt, mid, at);
+        const bubbles = s.trades.filter((x) => x.ts >= tStart - 1000).sort((a, b) => b.usd - a.usd).slice(0, cfg.maxBubbles).sort((a, b) => a.ts - b.ts)
+            .map((x) => ({ t: x.ts, price: x.price, usd: Math.round(x.usd), side: x.side }));
+        return {
+            lastPrice: s.trades.length ? s.trades[s.trades.length - 1].price : mid, bands: BANDS,
+            book: { bestBid, bestAsk, spread: bestAsk - bestBid, spreadPct: ((bestAsk - bestBid) / mid) * 100, ...ladder(bids, asks, width, cfg.ladderLevels) },
+            depth, imbalance: { pct: depth.imbalance, prevPct: old ? old.v[bi] : null, prevAgoMs: old ? at - old.t : null },
+            walls: { active: w.active, largestBid: w.largestBid, largestAsk: w.largestAsk, thresholdMult: cfg.wallMult }, wallEvents: w.events, trades: bubbles,
+        };
     }
 
     // Walls (book levels >= wallMult x the median level) + large trades (>= tradeMult x the median recent trade). Description only.
@@ -210,12 +238,17 @@ function createCollector({ fetchBook = providers.fetchBook, fetchTrades = provid
             .map((l) => ({ kind: 'wall', ...l, mult: l.usd / medLevel, ts: at, distPct: ((l.price - mid) / mid) * 100 }));
         const enough = s.trades.length >= cfg.minTradesForLarge;
         const medTrade = enough ? median(s.trades.map((x) => x.usd)) : 0;
+        // levels >= 5x median (a looser cut than the wall rule) so the UI's 5x/10x/20x chips are real filters; additive like the wall log
+        const levels = lv.filter((l) => medLevel > 0 && l.usd >= 5 * medLevel).sort((a, b) => b.usd - a.usd).slice(0, 40)
+            .map((l) => ({ side: l.side, price: l.price, usd: Math.round(l.usd), mult: l.usd / medLevel, distPct: ((l.price - mid) / mid) * 100 }));
+        const w = wallView(s.wt, mid, at); // additive: the Large Orders Walls/Events tabs and stat cards read these
         const trades = enough ? s.trades.filter((x) => x.usd >= cfg.tradeMult * medTrade).slice(-30)
             .map((x) => ({ kind: 'trade', side: x.side, price: x.price, qty: x.qty, usd: x.usd, mult: x.usd / medTrade, ts: x.ts })) : [];
         return {
             ...h, price: mid, tradesSeen: s.trades.length,
             thresholds: { wallMult: cfg.wallMult, tradeMult: cfg.tradeMult, medianLevelUsd: medLevel, medianTradeUsd: medTrade, tradesNeeded: cfg.minTradesForLarge },
             items: [...walls, ...trades.reverse()].sort((a, b) => b.usd - a.usd),
+            levels, activeWalls: w.active, wallEvents: w.events,
         };
     }
 

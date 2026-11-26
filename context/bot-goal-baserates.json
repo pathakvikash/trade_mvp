@@ -1,0 +1,327 @@
+{
+ "BTCUSDT": {
+  "w15m": {
+   "windows": 35039,
+   "longTouchPct": {
+    "1": 0.7563,
+    "2": 0.0656,
+    "5": 0.0029,
+    "10": 0,
+    "0.5": 4.7176
+   },
+   "eitherTouchPct": {
+    "1": 1.4955,
+    "2": 0.1256,
+    "5": 0.0029,
+    "10": 0,
+    "0.5": 9.2697
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_from15m": {
+   "windows": 35036,
+   "longTouchPct": {
+    "1": 4.875,
+    "2": 0.7364,
+    "5": 0.0257,
+    "10": 0,
+    "0.5": 18.0414
+   },
+   "eitherTouchPct": {
+    "1": 9.9583,
+    "2": 1.4956,
+    "5": 0.0485,
+    "10": 0,
+    "0.5": 35.0754
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_3y": {
+   "windows": 26279,
+   "longTouchPct": {
+    "1": 5.59,
+    "2": 0.8562,
+    "5": 0.019,
+    "10": 0,
+    "0.5": 20.465
+   },
+   "eitherTouchPct": {
+    "1": 11.5035,
+    "2": 1.9369,
+    "5": 0.0799,
+    "10": 0.0038,
+    "0.5": 38.5555
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0.0038,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  }
+ },
+ "ETHUSDT": {
+  "w15m": {
+   "windows": 35039,
+   "longTouchPct": {
+    "1": 1.8551,
+    "2": 0.2511,
+    "5": 0.0171,
+    "10": 0,
+    "0.5": 8.6361
+   },
+   "eitherTouchPct": {
+    "1": 3.7301,
+    "2": 0.4994,
+    "5": 0.0285,
+    "10": 0,
+    "0.5": 16.944
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_from15m": {
+   "windows": 35036,
+   "longTouchPct": {
+    "1": 8.8709,
+    "2": 1.7982,
+    "5": 0.137,
+    "10": 0.0086,
+    "0.5": 26.8096
+   },
+   "eitherTouchPct": {
+    "1": 17.9415,
+    "2": 3.7247,
+    "5": 0.2455,
+    "10": 0.0086,
+    "0.5": 50.5623
+   },
+   "plus10FirstPct": 0.0086,
+   "minus10FirstPct": 0,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 3
+  },
+  "w1h_3y": {
+   "windows": 26279,
+   "longTouchPct": {
+    "1": 10.7805,
+    "2": 2.1043,
+    "5": 0.0951,
+    "10": 0.0038,
+    "0.5": 31.9609
+   },
+   "eitherTouchPct": {
+    "1": 22.1203,
+    "2": 4.6843,
+    "5": 0.3044,
+    "10": 0.0266,
+    "0.5": 58.5068
+   },
+   "plus10FirstPct": 0.0038,
+   "minus10FirstPct": 0.0228,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 1
+  }
+ },
+ "SOLUSDT": {
+  "w15m": {
+   "windows": 35039,
+   "longTouchPct": {
+    "1": 2.1719,
+    "2": 0.2968,
+    "5": 0.0114,
+    "10": 0,
+    "0.5": 10.7366
+   },
+   "eitherTouchPct": {
+    "1": 4.3095,
+    "2": 0.5736,
+    "5": 0.0285,
+    "10": 0.0029,
+    "0.5": 21.0451
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0.0029,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_from15m": {
+   "windows": 35036,
+   "longTouchPct": {
+    "1": 10.846,
+    "2": 2.3148,
+    "5": 0.1113,
+    "10": 0,
+    "0.5": 32.3639
+   },
+   "eitherTouchPct": {
+    "1": 22.1772,
+    "2": 4.6238,
+    "5": 0.2255,
+    "10": 0.0228,
+    "0.5": 59.7928
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0.0228,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_3y": {
+   "windows": 26279,
+   "longTouchPct": {
+    "1": 17.8774,
+    "2": 4.2391,
+    "5": 0.2321,
+    "10": 0.019,
+    "0.5": 43.3426
+   },
+   "eitherTouchPct": {
+    "1": 34.6474,
+    "2": 8.5848,
+    "5": 0.5404,
+    "10": 0.0647,
+    "0.5": 75.0752
+   },
+   "plus10FirstPct": 0.019,
+   "minus10FirstPct": 0.0457,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 5
+  }
+ },
+ "LINKUSDT": {
+  "w15m": {
+   "windows": 35039,
+   "longTouchPct": {
+    "1": 2.3317,
+    "2": 0.2597,
+    "5": 0.0057,
+    "10": 0,
+    "0.5": 12.0009
+   },
+   "eitherTouchPct": {
+    "1": 4.6719,
+    "2": 0.5423,
+    "5": 0.0257,
+    "10": 0.0029,
+    "0.5": 23.2455
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0.0029,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_from15m": {
+   "windows": 35036,
+   "longTouchPct": {
+    "1": 12.0533,
+    "2": 2.3062,
+    "5": 0.1284,
+    "10": 0,
+    "0.5": 36.3027
+   },
+   "eitherTouchPct": {
+    "1": 24.0924,
+    "2": 4.7979,
+    "5": 0.3083,
+    "10": 0.0228,
+    "0.5": 66.2461
+   },
+   "plus10FirstPct": 0,
+   "minus10FirstPct": 0.0228,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 0
+  },
+  "w1h_3y": {
+   "windows": 26279,
+   "longTouchPct": {
+    "1": 18.5281,
+    "2": 4.0755,
+    "5": 0.2359,
+    "10": 0.0038,
+    "0.5": 45.3252
+   },
+   "eitherTouchPct": {
+    "1": 35.7015,
+    "2": 8.4364,
+    "5": 0.5784,
+    "10": 0.0761,
+    "0.5": 77.9215
+   },
+   "plus10FirstPct": 0.0038,
+   "minus10FirstPct": 0.0723,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 1
+  }
+ },
+ "MANTRAUSDT": {
+  "w15m": {
+   "windows": 25652,
+   "longTouchPct": {
+    "1": 5.6253,
+    "2": 1.1578,
+    "5": 0.2105,
+    "10": 0.0351,
+    "0.5": 20.7313
+   },
+   "eitherTouchPct": {
+    "1": 11.0479,
+    "2": 2.4598,
+    "5": 0.3976,
+    "10": 0.0546,
+    "0.5": 40.106
+   },
+   "plus10FirstPct": 0.0351,
+   "minus10FirstPct": 0.0195,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 9
+  },
+  "w1h_from15m": {
+   "windows": 25649,
+   "longTouchPct": {
+    "1": 20.8663,
+    "2": 5.3101,
+    "5": 0.8928,
+    "10": 0.2612,
+    "0.5": 47.7485
+   },
+   "eitherTouchPct": {
+    "1": 41.0035,
+    "2": 11.0375,
+    "5": 1.6024,
+    "10": 0.4094,
+    "0.5": 82.666
+   },
+   "plus10FirstPct": 0.2612,
+   "minus10FirstPct": 0.1482,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 67
+  },
+  "w1h_3y": {
+   "windows": 6413,
+   "longTouchPct": {
+    "1": 20.7859,
+    "2": 5.4109,
+    "5": 0.8732,
+    "10": 0.2495,
+    "0.5": 47.0918
+   },
+   "eitherTouchPct": {
+    "1": 40.7298,
+    "2": 11.2272,
+    "5": 1.6841,
+    "10": 0.3742,
+    "0.5": 82.286
+   },
+   "plus10FirstPct": 0.2495,
+   "minus10FirstPct": 0.1247,
+   "sameBarAmbiguousPct": 0,
+   "plus10Count": 16
+  }
+ }
+}

@@ -8,7 +8,7 @@ import MaximizeButton, { MaximizeBackdrop } from '../ui/MaximizeButton';
 import useMaximize from '../ui/useMaximize';
 import useLiqLevels from '../../lib/useLiqLevels';
 import { LiqToggle, LiqChip } from '../trade/LiqLevelsControl';
-import ChartHeatmap, { ChartViewTabs, useChartView } from '../trade/ChartHeatmap';
+import useLiqHeatOverlay, { LiqHeatControls, LiqHeatChip } from '../trade/LiqHeatOverlay';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id }));
 const CHART_TYPES = [{ id: 'candles', label: 'Candles' }, { id: 'line', label: 'Line' }];
@@ -61,14 +61,11 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
   const mx = useMaximize();
   const [type, setType] = usePersistedState('market.chartType', 'candles', { validate: (v) => CHART_TYPES.some((t) => t.id === v) });
   const [liqOn, setLiqOn] = usePersistedState('chart.liqLevels', false, { validate: (v) => typeof v === 'boolean' });
-  const { view, setView } = useChartView(!!ticker && error !== 'no_market');
-  const heat = view === 'heatmap';
-  const liq = useLiqLevels(ticker, liqOn && type === 'candles' && !heat);
+  const hm = useLiqHeatOverlay(ticker, !!ticker && error !== 'no_market' && type === 'candles');
+  const liq = useLiqLevels(ticker, liqOn && type === 'candles');
 
   let body;
-  if (heat) {
-    body = <ChartHeatmap symbol={ticker} />;
-  } else if (error === 'no_market') {
+  if (error === 'no_market') {
     body = <Message>No perpetual futures market for {ticker}</Message>;
   } else if (error) {
     body = (
@@ -90,7 +87,8 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
     body = (
       <>
         {liqOn && <LiqChip liq={liq} />}
-        <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} priceLines={liqOn ? liq.lines : undefined} />
+        <LiqHeatChip h={hm} />
+        <CandleChart key={`${ticker}-${interval}`} candles={candles} reloadSeq={reloadSeq} label={`${ticker} ${interval} candlestick chart`} priceLines={liqOn ? liq.lines : undefined} heat={hm.heat} />
       </>
     );
   }
@@ -99,16 +97,16 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
     <>
     <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
     <Panel
-      title={heat ? 'Liquidation heatmap' : 'Chart'}
-      className={`${className} ${heat ? '!h-auto' : ''} ${mx.panelClass}`}
+      title="Chart"
+      className={`${className} ${mx.panelClass}`}
       {...mx.panelProps}
-      bodyClassName={heat ? 'relative flex min-h-[320px] flex-col p-1.5 pt-0 xl:min-h-0' : 'relative min-h-[320px] xl:min-h-0 p-1.5 pt-0'}
+      bodyClassName="relative min-h-[320px] xl:min-h-0 p-1.5 pt-0"
       right={
         <div className="flex flex-wrap items-center gap-2">
-          {error !== 'no_market' && <ChartViewTabs view={view} onView={setView} />}
-          {!heat && type === 'candles' && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
-          {!heat && <SegTabs tabs={CHART_TYPES} active={type} onChange={setType} label="Chart type" />}
-          {!heat && <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />}
+          {type === 'candles' && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
+          {type === 'candles' && <LiqHeatControls h={hm} />}
+          <SegTabs tabs={CHART_TYPES} active={type} onChange={setType} label="Chart type" />
+          <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />
           <MaximizeButton max={mx.max} onToggle={mx.toggle} />
         </div>
       }

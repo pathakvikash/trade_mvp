@@ -6,6 +6,7 @@ import LiquidationHeatmap from '../components/LiquidationHeatmap';
 import Summary from '../components/liquidation/Summary';
 import CoinTreemap from '../components/liquidation/CoinTreemap';
 import LiqHeat from '../components/liquidation/LiqHeat';
+import PainField from '../components/liquidation/PainField';
 import LiqMap from '../components/liquidation/LiqMap';
 import Cvd from '../components/liquidation/Cvd';
 import OrderBookHeatmap from '../components/liquidation/OrderBookHeatmap';
@@ -55,6 +56,7 @@ const Liquidation = () => {
         </div>
       </div>
       <LiqHeat symbol={symbol} />
+      <PainField symbol={symbol} onOpenHeatmap={pickOther} />
       <Summary data={data} error={error} />
       <CoinTreemap bySymbol={data?.bySymbol} error={error} selected={symbol} onSelect={pickCoin} onHeatmap={setSymbol} />
       <LiquidationHeatmap symbol={symbol} />

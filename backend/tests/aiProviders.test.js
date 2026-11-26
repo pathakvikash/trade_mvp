@@ -331,3 +331,95 @@ describe('LM Studio (lmstudio): loopback-only base URL, no key, reasoning-model 
         await expect(P.listLocalModels('http://10.0.0.1:1234/v1')).rejects.toMatchObject({ code: 'ai_bad_base_url' });
     });
 });
+
+describe('listModels()', () => {
+    const logger = require('../config/logger');
+    test('openrouter: normalises price per 1M, context, free tag; sorted by id; hits the models URL with Bearer', async () => {
+        const calls = fakeRequest(https, { body: { data: [
+            { id: 'z/paid', name: 'Z Paid', context_length: 128000, pricing: { prompt: '0.000003', completion: '0.000015' } },
+            { id: 'a/free:free', name: 'A Free', context_length: 8192, pricing: { prompt: '0', completion: '0' } },
+            { id: 'r/router', name: 'Router', pricing: { prompt: '-1', completion: '-1' } },
+            { id: 'bad id with spaces', name: 'x' }, null,
+        ] } });
+        const out = await P.listModels({ provider: 'openrouter', apiKey: KEY });
+        expect(out).toEqual([
+            { id: 'a/free:free', name: 'A Free', contextLength: 8192, pricePerMTokIn: 0, pricePerMTokOut: 0, free: true },
+            { id: 'r/router', name: 'Router' },
+            { id: 'z/paid', name: 'Z Paid', contextLength: 128000, pricePerMTokIn: 3, pricePerMTokOut: 15 },
+        ]);
+        expect(calls[0].opts).toMatchObject({ method: 'GET', hostname: 'openrouter.ai', path: '/api/v1/models' });
+        expect(calls[0].opts.headers.authorization).toBe(`Bearer ${KEY}`);
+    });
+    test('anthropic keeps API order and uses x-api-key', async () => {
+        const calls = fakeRequest(https, { body: { data: [{ id: 'claude-b', display_name: 'Claude B' }, { id: 'claude-a', display_name: 'Claude A' }] } });
+        expect((await P.listModels({ provider: 'anthropic', apiKey: KEY })).map((m) => m.id)).toEqual(['claude-b', 'claude-a']);
+        expect(calls[0].opts.headers).toMatchObject({ 'x-api-key': KEY, 'anthropic-version': '2023-06-01' });
+        expect(calls[0].opts.hostname).toBe('api.anthropic.com');
+    });
+    test('openai drops non-chat ids; gemini keeps generateContent models only, strips models/, key in header not URL', async () => {
+        fakeRequest(https, { body: { data: [{ id: 'gpt-5' }, { id: 'text-embedding-3-small' }, { id: 'whisper-1' }] } });
+        expect((await P.listModels({ provider: 'openai', apiKey: KEY })).map((m) => m.id)).toEqual(['gpt-5']);
+        jest.restoreAllMocks();
+        const calls = fakeRequest(https, { body: { models: [
+            { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', inputTokenLimit: 1048576, supportedGenerationMethods: ['generateContent'] },
+            { name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] },
+        ] } });
+        expect(await P.listModels({ provider: 'gemini', apiKey: KEY })).toEqual([{ id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', contextLength: 1048576 }]);
+        expect(calls[0].opts.headers['x-goog-api-key']).toBe(KEY);
+        expect(calls[0].opts.path).not.toContain(KEY);
+    });
+    test('caps the list at 500 entries', async () => {
+        fakeRequest(https, { body: { data: Array.from({ length: 800 }, (_, i) => ({ id: `m${i}` })) } });
+        expect(await P.listModels({ provider: 'custom', apiKey: KEY, baseUrl: 'https://api.example.com/v1' })).toHaveLength(500);
+    });
+    test('a ~2 MB list parses (cap is 4 MB for lists)', async () => {
+        fakeRequest(https, { chunks: [JSON.stringify({ data: Array.from({ length: 400 }, (_, i) => ({ id: `m${i}`, name: 'n'.repeat(5000) })) })] });
+        expect(await P.listModels({ provider: 'openrouter', apiKey: KEY })).toHaveLength(400);
+    });
+    test('a response over 4 MB is ai_list_too_large, not ai_bad_response', async () => {
+        fakeRequest(https, { chunks: ['x'.repeat(3 * 1024 * 1024), 'x'.repeat(2 * 1024 * 1024)] });
+        await expect(P.listModels({ provider: 'openrouter', apiKey: KEY })).rejects.toMatchObject({ code: 'ai_list_too_large' });
+    });
+    test('chat calls keep the 1 MB cap', async () => {
+        fakeRequest(https, { chunks: ['x'.repeat(600 * 1024), 'x'.repeat(600 * 1024)] });
+        await expect(P.complete({ ...base, provider: 'openai' })).rejects.toMatchObject({ code: 'ai_bad_response' });
+    });
+    test('custom goes through the SSRF guard: bad base URL rejected before any request, good one uses guardedLookup', async () => {
+        const calls = fakeRequest(https, { body: { data: [{ id: 'm' }] } });
+        for (const u of ['https://127.0.0.1/v1', 'https://169.254.169.254/v1', 'http://api.example.com/v1', 'https://localhost/v1', '']) {
+            await expect(P.listModels({ provider: 'custom', apiKey: KEY, baseUrl: u })).rejects.toMatchObject({ code: 'ai_bad_base_url' });
+        }
+        expect(calls).toHaveLength(0);
+        await P.listModels({ provider: 'custom', apiKey: KEY, baseUrl: 'https://api.example.com/v1' });
+        expect(calls[0].opts).toMatchObject({ hostname: 'api.example.com', path: '/v1/models', lookup: P.guardedLookup });
+    });
+    test('lmstudio: loopback only, no key, embedding models filtered', async () => {
+        process.env.NODE_ENV = 'development';
+        const calls = fakeRequest(http, { body: { data: [{ id: 'qwen/q' }, { id: 'nomic-embed-text' }] } });
+        expect(await P.listModels({ provider: 'lmstudio', baseUrl: 'http://127.0.0.1:1234/v1' })).toEqual([{ id: 'qwen/q', name: 'qwen/q' }]);
+        expect(calls[0].opts).toMatchObject({ hostname: '127.0.0.1', path: '/v1/models', lookup: P.loopbackLookup });
+        await expect(P.listModels({ provider: 'lmstudio', baseUrl: 'http://10.0.0.1:1234/v1' })).rejects.toMatchObject({ code: 'ai_bad_base_url' });
+    });
+    test('no key -> ai_no_key; unknown provider -> ai_bad_provider', async () => {
+        await expect(P.listModels({ provider: 'openai' })).rejects.toMatchObject({ code: 'ai_no_key' });
+        await expect(P.listModels({ provider: 'nope', apiKey: KEY })).rejects.toMatchObject({ code: 'ai_bad_provider' });
+    });
+    test.each([[401, 'ai_auth_failed'], [403, 'ai_auth_failed'], [429, 'ai_rate_limited'], [500, 'ai_upstream_error'], [302, 'ai_upstream_error']])('status %s -> %s, and the logged text never holds the key', async (status, code) => {
+        const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+        fakeRequest(https, { status, body: { error: { message: `bad key ${KEY}` } } });
+        const err = await P.listModels({ provider: 'openrouter', apiKey: KEY }).catch((e) => e);
+        expect(err.code).toBe(code);
+        expect(JSON.stringify(err) + err.message).not.toContain(KEY);
+        expect(warn.mock.calls.flat().join(' ')).not.toContain(KEY);
+    });
+    test('network error -> ai_unreachable; non-JSON and wrong shape -> ai_bad_response', async () => {
+        fakeRequest(https, { error: new Error('ECONNRESET') });
+        await expect(P.listModels({ provider: 'openrouter', apiKey: KEY })).rejects.toMatchObject({ code: 'ai_unreachable' });
+        jest.restoreAllMocks();
+        fakeRequest(https, { raw: '<html>' });
+        await expect(P.listModels({ provider: 'openrouter', apiKey: KEY })).rejects.toMatchObject({ code: 'ai_bad_response' });
+        jest.restoreAllMocks();
+        fakeRequest(https, { body: { nope: 1 } });
+        await expect(P.listModels({ provider: 'openai', apiKey: KEY })).rejects.toMatchObject({ code: 'ai_bad_response' });
+    });
+});

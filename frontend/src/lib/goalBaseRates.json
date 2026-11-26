@@ -1,0 +1,11 @@
+{
+  "range": "past year of 15m candles up to the study date 2026-11-26; 1h windows opened at every 15m candle (about 35,000 per symbol, overlapping)",
+  "source": "context/bot-goal-baserates.json (copied subset: w1h_from15m)",
+  "note": "Share of 1h windows where price touched the move at some point. Static historical counts, not a forecast.",
+  "symbols": {
+    "BTCUSDT": { "windows": 35036, "touch05": 18.04, "touch1": 4.88, "touch10": 0 },
+    "ETHUSDT": { "windows": 35036, "touch05": 26.81, "touch1": 8.87, "touch10": 0.0086 },
+    "SOLUSDT": { "windows": 35036, "touch05": 32.36, "touch1": 10.85, "touch10": 0 },
+    "LINKUSDT": { "windows": 35036, "touch05": 36.3, "touch1": 12.05, "touch10": 0 }
+  }
+}

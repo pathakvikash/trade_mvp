@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "source": "context/bot-capability-study.md (2026-11-26)",
+  "label": "Rule-based starters for learning and risk control. Not profit templates: no DSL rule family made money reliably after costs out of sample in the study.",
+  "disclaimer": "Paper trading only. A strategy is a hypothesis to back-test, not advice. Nothing runs until you accept it on the bot screen. Past and paper results do not predict future results.",
+  "placeholderRules": {
+    "symbol": "Binance USDS-M perp, BTCUSDT format, must be on the bot allow-list",
+    "interval": "one of 1h, 4h (15m allowed by bots but every 15m family lost in the study, so templates do not offer it)",
+    "capital_usd": "margin in USD; capital_usd x leverage must be 5..25000 (MIN_NOTIONAL_USD..CAPS.MAX_SIZE_USD)",
+    "leverage": "integer 1..5 (CAPS.MAX_LEVERAGE); templates default to 1",
+    "stop_pct": "0.1..50 (DSL); templates allow 0.5..5; bots require a stop",
+    "target_pct": "0 (no fixed target, omit targetPct) or 0.5..20",
+    "direction": "long | short | both"
+  },
+  "templates": [
+    {
+      "id": "trend_ema_cross",
+      "title": "Slow trend follower (EMA cross)",
+      "description": "Go with the trend when a fast EMA crosses a slow EMA, leave on the opposite cross, always with a stop.",
+      "evidence": "Least-bad family in the study: 4h EMA 20/50 median OOS +1.5% of notional after costs, 8/15 cells profitable, but only 30/60 rolling tests profitable (median +0.6%). Consistent with no reliable edge.",
+      "worksWhen": "Long, persistent trends (it caught the 2024-2026 declines and rallies on 4h). Smaller drawdowns than holding in falling markets.",
+      "failsWhen": "Choppy sideways markets (many whipsaw stop-outs), short timeframes (15m: median -4.2% and worse after fees), and it gives up much of a strong bull run vs simply holding.",
+      "placeholders": {
+        "symbol": { "default": "BTCUSDT" },
+        "interval": { "default": "4h", "allowed": ["1h", "4h"] },
+        "capital_usd": { "default": 100, "min": 5, "max": 25000 },
+        "leverage": { "default": 1, "min": 1, "max": 5 },
+        "direction": { "default": "long", "allowed": ["long", "short", "both"] },
+        "fast_period": { "default": 20, "min": 5, "max": 100 },
+        "slow_period": { "default": 50, "min": 20, "max": 200, "rule": "greater than fast_period" },
+        "stop_pct": { "default": 2, "min": 0.5, "max": 5 },
+        "target_pct": { "default": 0, "min": 0, "max": 20, "note": "0 = no fixed target" }
+      },
+      "prompt": "Create a strategy for {{symbol}} on the {{interval}} timeframe, direction {{direction}}. Rule: EMA {{fast_period}} crossing above EMA {{slow_period}} opens a long, crossing below opens a short (only the side(s) in my direction); exit on the opposite cross. Stop {{stop_pct}}% from entry on every trade. Target {{target_pct}}% (if 0, set no targetPct). I plan to run it as a paper bot with {{capital_usd}} USD margin at {{leverage}}x. Use only the strategy grammar; tell me the worst-case loss in USD per trade from the stop plus fees, and do not claim it will be profitable. I will review the backtest and accept it myself.",
+      "exampleSpec": {"version":1,"name":"EMA 20/50 trend","timeframe":"4h","direction":"long","indicators":[{"id":"fast","type":"ema","period":20},{"id":"slow","type":"ema","period":50}],"entry":{"long":{"all":[{"left":"fast","op":"crosses_above","right":"slow"}]}},"exit":{"long":{"any":[{"left":"fast","op":"crosses_below","right":"slow"}]}},"risk":{"stopPct":2},"plot":["fast","slow"]}
+    },
+    {
+      "id": "slow_trend_sma",
+      "title": "Very slow trend (SMA 50/200)",
+      "description": "Trade only when the 50-period average crosses the 200-period average: few trades, small fee bill.",
+      "evidence": "4h SMA cross: 11/15 cells profitable OOS (median +19.2%), but median only 22 trades per cell (under 30 = not meaningful) and 30/60 rolling tests profitable. Expect long gaps with no trade.",
+      "worksWhen": "Multi-week trends; it trades rarely, so fees matter little.",
+      "failsWhen": "Range-bound months (late, whipsawed entries); too few trades to judge for a long time.",
+      "placeholders": {
+        "symbol": { "default": "ETHUSDT" },
+        "interval": { "default": "4h", "allowed": ["1h", "4h"] },
+        "capital_usd": { "default": 100, "min": 5, "max": 25000 },
+        "leverage": { "default": 1, "min": 1, "max": 5 },
+        "direction": { "default": "long", "allowed": ["long", "short", "both"] },
+        "stop_pct": { "default": 2, "min": 0.5, "max": 5 },
+        "target_pct": { "default": 0, "min": 0, "max": 20, "note": "0 = no fixed target" }
+      },
+      "prompt": "Create a slow trend strategy for {{symbol}} on {{interval}}, direction {{direction}}: SMA 50 crossing above SMA 200 opens a long, crossing below opens a short (only the side(s) in my direction); exit on the opposite cross. Stop {{stop_pct}}% on every trade; target {{target_pct}}% (if 0, no targetPct). Paper bot with {{capital_usd}} USD margin at {{leverage}}x. Use only the strategy grammar, say how many trades the backtest has and whether that is too few to mean anything, and do not claim profitability. I will accept it myself.",
+      "exampleSpec": {"version":1,"name":"SMA 50/200 trend","timeframe":"4h","direction":"long","indicators":[{"id":"s50","type":"sma","period":50},{"id":"s200","type":"sma","period":200}],"entry":{"long":{"all":[{"left":"s50","op":"crosses_above","right":"s200"}]}},"exit":{"long":{"any":[{"left":"s50","op":"crosses_below","right":"s200"}]}},"risk":{"stopPct":2},"plot":["s50","s200"]}
+    },
+    {
+      "id": "trend_pullback",
+      "title": "Buy the dip only in an uptrend",
+      "description": "Enter long only when price is above a long EMA and RSI has pulled back; exit when RSI recovers.",
+      "evidence": "4h: median OOS 0.0%, 7/15 cells profitable, 20/60 rolling tests profitable; positive on trades entered in trending regimes (+0.13% per trade) and clearly negative in ranges (-0.41%). Often under 30 trades.",
+      "worksWhen": "Steady trends with shallow pullbacks.",
+      "failsWhen": "Sideways or turning markets; the trend filter lags, so the first dips of a new downtrend get bought and stopped.",
+      "placeholders": {
+        "symbol": { "default": "BTCUSDT" },
+        "interval": { "default": "4h", "allowed": ["1h", "4h"] },
+        "capital_usd": { "default": 100, "min": 5, "max": 25000 },
+        "leverage": { "default": 1, "min": 1, "max": 5 },
+        "trend_period": { "default": 200, "min": 50, "max": 200 },
+        "rsi_level": { "default": 35, "min": 25, "max": 45 },
+        "stop_pct": { "default": 1, "min": 0.5, "max": 5 },
+        "target_pct": { "default": 0, "min": 0, "max": 20, "note": "0 = no fixed target" }
+      },
+      "prompt": "Create a long-only strategy for {{symbol}} on {{interval}}: enter long when close is above EMA {{trend_period}} AND RSI 14 is below {{rsi_level}}; exit when RSI 14 rises above 55. Stop {{stop_pct}}%; target {{target_pct}}% (if 0, no targetPct). Paper bot with {{capital_usd}} USD margin at {{leverage}}x. Use only the strategy grammar, state the worst-case loss per trade in USD including fees, and do not claim it will be profitable. Nothing should run until I accept it.",
+      "exampleSpec": {"version":1,"name":"Uptrend pullback","timeframe":"4h","direction":"long","indicators":[{"id":"trend","type":"ema","period":200},{"id":"rsi","type":"rsi","period":14}],"entry":{"long":{"all":[{"left":"close","op":"gt","right":"trend"},{"left":"rsi","op":"lt","right":35}]}},"exit":{"long":{"any":[{"left":"rsi","op":"gt","right":55}]}},"risk":{"stopPct":1},"plot":["trend","rsi"]}
+    },
+    {
+      "id": "goal_reality_check",
+      "title": "Reality check for a quick-profit goal",
+      "description": "Turns 'make X dollars in Y minutes' into the price move it needs, then proposes a slower, stop-protected rule with a small target.",
+      "evidence": "A +10% move within 1h (what +$10 on $20 at 5x needs) happened in 0 of ~35,000 hourly windows on BTC, SOL and LINK over the past year, 0.009% on ETH, 0.26% on thin MANTRA (where -10% first was 0.15%). Realistic 1h moves: +0.5% (18-48% of windows) to +1% (5-21%), with the same odds of the matching loss.",
+      "worksWhen": "As education: shows the required move, the fee bill and the worst-case loss before anything runs.",
+      "failsWhen": "If treated as a way to reach the goal: the study found no rule that does so reliably, and leverage only speeds up losses (at 5x, 53% of selected rules lost all their margin out of sample).",
+      "placeholders": {
+        "symbol": { "default": "BTCUSDT" },
+        "goal_usd": { "default": 10, "min": 1, "max": 1000 },
+        "capital_usd": { "default": 20, "min": 5, "max": 25000 },
+        "leverage": { "default": 1, "min": 1, "max": 5 },
+        "window": { "default": "1 hour", "allowed": ["15 minutes", "1 hour", "4 hours", "1 day"] },
+        "stop_pct": { "default": 1, "min": 0.5, "max": 5 },
+        "target_pct": { "default": 1, "min": 0.5, "max": 5 }
+      },
+      "prompt": "I want {{goal_usd}} USD profit on {{capital_usd}} USD margin within {{window}} on {{symbol}} at {{leverage}}x. First compute from the DATA: notional, the price move % that goal needs including round-trip fees, and how that compares with recent candle ranges (say plainly if it is unlikely; label any estimate as an estimate). Then propose the closest sensible strategy on the 1h timeframe instead: a trend rule (EMA 20 crossing EMA 50, exit on the opposite cross) with stop {{stop_pct}}% and target {{target_pct}}%, and tell me the USD result if the target is hit and if the stop is hit, both after fees. Use only the strategy grammar and do not claim profitability. I will decide and accept it myself.",
+      "exampleSpec": {"version":1,"name":"Small-target trend","timeframe":"1h","direction":"long","indicators":[{"id":"fast","type":"ema","period":20},{"id":"slow","type":"ema","period":50}],"entry":{"long":{"all":[{"left":"fast","op":"crosses_above","right":"slow"}]}},"exit":{"long":{"any":[{"left":"fast","op":"crosses_below","right":"slow"}]}},"risk":{"stopPct":1,"targetPct":1},"plot":["fast","slow"]}
+    },
+    {
+      "id": "test_my_rule",
+      "title": "Test my own rule honestly",
+      "description": "Writes your indicator rule as a strategy with a mandatory stop and no leverage, so you can see what it really does after fees.",
+      "evidence": "Every family in the study lost money in most configurations (12.6% of 11,880 configs profitable out of sample); the in-sample best config lost a median 13.9% out of sample. Testing before trusting is the point.",
+      "worksWhen": "Learning: seeing fees, stop-outs, sample size and overfitting on your own idea with no money at risk.",
+      "failsWhen": "If the backtest is tuned repeatedly on the same candles (curve fitting), or used on 15m with frequent signals (fees dominate).",
+      "placeholders": {
+        "symbol": { "default": "BTCUSDT" },
+        "interval": { "default": "1h", "allowed": ["1h", "4h"] },
+        "direction": { "default": "long", "allowed": ["long", "short", "both"] },
+        "rule_text": { "default": "RSI 14 crosses above 30", "note": "free text, must use only sma, ema, rsi, atr, volume_sma, bollinger, macd and OHLCV" },
+        "exit_text": { "default": "RSI 14 rises above 50" },
+        "stop_pct": { "default": 2, "min": 0.5, "max": 5 },
+        "target_pct": { "default": 0, "min": 0, "max": 20, "note": "0 = no fixed target" }
+      },
+      "prompt": "Turn my rule into a strategy for {{symbol}} on {{interval}}, direction {{direction}}. Entry: {{rule_text}}. Exit: {{exit_text}}. Stop {{stop_pct}}% on every trade; target {{target_pct}}% (if 0, no targetPct). Assume 1x leverage. If any part cannot be expressed in the strategy grammar, say exactly which part and use the closest valid version. After the backtest, tell me the trade count, whether it is too few to mean anything, and what share of the result went to fees. Do not tune it or claim it will be profitable; I will accept it myself.",
+      "exampleSpec": {"version":1,"name":"My RSI rule","timeframe":"1h","direction":"long","indicators":[{"id":"rsi","type":"rsi","period":14}],"entry":{"long":{"all":[{"left":"rsi","op":"crosses_above","right":30}]}},"exit":{"long":{"any":[{"left":"rsi","op":"gt","right":50}]}},"risk":{"stopPct":2},"plot":["rsi"]}
+    }
+  ],
+  "notTemplated": {
+    "rsi_mean_reversion": "0 of 45 cells profitable out of sample on any timeframe; worse than random entries at 4h.",
+    "bollinger_reversion": "4 of 45 profitable; worse than random at 4h.",
+    "macd_cross_15m_1h": "400-550 trades per cell, median -80% of notional; the loss is the fee bill.",
+    "any_15m_rule": "11 of 135 cells profitable, median -19.7%; 64 of 540 rolling tests profitable.",
+    "donchian_atr_funding": "Not expressible in DSL v1 (no highest/lowest, no ATR stops, no funding/OI operands)."
+  }
+}

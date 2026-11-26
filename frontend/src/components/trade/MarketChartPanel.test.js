@@ -85,7 +85,7 @@ describe('view tabs', () => {
   const tab = (el, name) => [...el.querySelectorAll('[role="tab"]')].find((b) => b.textContent.startsWith(name));
   beforeEach(() => localStorage.clear());
 
-  test('Chart and Alerts always shown, Heatmap only with a futures symbol; switching works', () => {
+  test('Chart and Alerts always shown, no Heatmap tab even with a futures symbol; switching works', () => {
     const spot = mount({ sym: 'MANTRAUSDT' });
     expect(tab(spot.el, 'Chart')).toBeTruthy();
     expect(tab(spot.el, 'Alerts')).toBeTruthy();
@@ -94,14 +94,7 @@ describe('view tabs', () => {
     expect(tab(spot.el, 'Alerts').getAttribute('aria-selected')).toBe('true');
     act(() => { tab(spot.el, 'Chart').click(); });
     expect(tab(spot.el, 'Chart').getAttribute('aria-selected')).toBe('true');
-    expect(tab(mount({ sym: 'BTCUSDT', liq: 'BTCUSDT' }).el, 'Heatmap')).toBeTruthy();
-  });
-
-  test('stored heatmap without a futures symbol shows Chart and keeps the stored choice', () => {
-    localStorage.setItem('chart.view', JSON.stringify('heatmap'));
-    const { el } = mount({ sym: 'MANTRAUSDT' });
-    expect(tab(el, 'Chart').getAttribute('aria-selected')).toBe('true');
-    expect(localStorage.getItem('chart.view')).toContain('heatmap');
+    expect(tab(mount({ sym: 'BTCUSDT', liq: 'BTCUSDT' }).el, 'Heatmap')).toBeUndefined();
   });
 
   test('alerts view resets to Chart on symbol change', () => {
@@ -112,5 +105,51 @@ describe('view tabs', () => {
     expect(tab(el, 'Alerts').getAttribute('aria-selected')).toBe('true');
     render('BBBUSDT');
     expect(tab(el, 'Chart').getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('Liq heatmap overlay', () => {
+  const axios = require('axios').default;
+  const candle = { time: 1, open: 1, high: 2, low: 1, close: 2, volume: 1 };
+  const grid = { symbol: 'BTCUSDT', t0: 0, colMs: 60000, cols: 2, priceMin: 1, priceStep: 1, rows: 2, cells: [0, 5, 3, 0], max: 5, candles: [{ close: 1 }, { close: 2 }], generatedAt: 1 };
+  const draw = (props) => {
+    const el = document.createElement('div');
+    act(() => { createRoot(el).render(<MarketChartPanel ticker="BTC" interval="1h" onInterval={() => {}} candles={[candle]} ready klineSource="binance-futures" {...props} />); });
+    return el;
+  };
+  const toggle = (el) => [...el.querySelectorAll('button')].find((b) => b.textContent === 'Liq heatmap');
+  beforeEach(() => { localStorage.clear(); axios.get.mockReset(); axios.get.mockResolvedValue({ data: grid, headers: {} }); });
+
+  test('hidden without a futures symbol or on no_market; caption shown with one, no request while off', () => {
+    expect(draw({}).textContent).not.toContain('Liquidation heatmap:');
+    expect(draw({ liqSymbol: 'BTCUSDT', error: 'no_market' }).textContent).not.toContain('Liquidation heatmap:');
+    const el = draw({ liqSymbol: 'BTCUSDT' });
+    expect(el.textContent).toContain('Liquidation heatmap: estimate from open-interest changes, not exchange data');
+    expect(toggle(el).getAttribute('aria-pressed')).toBe('false');
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  test('toggle persists and requests the shared range; opacity persists', async () => {
+    localStorage.setItem('tm:v1:anon:liquidation.heatRange', JSON.stringify('3d')); // the Liquidation page's key
+    const el = draw({ liqSymbol: 'BTCUSDT' });
+    await act(async () => { toggle(el).click(); });
+    expect(axios.get.mock.calls[0][0]).toMatch(/liqheat\/BTCUSDT\?range=3d$/);
+    expect(localStorage.getItem('tm:v1:anon:chart.liqHeat')).toBe('true');
+    const op = document.body.querySelector('input[aria-label="Heatmap opacity"]');
+    expect(op).toBeNull(); // settings closed
+    await act(async () => { [...el.querySelectorAll('button')].find((b) => b.textContent === 'Heat settings').click(); });
+    const slider = document.body.querySelector('input[aria-label="Heatmap opacity"]');
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    await act(async () => { set.call(slider, '70'); slider.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(localStorage.getItem('tm:v1:anon:chart.liqHeatOpacity')).toBe('70');
+  });
+
+  test('palette/lens/intensity come from the Liquidation page keys', async () => {
+    localStorage.setItem('tm:v1:anon:liquidation.heatPalette', JSON.stringify('inferno'));
+    localStorage.setItem('tm:v1:anon:chart.liqHeat', 'true');
+    const el = draw({ liqSymbol: 'BTCUSDT' });
+    await act(async () => {});
+    await act(async () => { [...el.querySelectorAll('button')].find((b) => b.textContent === 'Heat settings').click(); });
+    expect([...document.body.querySelectorAll('[aria-label="Heatmap settings"][role="group"]')].pop().querySelector('select').value).toBe('inferno');
   });
 });

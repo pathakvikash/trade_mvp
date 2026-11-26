@@ -1,4 +1,4 @@
-const { isValidSymbol, normalizeForceOrder, normalizeRestKline, normalizeAggTrade, summarizeLiquidations, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX } = require('../services/futuresUtils');
+const { isValidSymbol, normalizeForceOrder, normalizeRestKline, normalizeAggTrade, summarizeLiquidations, estimateLiqLevels, estimateLiqHeat, liqKeyLevels, LEV_MIX, LIQ_TIERS } = require('../services/futuresUtils');
 
 const fo = (S, extra = {}) => ({ E: 1, o: { s: 'ETHUSDT', S, q: '2', p: '1800', ap: '1790', z: '2', T: 5, ...extra } });
 
@@ -96,6 +96,16 @@ describe('estimateLiqLevels', () => {
     test('OI decreases create nothing', () => {
         const rows = estimateLiqLevels({ klines: [k(0, 99, 101, 100), k(1, 99, 101, 100)], oiHist: [{ ts: H * 1000, oiUsd: 3000 }, { ts: 2 * H * 1000, oiUsd: 1000 }], price: 100, tiers: tier });
         expect(rows.every((r) => r.longUsd === 0 && r.shortUsd === 0)).toBe(true);
+    });
+    test('rows carry per-tier arrays that sum to the totals and group leverages <=10 / 25 / 50 / 100+', () => {
+        const ks = [k(0, 99.9, 100.1, 100), k(1, 99.9, 100.1, 100), k(2, 99.9, 100.1, 100)]; // tight range: nothing crossed
+        const mix = [{ lev: 10, w: 0.25 }, { lev: 25, w: 0.25 }, { lev: 50, w: 0.25 }, { lev: 100, w: 0.25 }];
+        const rows = estimateLiqLevels({ klines: ks, oiHist, price: 100, buckets: 300, span: 0.15, tiers: mix });
+        expect(LIQ_TIERS).toHaveLength(4);
+        const t = (key) => LIQ_TIERS.map((_, i) => rows.reduce((a, r) => a + r[key][i], 0));
+        t('longTier').forEach((v) => expect(v).toBeCloseTo(250));
+        t('shortTier').forEach((v) => expect(v).toBeCloseTo(250));
+        rows.forEach((r) => { expect(r.longTier.reduce((a, b) => a + b, 0)).toBeCloseTo(r.longUsd); expect(r.shortTier.reduce((a, b) => a + b, 0)).toBeCloseTo(r.shortUsd); });
     });
     test('default leverage mix weights sum to 1; a level whose maintenance margin exceeds 1/lev is skipped', () => {
         expect(LEV_MIX.reduce((t, x) => t + x.w, 0)).toBeCloseTo(1);

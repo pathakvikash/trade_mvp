@@ -8,6 +8,7 @@ const { limitBy } = require('../middleware/rateLimit');
 const instruments = require('../services/marketData/instruments');
 const yahoo = require('../services/marketData/providers/yahoo');
 const cvdService = require('../services/cvd');
+const maxPain = require('../services/maxPain');
 
 router.use(limitBy({ limit: 120, windowMs: 60e3 })); // per IP, everything under /api/market
 
@@ -120,14 +121,28 @@ router.get('/futures/liqheat/:symbol', async (req, res) => {
     try { sendObj(res, await futuresRest.liqheat(symbol, range)); } catch (err) { upstreamError(res, err, 'liquidation heatmap', true); }
 });
 
-// Cumulative volume delta from real Binance taker volume. 200 {available:false} when only a source without taker volume is reachable.
+// Cumulative volume delta from real Binance taker volume: futures + spot series. ?interval=1m..1d (or the older ?range=).
+// 200 with available:false (futures) / spot.available:false when a source is unreachable; nothing is approximated.
 router.get('/futures/cvd/:symbol', async (req, res) => {
     const symbol = String(req.params.symbol).toUpperCase();
     const range = req.query.range || '24h';
+    const interval = req.query.interval;
+    const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
     if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
-    if (!Object.prototype.hasOwnProperty.call(cvdService.CVD_RANGES, range)) return res.status(400).json({ error: 'invalid range' });
+    if (interval !== undefined && !has(cvdService.CVD_INTERVALS, interval)) return res.status(400).json({ error: 'invalid interval' });
+    if (!has(cvdService.CVD_RANGES, range)) return res.status(400).json({ error: 'invalid range' });
     if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
-    try { sendObj(res, await cvdService.cvd(symbol, range)); } catch (err) { upstreamError(res, err, 'CVD'); }
+    try { sendObj(res, await cvdService.cvd(symbol, range, interval)); } catch (err) { upstreamError(res, err, 'CVD'); }
+});
+
+// Large recent futures trades (aggTrades) + taker flow of the last 60 s. ?min= USD threshold (10K/50K/100K/500K/1M).
+router.get('/futures/cvd/:symbol/trades', async (req, res) => {
+    const symbol = String(req.params.symbol).toUpperCase();
+    const min = req.query.min === undefined ? cvdService.TRADE_MINS[0] : Number(req.query.min);
+    if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+    if (!cvdService.TRADE_MINS.includes(min)) return res.status(400).json({ error: 'invalid min' });
+    if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
+    try { sendObj(res, await cvdService.trades(symbol, min)); } catch (err) { upstreamError(res, err, 'CVD trades'); }
 });
 
 // Tradable USDT perpetuals for the pair picker
@@ -136,6 +151,15 @@ router.get('/futures/symbols', async (req, res) => {
         const list = await futuresRest.listSymbols();
         res.set('X-Data-Source', list.source || 'binance-futures').set('Cache-Control', 'public, max-age=300').json(list);
     } catch (err) { res.status(502).json({ error: 'Failed to fetch symbol list' }); }
+});
+
+// Multi-coin max-pain board (top N perps by volume, N <= 30), 60 s cache + stale-while-revalidate. Own 10/min limit on top of the router's.
+router.get('/futures/maxpain', limitBy({ limit: 10, windowMs: 60e3 }), async (req, res) => {
+    const win = req.query.window || '24h';
+    const top = req.query.top === undefined ? maxPain.DEFAULT_TOP : parseInt(req.query.top, 10);
+    if (!Object.prototype.hasOwnProperty.call(futuresRest.HEAT_RANGES, win)) return res.status(400).json({ error: 'invalid window' });
+    if (!(top >= 1 && top <= maxPain.MAX_TOP)) return res.status(400).json({ error: `top must be 1-${maxPain.MAX_TOP}` });
+    try { res.json(await maxPain.maxPain(win, top)); } catch (err) { upstreamError(res, err, 'max pain', true); }
 });
 
 // Cross-symbol liquidation summary from the in-memory buffer (declared before /:symbol; cached 2s)
