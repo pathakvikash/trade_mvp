@@ -69,3 +69,48 @@ describe('Liq levels toggle', () => {
     expect([...el2.querySelectorAll('button')].find((b) => b.textContent === 'Liq levels').getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+describe('view tabs', () => {
+  const candle = { time: 1, open: 1, high: 2, low: 1, close: 2, volume: 1 };
+  const Host = (props) => {
+    const [view, setView] = React.useState(props.initial || 'chart');
+    return <MarketChartPanel ticker="BTC" interval="1h" onInterval={() => {}} candles={[candle]} ready klineSource="binance-futures" view={view} onView={setView} alertsSymbol={props.sym} liqSymbol={props.liq} />;
+  };
+  const mount = (props) => {
+    const el = document.createElement('div');
+    const root = createRoot(el);
+    act(() => { root.render(<Host {...props} />); });
+    return { el, root };
+  };
+  const tab = (el, name) => [...el.querySelectorAll('[role="tab"]')].find((b) => b.textContent.startsWith(name));
+  beforeEach(() => localStorage.clear());
+
+  test('Chart and Alerts always shown, Heatmap only with a futures symbol; switching works', () => {
+    const spot = mount({ sym: 'MANTRAUSDT' });
+    expect(tab(spot.el, 'Chart')).toBeTruthy();
+    expect(tab(spot.el, 'Alerts')).toBeTruthy();
+    expect(tab(spot.el, 'Heatmap')).toBeUndefined();
+    act(() => { tab(spot.el, 'Alerts').click(); });
+    expect(tab(spot.el, 'Alerts').getAttribute('aria-selected')).toBe('true');
+    act(() => { tab(spot.el, 'Chart').click(); });
+    expect(tab(spot.el, 'Chart').getAttribute('aria-selected')).toBe('true');
+    expect(tab(mount({ sym: 'BTCUSDT', liq: 'BTCUSDT' }).el, 'Heatmap')).toBeTruthy();
+  });
+
+  test('stored heatmap without a futures symbol shows Chart and keeps the stored choice', () => {
+    localStorage.setItem('chart.view', JSON.stringify('heatmap'));
+    const { el } = mount({ sym: 'MANTRAUSDT' });
+    expect(tab(el, 'Chart').getAttribute('aria-selected')).toBe('true');
+    expect(localStorage.getItem('chart.view')).toContain('heatmap');
+  });
+
+  test('alerts view resets to Chart on symbol change', () => {
+    const el = document.createElement('div');
+    const root = createRoot(el);
+    const render = (sym) => act(() => { root.render(<Host key="h" initial="alerts" sym={sym} />); });
+    render('AAAUSDT');
+    expect(tab(el, 'Alerts').getAttribute('aria-selected')).toBe('true');
+    render('BBBUSDT');
+    expect(tab(el, 'Chart').getAttribute('aria-selected')).toBe('true');
+  });
+});

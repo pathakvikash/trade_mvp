@@ -32,7 +32,8 @@ const positionSchema = new mongoose.Schema({
   realizedPnl: { type: Number, default: 0 }, // USD gross price PnL realised so far
   fees: { type: Number, default: 0 }, // USD open + close fees paid so far
   exitPrice: { type: Number }, // last close price, set on the final close
-  closeReason: { type: String, enum: ['manual', 'tp', 'sl', 'liquidation'] },
+  closeReason: { type: String, enum: ['manual', 'tp', 'sl', 'liquidation', 'bot'] },
+  botId: { type: mongoose.Schema.Types.ObjectId, index: true }, // set when a bot opened it (bot-trading-plan.md); absent otherwise
   lockOp: { type: mongoose.Schema.Types.ObjectId, ref: 'FuturesOp', default: null }, // the op currently mutating it
   rev: { type: Number, default: 0 }, // bumped ($inc) by every mutation; ledger/edit filters pin it against stale snapshots
   openedAt: { type: Date, default: Date.now },

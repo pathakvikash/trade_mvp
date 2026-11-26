@@ -19,6 +19,7 @@ jest.mock('../components/liquidation/Summary', () => () => null);
 jest.mock('../components/liquidation/CoinTreemap', () => () => null);
 jest.mock('../components/liquidation/LiqHeat', () => () => null);
 jest.mock('../components/liquidation/LiqMap', () => () => null);
+jest.mock('../components/liquidation/Cvd', () => () => null);
 jest.mock('../components/liquidation/LiveFeed', () => () => null);
 jest.mock('../components/ui/PairPicker', () => ({ onChange }) => <button id="pick" onClick={() => onChange('ETHUSDT')} />);
 

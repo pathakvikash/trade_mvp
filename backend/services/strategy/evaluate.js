@@ -55,14 +55,14 @@ function groupSignals(m, g, n) {
     return out;
 }
 
+// Shared by evaluate and signalAt so both see the same validated spec and the same closed candles.
 // spec is re-validated here so a caller can never feed an unchecked object to the interpreter.
 // opts.interval = candle interval the rows are on (default spec.timeframe); opts.now in ms; the last candle is dropped while still forming (time + interval > now).
-function evaluate(rawSpec, rawCandles, opts = {}) {
+function prepare(rawSpec, rawCandles, opts) {
     const p = parseSpec(rawSpec);
     if (!p.ok) { const e = new Error('invalid_spec'); e.issues = p.issues; throw e; }
     const spec = p.spec;
     const now = finite(opts.now) ? opts.now : Date.now();
-    const costs = { slippagePct: clamp(opts.slippagePct, 0, 1, 0.02), feePct: clamp(opts.feePct, 0, 1, 0.05) };
     let candles = (Array.isArray(rawCandles) ? rawCandles : [])
         .filter((c) => c && [c.time, c.open, c.high, c.low, c.close, c.volume].every(finite))
         .map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume }))
@@ -71,6 +71,12 @@ function evaluate(rawSpec, rawCandles, opts = {}) {
     // the forming-candle cut uses the interval actually evaluated (opts.interval), not the spec's designed-on timeframe
     const iv = EVAL_SECONDS[opts.interval] || EVAL_SECONDS[spec.timeframe];
     if (candles.length && (candles[candles.length - 1].time + iv) * 1000 > now) candles = candles.slice(0, -1);
+    return { spec, candles };
+}
+
+function evaluate(rawSpec, rawCandles, opts = {}) {
+    const { spec, candles } = prepare(rawSpec, rawCandles, opts);
+    const costs = { slippagePct: clamp(opts.slippagePct, 0, 1, 0.02), feePct: clamp(opts.feePct, 0, 1, 0.05) };
     const n = candles.length;
     const m = computeSeries(spec, candles);
     const g = (w, s) => groupSignals(m, spec[w] && spec[w][s], n);
@@ -95,4 +101,33 @@ function evaluate(rawSpec, rawCandles, opts = {}) {
     };
 }
 
-module.exports = { evaluate };
+// EMA/RSI/MACD/ATR are recursive and seeded at the first candle of the window, so their values depend on where the window
+// starts: a live signal on a 500-candle window can differ from the backtest on a longer one. The seed's influence decays
+// geometrically, so live signals are refused until the window holds WARMUP_MULT x the longest period (and at least WARMUP_MIN).
+// Backtests (evaluate) are unchanged. Caveat that remains: even warmed up, values differ slightly from a longer window.
+const WARMUP_MULT = 3, WARMUP_MIN = 30;
+const longest = (spec) => Math.max(1, ...spec.indicators.map((d) => d.period || (d.slow + d.signal)));
+
+// Live signal: the decision the backtest uses at the last CLOSED bar, from the same interpreter (groupSignals).
+// Reads only candles up to that bar, so later candles cannot change it. conds = per-condition values for the audit reason.
+// Too few candles -> { warmingUp: true, need, have, all signals false } so a caller never trades on seed-dominated values.
+function signalAt(rawSpec, rawCandles, opts = {}) {
+    const { spec, candles } = prepare(rawSpec, rawCandles, opts);
+    const n = candles.length;
+    if (!n) return null;
+    const need = Math.max(WARMUP_MIN, WARMUP_MULT * longest(spec));
+    if (n < need) return { barTime: candles[n - 1].time, warmingUp: true, need, have: n, entryLong: false, entryShort: false, exitLong: false, exitShort: false, conds: {} };
+    const m = computeSeries(spec, candles), i = n - 1;
+    const sig = (w, s) => groupSignals(m, spec[w] && spec[w][s], n)[i];
+    const conds = {};
+    for (const w of ['entry', 'exit']) for (const s of ['long', 'short']) {
+        const g = spec[w] && spec[w][s];
+        if (g) conds[`${w}${s[0].toUpperCase()}${s.slice(1)}`] = (g.all || g.any).map((c) => {
+            const r = operandAt(m, c.right, i);
+            return { left: c.left, op: c.op, right: c.right, leftValue: m.get(c.left)[i], rightValue: r, met: condAt(m, c, i) };
+        });
+    }
+    return { barTime: candles[i].time, entryLong: sig('entry', 'long'), entryShort: sig('entry', 'short'), exitLong: sig('exit', 'long'), exitShort: sig('exit', 'short'), conds };
+}
+
+module.exports = { evaluate, signalAt, WARMUP_MIN, WARMUP_MULT };

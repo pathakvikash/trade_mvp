@@ -8,6 +8,7 @@ import MaximizeButton, { MaximizeBackdrop } from '../ui/MaximizeButton';
 import useMaximize from '../ui/useMaximize';
 import useLiqLevels from '../../lib/useLiqLevels';
 import { LiqToggle, LiqChip } from '../trade/LiqLevelsControl';
+import ChartHeatmap, { ChartViewTabs, useChartView } from '../trade/ChartHeatmap';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id }));
 const CHART_TYPES = [{ id: 'candles', label: 'Candles' }, { id: 'line', label: 'Line' }];
@@ -60,10 +61,14 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
   const mx = useMaximize();
   const [type, setType] = usePersistedState('market.chartType', 'candles', { validate: (v) => CHART_TYPES.some((t) => t.id === v) });
   const [liqOn, setLiqOn] = usePersistedState('chart.liqLevels', false, { validate: (v) => typeof v === 'boolean' });
-  const liq = useLiqLevels(ticker, liqOn && type === 'candles');
+  const { view, setView } = useChartView(!!ticker && error !== 'no_market');
+  const heat = view === 'heatmap';
+  const liq = useLiqLevels(ticker, liqOn && type === 'candles' && !heat);
 
   let body;
-  if (error === 'no_market') {
+  if (heat) {
+    body = <ChartHeatmap symbol={ticker} />;
+  } else if (error === 'no_market') {
     body = <Message>No perpetual futures market for {ticker}</Message>;
   } else if (error) {
     body = (
@@ -94,15 +99,16 @@ const MarketChart = ({ ticker, interval, onInterval, candles, reloadSeq, error, 
     <>
     <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
     <Panel
-      title="Chart"
-      className={`${className} ${mx.panelClass}`}
+      title={heat ? 'Liquidation heatmap' : 'Chart'}
+      className={`${className} ${heat ? '!h-auto' : ''} ${mx.panelClass}`}
       {...mx.panelProps}
-      bodyClassName="relative min-h-[320px] xl:min-h-0 p-1.5 pt-0"
+      bodyClassName={heat ? 'relative flex min-h-[320px] flex-col p-1.5 pt-0 xl:min-h-0' : 'relative min-h-[320px] xl:min-h-0 p-1.5 pt-0'}
       right={
         <div className="flex flex-wrap items-center gap-2">
-          {type === 'candles' && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
-          <SegTabs tabs={CHART_TYPES} active={type} onChange={setType} label="Chart type" />
-          <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />
+          {error !== 'no_market' && <ChartViewTabs view={view} onView={setView} />}
+          {!heat && type === 'candles' && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
+          {!heat && <SegTabs tabs={CHART_TYPES} active={type} onChange={setType} label="Chart type" />}
+          {!heat && <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" />}
           <MaximizeButton max={mx.max} onToggle={mx.toggle} />
         </div>
       }

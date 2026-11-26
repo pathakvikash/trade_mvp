@@ -7,6 +7,7 @@ const { isValidSymbol, INTERVALS } = require('../services/futuresUtils');
 const { limitBy } = require('../middleware/rateLimit');
 const instruments = require('../services/marketData/instruments');
 const yahoo = require('../services/marketData/providers/yahoo');
+const cvdService = require('../services/cvd');
 
 router.use(limitBy({ limit: 120, windowMs: 60e3 })); // per IP, everything under /api/market
 
@@ -119,6 +120,16 @@ router.get('/futures/liqheat/:symbol', async (req, res) => {
     try { sendObj(res, await futuresRest.liqheat(symbol, range)); } catch (err) { upstreamError(res, err, 'liquidation heatmap', true); }
 });
 
+// Cumulative volume delta from real Binance taker volume. 200 {available:false} when only a source without taker volume is reachable.
+router.get('/futures/cvd/:symbol', async (req, res) => {
+    const symbol = String(req.params.symbol).toUpperCase();
+    const range = req.query.range || '24h';
+    if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+    if (!Object.prototype.hasOwnProperty.call(cvdService.CVD_RANGES, range)) return res.status(400).json({ error: 'invalid range' });
+    if (!(await futuresRest.isKnownSymbol(symbol))) return noMarket(res, symbol);
+    try { sendObj(res, await cvdService.cvd(symbol, range)); } catch (err) { upstreamError(res, err, 'CVD'); }
+});
+
 // Tradable USDT perpetuals for the pair picker
 router.get('/futures/symbols', async (req, res) => {
     try {
@@ -186,5 +197,7 @@ router.get('/providers', (req, res) => {
     } catch (err) { /* yahoo only */ }
     res.json({ providers });
 });
+
+router.use('/orderflow', require('./orderflowRoutes')); // order book heatmap + large orders (in-process collector)
 
 module.exports = router;

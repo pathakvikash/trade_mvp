@@ -43,7 +43,8 @@ const History = () => {
 const AgentDock = () => {
   const open = useAgentStore((s) => s.open);
   const close = useAgentStore((s) => s.close);
-  const [tab, setTab] = useState('chat');
+  const tab = useAgentStore((s) => s.tab);
+  const setTab = useAgentStore((s) => s.setTab);
   const ref = useRef(null);
 
   useEffect(() => {

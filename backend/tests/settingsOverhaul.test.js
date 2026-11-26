@@ -67,12 +67,12 @@ const mockColl = () => {
         deleteMany: async (f) => { for (let i = rows.length - 1; i >= 0; i--) if (match(rows[i], f)) rows.splice(i, 1); },
     };
 };
-['Trade', 'Order', 'Position', 'FuturesOrder', 'FuturesOp', 'Alert', 'AlertEvent', 'Strategy', 'AiConversation'].forEach((n) => jest.mock(`../models/${n}`, () => mockColl()));
+['Trade', 'Order', 'Position', 'FuturesOrder', 'FuturesOp', 'Alert', 'AlertEvent', 'Strategy', 'AiConversation', 'Bot', 'BotDecision'].forEach((n) => jest.mock(`../models/${n}`, () => mockColl()));
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const models = Object.fromEntries(['Trade', 'Order', 'Position', 'FuturesOrder', 'FuturesOp', 'Alert', 'AlertEvent', 'Strategy', 'AiConversation'].map((n) => [n, require(`../models/${n}`)]));
+const models = Object.fromEntries(['Trade', 'Order', 'Position', 'FuturesOrder', 'FuturesOp', 'Alert', 'AlertEvent', 'Strategy', 'AiConversation', 'Bot', 'BotDecision'].map((n) => [n, require(`../models/${n}`)]));
 const secretBox = require('../services/secretBox');
 const alertService = require('../services/alertService');
 const ai = require('../services/aiService');
@@ -361,14 +361,17 @@ describe('export', () => {
         models.Trade.__rows.push({ ...o(1), __v: 0, cryptoSymbol: 'BTC' }, { userId: UID2, cryptoSymbol: 'ETH' });
         models.Order.__rows.push(o(2)); models.Position.__rows.push(o(3)); models.FuturesOrder.__rows.push(o(4)); models.Alert.__rows.push(o(5)); models.Strategy.__rows.push(o(6), { userId: UID2, n: 7 }); models.AiConversation.__rows.push({ ...o(8), __v: 0 }, { userId: UID2, n: 9 });
         models.FuturesOp.__rows.push({ userId: UID, kind: 'open' });
+        models.Bot.__rows.push({ userId: UID, n: 9 }, { userId: UID2, n: 10 }); models.BotDecision.__rows.push({ userId: UID, n: 11 });
         User.__store.get(UID).holdings = { BTC: 1.5 };
         const res = await auth('get', '/me/export');
         expect(res.status).toBe(200);
         expect(res.headers['Content-Disposition']).toBe('attachment; filename="cryptozen-export.json"');
         const b = res.body;
-        expect(Object.keys(b).sort()).toEqual(['aiConversations', 'alerts', 'exportedAt', 'futuresOrders', 'note', 'orders', 'positions', 'strategies', 'trades', 'user']);
+        expect(Object.keys(b).sort()).toEqual(['aiConversations', 'alerts', 'botDecisions', 'bots', 'exportedAt', 'futuresOrders', 'note', 'orders', 'positions', 'strategies', 'trades', 'user']);
         expect(b.strategies).toEqual([{ userId: UID, n: 6 }]);
         expect(b.aiConversations).toEqual([{ userId: UID, n: 8 }]); // own rows only, __v stripped
+        expect(b.bots).toEqual([{ userId: UID, n: 9 }]);
+        expect(b.botDecisions).toEqual([{ userId: UID, n: 11 }]);
         expect(b.note).toMatch(/paper/i);
         expect(b.note).toMatch(/no real money/i);
         expect(b.user).toMatchObject({ email: 'alice@x.io', balance: 100000, holdings: { BTC: 1.5 }, security: { googleLinked: true } });
@@ -382,7 +385,7 @@ describe('export', () => {
 describe('delete account', () => {
     const del = (confirmEmail = 'alice@x.io') => auth('delete', '/me', { body: { confirmEmail } });
     const seedAll = () => {
-        for (const n of ['Trade', 'Order', 'Position', 'FuturesOrder', 'FuturesOp', 'Alert', 'AlertEvent', 'Strategy', 'AiConversation']) {
+        for (const n of ['Trade', 'Order', 'Position', 'FuturesOrder', 'FuturesOp', 'Alert', 'AlertEvent', 'Strategy', 'AiConversation', 'Bot', 'BotDecision']) {
             models[n].__rows.push({ userId: UID, status: 'closed', kind: 'x' }, { userId: UID2, status: 'closed', kind: 'x' });
         }
     };
@@ -422,6 +425,20 @@ describe('delete account', () => {
         expect((await auth('get', '/me')).status).toBe(200); // usable again
         models[model].__rows.pop(); // close it
         expect((await del()).status).toBe(200);
+    });
+
+    test('a running bot -> 409 BOT_RUNNING, account unlocked; once stopped the bot and its decisions are deleted', async () => {
+        seedAll();
+        models.Bot.__rows.push({ userId: UID, status: 'running' });
+        const res = await del();
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('BOT_RUNNING');
+        expect(User.__store.has(UID)).toBe(true);
+        expect(stored().lockedAt).toBeUndefined();
+        models.Bot.__rows.pop();
+        expect((await del()).status).toBe(200);
+        expect(models.Bot.__rows.some((r) => String(r.userId) === UID)).toBe(false);
+        expect(models.BotDecision.__rows.some((r) => String(r.userId) === UID)).toBe(false);
     });
 
     test('closed/filled/cancelled futures rows do not block deletion', async () => {

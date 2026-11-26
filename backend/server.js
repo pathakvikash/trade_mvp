@@ -46,6 +46,7 @@ app.use('/api/news', require('./routes/newsRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/alerts', require('./routes/alertRoutes'));
 app.use('/api/strategies', require('./middleware/auth'), require('./routes/strategyRoutes'));
+app.use('/api/bots', require('./middleware/auth'), require('./routes/botRoutes'));
 
 // Error Handler
 app.use(errorHandler);
@@ -133,16 +134,26 @@ try {
   logger.error('Failed to start risk engine', err);
 }
 
+// Bot engine (paper bots driven by accepted strategy specs; places orders only through services/futuresOrders).
+// Off when BOTS_ENABLED=false; default on in development/test, off in production until the owner turns it on.
+const botEngine = require('./services/bot/botEngine');
+try {
+  botEngine.start();
+} catch (err) {
+  logger.error('Failed to start bot engine', err);
+}
+
 // Stop services on shutdown
 const shutdown = async () => {
   try {
     const matcherDone = orderMatcher.stop();
     const riskDone = riskEngine.stop();
+    const botDone = botEngine.stop();
     require('./services/marketService').stop();
     alertService.stop();
     futuresService.stop();
     const timeout = new Promise((r) => setTimeout(r, 5000).unref()); // let an in-flight settle finish, but never hang
-    await Promise.race([Promise.all([matcherDone, riskDone]), timeout]);
+    await Promise.race([Promise.all([matcherDone, riskDone, botDone]), timeout]);
   } finally {
     process.exit(0);
   }

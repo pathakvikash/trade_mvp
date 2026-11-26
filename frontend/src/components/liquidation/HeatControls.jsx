@@ -43,10 +43,10 @@ const DisplayMenu = ({ display, onDisplay }) => {
 };
 
 // Second toolbar row of the heatmap. intensity = [lo, hi] in percent of the largest cell; max = that cell in USD.
-const HeatControls = ({ lens, onLens, palette, onPalette, intensity, onIntensity, max, display, onDisplay }) => {
+const HeatControls = ({ lens, onLens, palette, onPalette, intensity, onIntensity, max, display, onDisplay, className = '' }) => {
   const [lo, hi] = intensity || [0, 100];
   return (
-    <div role="group" aria-label="Heatmap controls" className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400">
+    <div role="group" aria-label="Heatmap controls" className={`mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400 ${className}`}>
       <label className="inline-flex items-center gap-1.5">Lens
         <select value={lens} onChange={(e) => onLens(e.target.value)} className={field}>
           {LENSES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}

@@ -98,6 +98,8 @@ function unrealized(pos, mark) {
 }
 
 module.exports = {
+  ceilCents,
+  feeOf,
   TAKER_FEE_BPS,
   SYMBOL_MAX_LEV,
   DEFAULT_MAX_LEV,

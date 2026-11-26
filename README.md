@@ -322,17 +322,20 @@ Futures error codes: `INSUFFICIENT_BALANCE`, `MIN_NOTIONAL`, `LEVERAGE_TOO_HIGH`
 | GET | `/futures/stats/:symbol?period=` | OI, long/short, top-trader ratio, taker buy/sell, funding (`5m,15m,1h,4h`) |
 | GET | `/futures/liqmap/:symbol` | Estimated liquidation levels (price buckets) |
 | GET | `/futures/liqheat/:symbol?range=` | Estimated heatmap grid (`12h,24h,3d,1w`) |
+| GET | `/futures/cvd/:symbol?range=` | Cumulative volume delta from real Binance taker volume (`6h,24h,3d,1w`); `available:false` when Binance is unreachable (no other source has taker volume) |
 | GET | `/futures/liquidations` | Cross-symbol summary of the in-memory buffer (cached 2 s) |
 | GET | `/futures/liquidations/:symbol` | Buffered real liquidation events `{since, events}` |
 | GET | `/stocks/quotes`, `/stocks/klines/:symbol?interval=&limit=` | Curated NSE stocks (Yahoo, unofficial, delayed, view only). Display symbols only (`RELIANCE`, `TMPV`); anything off the allow-list is 404/400. Intervals `1m,5m,15m,1h,1d`; `stale: true` when the last good answer is served; 502 when Yahoo is down |
 | GET | `/instruments/quotes?category=`, `/instruments/klines/:symbol` | Same for all curated markets: `stock`, `index` (`NIFTY50`, `BANKNIFTY`, `NIFTYIT`), `commodity` (`GOLD`, `SILVER`, `CRUDEOIL`, `BRENT`), `currency` (`USDINR`, `EURINR`, `GBPINR`, `EURUSD`) |
+| GET | `/orderflow/heatmap/:symbol`, `/orderflow/large/:symbol` | Order Book Heatmap grid and Large Orders (walls + large trades) from an in-process depth collector. Any USDT perp in the futures list (404 `no_futures` otherwise), 503 `collector_busy` when 5 coins are already collected and none is idle >30 s; `status` `collecting`/`ok`/`thin`/`stale`/`unavailable`; extra limit 40/min per IP |
 | GET | `/providers` | Health of each data source: name, capabilities, breaker state, listed-symbol count (no URLs or errors) |
 
 ### News headlines (`/api/news`, public, 60/min per IP)
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/news?limit=30&category=all\|crypto\|india` | Headlines only (`{items:[{id,title,link,source,category,publishedAt}], sources:[{name,category,ok,at}], stale?, disclaimer}`), from 3 crypto and 3 Indian-markets RSS feeds; limit 1..50; cached 10 min; `stale: true` when every source fails and an older answer is served (up to 24 h); 502 `News unavailable` otherwise. `X-Data-Source: rss`. Titles are text-only, links http(s) only; no descriptions, images or full text. External headlines, not our analysis, not investment advice. |
+| GET | `/api/news?limit=30&category=all\|crypto\|india` | Headlines with a short summary and image (`{items:[{id,title,link,source,category,publishedAt,image,summary}], sources:[{name,category,ok,at}], stale?, disclaimer}`), from 3 crypto and 3 Indian-markets RSS feeds; limit 1..50; cached 10 min; `stale: true` when every source fails and an older answer is served (up to 24 h); 502 `News unavailable` otherwise. `X-Data-Source: rss`. Titles are text-only, links http(s) only. `summary` is plain text, snippet capped at 200 chars (`''` if none); `image` is a hotlinked, publisher-owned https URL or `null` (we never copy or proxy the bytes); no full text. Publisher terms for snippets and images are still to be checked manually. External headlines, not our analysis, not investment advice. |
+| GET | `/api/news/:id` | One headline by its 12-hex `id`, looked up in the full merged cached list (not limited to 50 or a category): `{item:{id,title,link,source,category,publishedAt,image,summary}, disclaimer}`. 404 `{error:'not found'}` for an unknown or malformed id; 502 `News unavailable` when no data. Same 60/min limit and `X-Data-Source: rss`. |
 
 Every futures response carries `X-Data-Source`: `binance-futures` (default), `ws`, `bybit`, `bitget`, `gate`, `mexc`, `spot`, `unavailable` or `yahoo`. Anything other than `binance-futures` is third-party or reduced data and the UI says so. `/futures/liqheat` adds `partial: true` when the history is shorter than the range (new listing). Third-party data is analytics only: fills, marks, liquidations, TP/SL and alerts use Binance prices only.
 
@@ -350,7 +353,7 @@ Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** 
 | DELETE | `/keys/:provider` | Remove the saved key |
 | POST | `/test` | `{provider}` -> `{ok, provider, model, latencyMs}` using the saved key/model/baseUrl |
 | GET | `/lmstudio/models` | `{models: [id]}`: chat models loaded in the user's LM Studio (saved base URL or default) |
-| POST | `/agent/chat` | `{context: {kind: perp/instrument, symbol, page, interval?}, message (1..1000), conversationId?, wantStrategy?}` -> `{conversationId, reply, disclaimer}`. Single-shot analyst, no tools; it may return a strategy spec (inert JSON) |
+| POST | `/agent/chat` | `{context: {kind: perp/instrument, symbol, page, interval?}, message (1..1000), conversationId?, wantStrategy?}` -> `{conversationId, reply, disclaimer}`. Single-shot analyst, no tools; it may return a strategy spec (inert JSON). A trade-intent message (trade, strategy, bot, go ahead, make $N...) runs in strategy mode even with `wantStrategy` off (`reply.strategyMode`: `on`/`auto`/`off`). `reply.structured` (verdict, headline, plan, levels, bull/bear/risks) is optional and server-checked; `reply.text` is always present. Nothing runs until the user accepts on the bot screen |
 | GET | `/agent/conversations`, `/agent/conversations/:id` | Own conversations (max 10, 40 messages each, expire after 30 days) |
 | DELETE | `/agent/conversations/:id`, `/agent/conversations` | Delete one / all own conversations |
 

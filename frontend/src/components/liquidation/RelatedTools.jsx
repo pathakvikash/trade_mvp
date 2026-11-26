@@ -5,10 +5,10 @@ import React from 'react';
 export const RELATED_TOOLS = [
   { name: 'Liquidation Map', desc: 'Estimated liquidation price levels for a coin, built from open interest and an assumed leverage mix.', href: '#liq-map' },
   { name: 'Liquidation Levels', desc: 'The largest estimated liquidation levels above and below the price, with USD sizes.', href: '#liq-levels' },
-  { name: 'Liquidation Max Pain', desc: 'The price where the most estimated leveraged positions would be liquidated. Not built yet.' },
-  { name: 'Order Book Heatmap', desc: 'Resting order size by price over time. Not built yet.' },
-  { name: 'Large Orders', desc: 'Unusually large orders on the book or tape. Not built yet.' },
-  { name: 'CVD', desc: 'Cumulative volume delta: buy volume minus sell volume over time. Not built yet.' },
+  { name: 'Liquidation Max Pain', desc: 'The price level with the largest estimated liquidation size, its distance from the price and the biggest clusters either side. An estimate from the heatmap model.', href: '#liq-max-pain' },
+  { name: 'Order Book Heatmap', desc: 'Resting order size by price over time, from depth snapshots collected since the server started watching the coin. Not historical.', href: '#order-book-heatmap' },
+  { name: 'Large Orders', desc: 'Unusually large resting levels (walls) on the book and unusually large recent trades, each against a stated multiple of the median.', href: '#large-orders' },
+  { name: 'CVD', desc: 'Cumulative volume delta: taker buy volume minus taker sell volume over time, from Binance futures candles.', href: '#liq-cvd' },
 ];
 
 const RelatedTools = () => (
@@ -18,7 +18,7 @@ const RelatedTools = () => (
       {RELATED_TOOLS.map((t) => (
         <li key={t.name} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           {t.href ? (
-            <a href={t.href} className="focus-ring text-sm font-medium text-cyan-300 hover:underline">{t.name}</a>
+            <a href={t.href} className="focus-ring inline-flex min-h-[44px] items-center text-sm font-medium text-cyan-300 hover:underline">{t.name}</a>
           ) : (
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium text-slate-400">{t.name}</span>

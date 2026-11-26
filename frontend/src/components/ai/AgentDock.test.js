@@ -11,7 +11,7 @@ import useStrategyStore from '../../store/strategyStore';
 
 jest.mock('react-router-dom', () => {
   const h = require('react').createElement;
-  return { Link: ({ to, children, ...rest }) => h('a', { href: to, ...rest }, children) };
+  return { Link: ({ to, children, ...rest }) => h('a', { href: to, ...rest }, children), useNavigate: () => jest.fn() };
 }, { virtual: true });
 jest.mock('axios', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() } }));
 
@@ -21,7 +21,7 @@ beforeAll(() => { global.IS_REACT_ACT_ENVIRONMENT = true; });
 beforeEach(async () => {
   axios.get.mockResolvedValue({ data: [] });
   useUserStore.setState({ token: 't', user: { ai: { includePortfolio: false } } });
-  useAgentStore.setState({ open: false, ctx: null, conversationId: null, messages: [], loading: false, error: null });
+  useAgentStore.setState({ open: false, tab: 'chat', ctx: null, conversationId: null, messages: [], loading: false, error: null });
   useStrategyStore.setState({ active: null });
   container = document.createElement('div');
   document.body.appendChild(container);

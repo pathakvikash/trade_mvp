@@ -241,3 +241,18 @@ test('measure points follow their time and price across a refresh and hide when 
   mount({ data: { ...shifted(), t0: shifted().t0 + 20 * 300000 } });
   expect(container.querySelectorAll('[data-testid="measure-point"]')).toHaveLength(0);
 });
+
+test('embedded: no panel shell, estimate caption, range tabs and the shared controls; Esc closes the card without reaching the page', () => {
+  const onKey = jest.fn();
+  document.addEventListener('keydown', onKey);
+  mount({ embedded: true });
+  expect(container.querySelector('#liq-heatmap')).toBeNull();
+  expect(container.querySelector('[data-testid="heat-estimate"]').textContent).toContain('sampled');
+  expect(container.querySelector('[aria-label="Heatmap controls"]')).not.toBeNull();
+  expect(btn('24h')).toBeTruthy();
+  expect(btn('Screenshot')).toBeUndefined();
+  act(() => { plot().focus(); plot().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); });
+  act(() => { plot().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+  expect(onKey).not.toHaveBeenCalledWith(expect.objectContaining({ key: 'Escape' }));
+  document.removeEventListener('keydown', onKey);
+});

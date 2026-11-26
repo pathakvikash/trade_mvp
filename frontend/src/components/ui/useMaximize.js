@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { hasEscLayer } from './escLayers';
 
 // CSS-only maximise: the SAME panel node gets fixed classes, so the chart inside is never remounted
 // (zoom, series and crosshair survive; lightweight-charts autoSize refits). No portal.
@@ -17,7 +18,7 @@ const useMaximize = () => {
 
   useEffect(() => {
     if (!max) return undefined;
-    const onKey = (e) => e.key === 'Escape' && setMax(false);
+    const onKey = (e) => e.key === 'Escape' && !hasEscLayer() && setMax(false);
     document.addEventListener('keydown', onKey);
     const html = document.documentElement;
     locked += 1;

@@ -3,7 +3,7 @@ const news = require('../services/news');
 
 const rfc = (ms) => new Date(Date.now() - ms).toUTCString();
 const H = 3600e3;
-const item = (title, link, ago = H, extra = '') => `<item><title>${title}</title><link>${link}</link><pubDate>${rfc(ago)}</pubDate><description>SECRET BODY</description>${extra}</item>`;
+const item = (title, link, ago = H, extra = '') => `<item><title>${title}</title><link>${link}</link><pubDate>${rfc(ago)}</pubDate>${extra}</item>`;
 const rss = (...items) => `<?xml version="1.0"?><rss version="2.0"><channel>${items.join('')}</channel></rss>`;
 const err = (status) => Object.assign(new Error(String(status)), { response: { status, headers: {} } });
 
@@ -17,6 +17,11 @@ const request = (app) => ({ async get(url) {
     });
 } });
 const app = null;
+const handlerFor = (path) => (params) => new Promise((resolve) => {
+    const h = require('../routes/newsRoutes').stack.find((l) => l.route && l.route.path === path).route.stack[0].handle;
+    const res = { headers: {}, set(k, v) { this.headers[k.toLowerCase()] = v; return this; }, status(c) { this.statusCode = c; return this; }, json(b) { resolve({ status: this.statusCode || 200, headers: this.headers, body: JSON.parse(JSON.stringify(b)) }); } };
+    h({ params }, res);
+});
 let byUrl;
 function feeds(map) {
     byUrl = map;
@@ -33,12 +38,13 @@ afterEach(() => jest.restoreAllMocks());
 describe('parseFeed', () => {
     test('RSS: CDATA, entities, HTML stripped, control chars removed, no description', () => {
         const [a, b] = news.parseFeed(rss(
-            item('<![CDATA[<b>Bitcoin</b> &amp; <script>alert(1)</script>ETH rally]]>', 'https://a.com/1'),
+            item('<![CDATA[<b>Bitcoin</b> &amp; <script>alert(1)</script>ETH rally]]>', 'https://a.com/1', H, '<description>SECRET BODY</description>'),
             item('Tom &amp; Jerry &#8377;5 &lt;i&gt;x&lt;/i&gt;\u0007\u0000', 'https://a.com/2', 2 * H),
         ));
         expect(a.title).toBe('Bitcoin & alert(1) ETH rally');
         expect(b.title).toBe('Tom & Jerry ₹5 x');
-        expect(JSON.stringify([a, b])).not.toMatch(/SECRET|<|description/);
+        expect(JSON.stringify([a, b])).not.toMatch(/<|description/);
+        expect(a.summary).toBe('SECRET BODY');
     });
     test('Atom with rel links and updated', () => {
         const xml = `<feed><entry><title>Atom head</title><link rel="self" href="https://a.com/self"/><link rel="alternate" href="https://a.com/x?utm_source=1"/><updated>${new Date(Date.now() - H).toISOString()}</updated><content>BODY</content></entry></feed>`;
@@ -64,6 +70,53 @@ describe('parseFeed', () => {
         const many = news.parseFeed(rss(...Array.from({ length: 150 }, (_, i) => item(`t${i}`, `https://a.com/${i}`))));
         expect(many).toHaveLength(100);
     });
+    test('image: media:content, media:thumbnail, enclosure and img fallback', () => {
+        const [a, b, c, d, e, f] = news.parseFeed(rss(
+            item('a', 'https://a.com/a', H, '<media:content url="https://i.com/a.jpg" medium="image"/>'),
+            item('b', 'https://a.com/b', 2 * H, '<media:thumbnail url="https://i.com/b.jpg?x=1&amp;y=2" width="1"/>'),
+            item('c', 'https://a.com/c', 3 * H, '<enclosure url="https://i.com/c.png" type="image/png" length="1"/>'),
+            item('d', 'https://a.com/d', 4 * H, '<description><![CDATA[<p>hi <img alt="x" src="https://i.com/d.jpg"> there</p>]]></description>'),
+            item('e', 'https://a.com/e', 5 * H, '<content:encoded>&lt;img src=&quot;https://i.com/e.jpg&quot; /&gt;</content:encoded>'),
+            item('f', 'https://a.com/f', 6 * H, '<enclosure url="https://i.com/f.mp3" type="audio/mpeg"/>'),
+        ));
+        expect([a, b, c, d, e, f].map((x) => x.image)).toEqual(['https://i.com/a.jpg', 'https://i.com/b.jpg?x=1&y=2', 'https://i.com/c.png', 'https://i.com/d.jpg', 'https://i.com/e.jpg', null]);
+        expect(d.summary).toBe('hi there');
+    });
+    test('image: http, javascript, data, relative, control chars and long URLs are dropped', () => {
+        const bad = ['http://i.com/a.jpg', 'javascript:alert(1)', 'data:image/png;base64,AAAA', '//i.com/a.jpg', '/a.jpg', 'https://i.com/a\u0007.jpg', 'https://i.com/' + 'x'.repeat(500)];
+        const r = news.parseFeed(rss(...bad.map((u, i) => item(`t${i}`, `https://a.com/${i}`, H + i, `<media:content url="${u}"/><description>&lt;img src="${u}"&gt;</description>`))));
+        expect(r).toHaveLength(bad.length);
+        expect(r.every((x) => x.image === null)).toBe(true);
+    });
+    test('summary: HTML stripped, whitespace collapsed, empty when absent', () => {
+        const [a, b] = news.parseFeed(rss(
+            item('s1', 'https://a.com/1', H, '<description>&lt;p onclick="x"&gt;Hello&lt;/p&gt;  \n &lt;script&gt;alert(1)&lt;/script&gt;&amp;amp; world\u0007</description>'),
+            item('s2', 'https://a.com/2', 2 * H),
+        ));
+        expect(a.summary).toBe('Hello alert(1) & world');
+        expect(a.summary).not.toMatch(/[<>]/);
+        expect(b.summary).toBe('');
+    });
+    test('summary: cut to 200 chars at a word boundary with an ellipsis', () => {
+        const words = 'word '.repeat(100);
+        const [a, b] = news.parseFeed(rss(
+            item('t1', 'https://a.com/1', H, `<description>${words}</description>`),
+            item('t2', 'https://a.com/2', 2 * H, `<description>${'y'.repeat(500)}</description>`),
+        ));
+        expect(a.summary.length).toBeLessThanOrEqual(200);
+        expect(a.summary).toMatch(/word…$/);
+        expect(b.summary).toBe('y'.repeat(199) + '…');
+    });
+    test('summary equal to the title is dropped', () => {
+        const [a] = news.parseFeed(rss(item('Bitcoin hits 100k', 'https://a.com/1', H, '<description>&lt;p&gt;Bitcoin hits 100K!&lt;/p&gt;</description>')));
+        expect(a.summary).toBe('');
+    });
+    test('pathological image/summary input is fast', () => {
+        const t = Date.now();
+        news.parseFeed('<item><title>t</title><link>https://a.com/1</link><pubDate>' + rfc(H) + '</pubDate><description>' + '<img '.repeat(100000) + '</description></item>');
+        news.parseFeed('<item><title>t</title><link>https://a.com/1</link><pubDate>' + rfc(H) + '</pubDate>' + '<media:content url="x" '.repeat(50000) + '<description>' + '<'.repeat(200000));
+        expect(Date.now() - t).toBeLessThan(2000);
+    });
     test('pathological input is fast', () => {
         const t = Date.now();
         news.parseFeed('<item>'.repeat(50000) + '<'.repeat(200000));
@@ -83,13 +136,13 @@ describe('headlines service', () => {
         });
         const r = await news.headlines({ limit: 50 });
         expect(r.items.map((i) => i.title)).toEqual(['Sensex up', 'Newest', 'Older story']);
-        expect(r.items[0]).toEqual({ id: expect.stringMatching(/^[0-9a-f]{12}$/), title: 'Sensex up', link: 'https://m.com/1', source: 'Mint', category: 'india', publishedAt: expect.stringMatching(/Z$/) });
+        expect(r.items[0]).toEqual({ id: expect.stringMatching(/^[0-9a-f]{12}$/), title: 'Sensex up', link: 'https://m.com/1', source: 'Mint', category: 'india', publishedAt: expect.stringMatching(/Z$/), image: null, summary: '' });
         const opts = axios.get.mock.calls[0][1];
         expect(opts.headers['User-Agent']).toBe('Paperline/1.0 (+https://trade-mvp.vercel.app; headlines reader)');
         expect(opts.timeout).toBe(6000);
         expect(opts.maxContentLength).toBe(1024 * 1024);
         expect(r.sources).toHaveLength(6);
-        expect(JSON.stringify(r)).not.toMatch(/SECRET|description/);
+        expect(JSON.stringify(r)).not.toMatch(/description/);
     });
     test('oversized feed (axios cap error) fails that source only', async () => {
         feeds({ ...all(rss()), [crypto1]: Object.assign(new Error('maxContentLength size of 1048576 exceeded'), { code: 'ERR_BAD_RESPONSE' }), 'https://decrypt.co/feed': rss(item('ok', 'https://a.com/1')) });
@@ -152,6 +205,48 @@ describe('headlines service', () => {
     });
 });
 
+describe('decodeEntities', () => {
+    test('common named entities map to characters; unknown ones become a space; numeric still works; linear on junk', () => {
+        expect(news.decodeEntities('a&nbsp;b &rsquo;&lsquo;&ldquo;&rdquo;&hellip;&mdash;&ndash; &amp;&lt;&#65;&#x42;')).toBe('a b \u2019\u2018\u201c\u201d\u2026\u2014\u2013 &<AB');
+        expect(news.decodeEntities('x&foo;y&bogus123;z&constructor;')).toBe('x y z ');
+        const t = Date.now();
+        news.decodeEntities('&'.repeat(200000) + 'a'.repeat(200000));
+        expect(Date.now() - t).toBeLessThan(500);
+    });
+    test('titles from a feed come out clean', () => {
+        const [it] = news.parseFeed(rss(item('Fed&nbsp;holds &ndash; markets&hellip; &weird;', 'https://a.com/1')));
+        expect(it.title).toBe('Fed holds \u2013 markets\u2026');
+    });
+});
+
+describe('GET /api/news/:id', () => {
+    const byId = handlerFor('/:id');
+    beforeEach(() => feeds({ ...all(rss()), 'https://cointelegraph.com/rss': rss(item('C1', 'https://a.com/1'), item('C2', 'https://a.com/2', 2 * H)), 'https://www.livemint.com/rss/markets': rss(item('I1', 'https://m.com/1')) }));
+    test('returns {item, disclaimer} from the full list, even beyond limit and category', async () => {
+        const list = await news.headlines({ limit: 50 });
+        const last = list.items[list.items.length - 1]; // oldest of three, crypto or not: not on any limited page
+        const r = await byId({ id: last.id });
+        expect(r.status).toBe(200);
+        expect(r.headers['x-data-source']).toBe('rss');
+        expect(Object.keys(r.body).sort()).toEqual(['disclaimer', 'item']);
+        expect(r.body.item).toEqual(last);
+        expect(r.body.disclaimer).toBe(news.DISCLAIMER);
+    });
+    test('unknown or malformed id -> 404', async () => {
+        for (const id of ['0'.repeat(12), 'zzzzzzzzzzzz', 'abc', 'A'.repeat(12), 'a'.repeat(13)]) {
+            const r = await byId({ id });
+            expect(r.status).toBe(404);
+            expect(r.body).toEqual({ error: 'not found' });
+        }
+    });
+    test('no data at all -> 502', async () => {
+        news._test.reset();
+        feeds(all(err(500)));
+        const r = await byId({ id: 'a'.repeat(12) });
+        expect(r.status).toBe(502);
+    });
+});
+
 describe('GET /api/news', () => {
     beforeEach(() => feeds({ ...all(rss()), 'https://cointelegraph.com/rss': rss(item('C1', 'https://a.com/1'), item('C2', 'https://a.com/2', 2 * H)), 'https://www.livemint.com/rss/markets': rss(item('I1', 'https://m.com/1')) }));
     test('contract: header, disclaimer, category and limit', async () => {
@@ -162,7 +257,7 @@ describe('GET /api/news', () => {
         expect(r.body.items).toHaveLength(1);
         expect(r.body.items[0].category).toBe('crypto');
         expect(r.body.sources.every((s) => s.category === 'crypto')).toBe(true);
-        expect(Object.keys(r.body.items[0]).sort()).toEqual(['category', 'id', 'link', 'publishedAt', 'source', 'title']);
+        expect(Object.keys(r.body.items[0]).sort()).toEqual(['category', 'id', 'image', 'link', 'publishedAt', 'source', 'summary', 'title']);
     });
     test('limit clamped 1..50, junk -> 30; invalid category 400', async () => {
         expect((await request(app).get('/api/news?limit=0')).body.items).toHaveLength(1);

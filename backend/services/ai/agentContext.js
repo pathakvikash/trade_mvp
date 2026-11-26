@@ -5,6 +5,8 @@ const futuresRest = require('../futuresRest');
 const futuresService = require('../futuresService');
 const { loadPortfolio, nearestSide, trendOf } = require('../aiService');
 const instruments = require('../marketData/instruments');
+const { CAPS, DEFAULTS, MIN_NOTIONAL_USD } = require('../bot/riskGuard');
+const { INTERVALS } = require('../futuresUtils');
 
 const MAX_CHARS = 24000;
 const MAX_CHARS_LOCAL = 9000;
@@ -17,6 +19,9 @@ const PERP_RE = /^[A-Z0-9]{2,20}$/;
 const TAG_RE = /^[a-z0-9-]{1,24}$/;
 const KEY_RE = /^[A-Za-z0-9]{1,24}$/;
 
+// bot hard caps (static, from riskGuard): the model plans inside them; the server re-checks every plan number
+const CAPS_BLOCK = { source: 'static', maxLeverage: CAPS.MAX_LEVERAGE, maxSizeUsd: CAPS.MAX_SIZE_USD, minNotionalUsd: MIN_NOTIONAL_USD, takerFeeBps: 5, defaultDailyLossUsd: DEFAULTS.dailyLossUsd, sizeIsNotional: true };
+
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 const tagOf = (o, dflt) => (o && typeof o.source === 'string' && TAG_RE.test(o.source) ? o.source : dflt);
@@ -28,12 +33,13 @@ const candleRows = (a) => arr(a).map((c) => ({ time: num(c && c.time), open: num
 const numRow = (r) => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([k, v]) => KEY_RE.test(k) && num(v) !== null));
 
 // ---- perp blocks ----
-async function perpBlocks(symbol, deps, now) {
+async function perpBlocks(symbol, deps, now, iv) {
     const m = {};
     const missing = [];
-    const [ov, st, lm, lh, c1h, c1d] = await Promise.allSettled([
+    const [ov, st, lm, lh, c1h, c1d, civ] = await Promise.allSettled([
         futuresRest.overview(), futuresRest.stats(symbol, '1h'), futuresRest.liqmap(symbol), futuresRest.liqheat(symbol, '24h'),
         futuresRest.klines(symbol, '1h', 48), futuresRest.klines(symbol, '1d', 30),
+        iv ? futuresRest.klines(symbol, iv, 48) : null, // the chart's own interval, when it is not 1h/1d
     ]);
     const val = (r) => (r.status === 'fulfilled' ? r.value : null);
     const h1 = candleRows(val(c1h));
@@ -54,6 +60,11 @@ async function perpBlocks(symbol, deps, now) {
     if (h1.length) m.candles1h = { source: tagOf(val(c1h), 'binance-futures'), rows: h1.slice(-48) };
     else missing.push('1h candles');
     if (!d1.length) missing.push('daily candles');
+    if (iv) {
+        const rows = candleRows(val(civ));
+        if (rows.length) m.candlesIv = { source: tagOf(val(civ), 'binance-futures'), interval: iv, rows: rows.slice(-48) };
+        else missing.push(`${iv} candles`);
+    }
 
     const s = val(st);
     if (s && !s.degraded) {
@@ -136,14 +147,14 @@ async function instrumentBlocks(kind, symbol, deps) {
 
 // ---- cache: market part only (shared, no user data) ----
 const cache = new Map();
-function market(kind, symbol, deps, now) {
-    const key = `${kind}|${symbol}`;
+function market(kind, symbol, deps, now, iv) {
+    const key = `${kind}|${symbol}|${iv || ''}`;
     const hit = cache.get(key);
     if (hit && now - hit.at < CACHE_MS) return hit.p;
     const p = (async () => {
         const out = { m: {}, missing: [], at: now };
         const parts = [];
-        if (kind === 'perp') parts.push(PERP_RE.test(symbol) ? perpBlocks(symbol, deps, now) : { m: {}, missing: ['symbol'] });
+        if (kind === 'perp') parts.push(PERP_RE.test(symbol) ? perpBlocks(symbol, deps, now, iv) : { m: {}, missing: ['symbol'] });
         parts.push(instrumentBlocks(kind, symbol, deps));
         for (const r of await Promise.allSettled(parts)) {
             if (r.status === 'fulfilled') { Object.assign(out.m, r.value.m); out.missing.push(...r.value.missing); } else out.missing.push('block failed');
@@ -171,7 +182,7 @@ async function portfolioBlock(userId) {
 const PORTFOLIO_CAP = 20;
 
 // ---- size bound ----
-const rowsOf = (ctx, fn) => ['candles1h', 'candles1d'].reduce((ch, k) => (ctx[k] && ctx[k].rows.length > fn ? (ctx[k].rows = ctx[k].rows.slice(-fn), true) : ch), false);
+const rowsOf = (ctx, fn) => ['candles1h', 'candles1d', 'candlesIv'].reduce((ch, k) => (ctx[k] && ctx[k].rows.length > fn ? (ctx[k].rows = ctx[k].rows.slice(-fn), true) : ch), false);
 const statsTo = (ctx, n) => { let ch = false; for (const k of Object.keys((ctx.stats1h && ctx.stats1h.series) || {})) if (ctx.stats1h.series[k].length > n) { ctx.stats1h.series[k] = ctx.stats1h.series[k].slice(-n); ch = true; } return ch; };
 const TRIM = [
     ['candles:24', (c) => rowsOf(c, 24)], ['candles:12', (c) => rowsOf(c, 12)], ['stats:12', (c) => statsTo(c, 12)],
@@ -179,7 +190,7 @@ const TRIM = [
     ['macro', (c) => { const had = !!c.macro; delete c.macro; return had; }],
     ['liqHeat', (c) => { const had = !!c.liqHeatEstimate; delete c.liqHeatEstimate; return had; }],
 ];
-const SECTION_KEYS = ['live', 'overview', 'trend', 'candles1h', 'candles1d', 'stats1h', 'liqMapEstimate', 'liqHeatEstimate', 'liquidationsSampled', 'instrument', 'quote', 'macro', 'portfolio'];
+const SECTION_KEYS = ['live', 'overview', 'trend', 'candles1h', 'candles1d', 'candlesIv', 'stats1h', 'liqMapEstimate', 'liqHeatEstimate', 'liquidationsSampled', 'instrument', 'quote', 'macro', 'portfolio'];
 
 /**
  * @returns {{ctx: object, sources: Array<{section, source, asOf?, estimate?, sampled?, delayed?, stale?}>, chars: number, trimmed: string[]}}
@@ -189,8 +200,9 @@ async function buildAgentContext({ userId, kind, symbol, page, interval, include
     if (kind !== 'perp' && kind !== 'instrument') throw new Error('bad_kind');
     const now = typeof deps.now === 'function' ? deps.now() : Date.now();
     const sym = String(symbol || '').toUpperCase();
-    const { m, missing, at } = await market(kind, sym, deps, now);
-    const ctx = JSON.parse(JSON.stringify({ kind, symbol: PERP_RE.test(sym) || instruments.find(sym) ? sym : null, page: PAGES.includes(page) ? page : null, interval: /^\d{1,2}[mhdw]$/.test(String(interval)) ? interval : null, generatedAt: new Date(at).toISOString(), ...m, missing: [...missing] })); // copy: the cached part is shared
+    const ivOk = kind === 'perp' && INTERVALS.includes(interval) && interval !== '1h' && interval !== '1d' ? interval : null;
+    const { m, missing, at } = await market(kind, sym, deps, now, ivOk);
+    const ctx = JSON.parse(JSON.stringify({ kind, symbol: PERP_RE.test(sym) || instruments.find(sym) ? sym : null, page: PAGES.includes(page) ? page : null, interval: /^\d{1,2}[mhdw]$/.test(String(interval)) ? interval : null, generatedAt: new Date(at).toISOString(), ...m, caps: kind === 'perp' ? CAPS_BLOCK : undefined, missing: [...missing] })); // copy: the cached part is shared
     if (includePortfolio === true && userId) {
         try { ctx.portfolio = await portfolioBlock(userId); } catch (e) { ctx.missing.push('portfolio'); }
     }

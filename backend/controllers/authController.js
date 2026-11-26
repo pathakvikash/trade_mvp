@@ -9,6 +9,8 @@ const FuturesOp = require('../models/FuturesOp');
 const Alert = require('../models/Alert');
 const AlertEvent = require('../models/AlertEvent');
 const Strategy = require('../models/Strategy');
+const Bot = require('../models/Bot');
+const BotDecision = require('../models/BotDecision');
 const AiConversation = require('../models/AiConversation');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
@@ -339,8 +341,8 @@ exports.exportMe = BaseController.wrap(async (req, res) => {
   const userId = req.user.userId;
   const u = await User.findById(userId).lean();
   if (!u) return res.status(404).json({ success: false, message: 'User not found' });
-  const [trades, orders, positions, futuresOrders, alerts, strategies, aiConversations] = await Promise.all(
-    [Trade, Order, Position, FuturesOrder, Alert, Strategy, AiConversation].map((M) => M.find({ userId }).lean()),
+  const [trades, orders, positions, futuresOrders, alerts, strategies, aiConversations, bots, botDecisions] = await Promise.all(
+    [Trade, Order, Position, FuturesOrder, Alert, Strategy, AiConversation, Bot, BotDecision].map((M) => M.find({ userId }).lean()),
   );
   const pub = publicUser(u);
   for (const id of PROVIDER_IDS) delete pub.ai.providers[id].keyLast4; // keySet stays; nothing key-derived is exported
@@ -356,10 +358,13 @@ exports.exportMe = BaseController.wrap(async (req, res) => {
     alerts: alerts.map(stripV),
     strategies: strategies.map(stripV),
     aiConversations: aiConversations.map(stripV),
+    bots: bots.map(stripV),
+    botDecisions: botDecisions.map(stripV),
   });
 });
 
 const OPEN_FUTURES = { success: false, code: 'OPEN_FUTURES', message: 'Close your open futures positions and cancel pending futures orders first.' };
+const BOT_RUNNING = { success: false, code: 'BOT_RUNNING', message: 'Stop your running bots first.' };
 const hasOpenFutures = async (userId) => {
   const r = await Promise.all([
     Position.exists({ userId, status: { $in: ['opening', 'open'] } }),
@@ -382,11 +387,12 @@ exports.deleteMe = BaseController.wrap(async (req, res) => {
   const locked = await User.updateOne({ _id: userId, lockedAt: null }, { $set: { lockedAt: new Date() } });
   if (!locked || locked.modifiedCount !== 1) return res.status(409).json({ success: false, message: 'Account is already being deleted' });
   try {
-    if (await hasOpenFutures(userId)) {
+    const blocked = (await hasOpenFutures(userId)) ? OPEN_FUTURES : (await Bot.exists({ userId, status: 'running' })) ? BOT_RUNNING : null;
+    if (blocked) {
       await User.updateOne({ _id: userId }, { $unset: { lockedAt: 1 } });
-      return res.status(409).json(OPEN_FUTURES);
+      return res.status(409).json(blocked);
     }
-    for (const M of [Strategy, AiConversation, AlertEvent, Alert, Order, Trade, FuturesOrder, FuturesOp, Position]) await M.deleteMany({ userId });
+    for (const M of [Bot, BotDecision, Strategy, AiConversation, AlertEvent, Alert, Order, Trade, FuturesOrder, FuturesOp, Position]) await M.deleteMany({ userId });
     await User.deleteOne({ _id: userId });
   } catch (e) {
     // stays locked: half-deleted money data must not be usable; a human finishes it

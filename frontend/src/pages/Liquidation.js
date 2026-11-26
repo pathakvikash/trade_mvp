@@ -7,6 +7,9 @@ import Summary from '../components/liquidation/Summary';
 import CoinTreemap from '../components/liquidation/CoinTreemap';
 import LiqHeat from '../components/liquidation/LiqHeat';
 import LiqMap from '../components/liquidation/LiqMap';
+import Cvd from '../components/liquidation/Cvd';
+import OrderBookHeatmap from '../components/liquidation/OrderBookHeatmap';
+import LargeOrders from '../components/liquidation/LargeOrders';
 import LiveFeed from '../components/liquidation/LiveFeed';
 import CoinDetail from '../components/liquidation/CoinDrawer';
 import AgentLauncher from '../components/ai/AgentLauncher';
@@ -56,6 +59,9 @@ const Liquidation = () => {
       <CoinTreemap bySymbol={data?.bySymbol} error={error} selected={symbol} onSelect={pickCoin} onHeatmap={setSymbol} />
       <LiquidationHeatmap symbol={symbol} />
       <LiqMap symbol={symbol} />
+      <Cvd symbol={symbol} />
+      <OrderBookHeatmap symbol={symbol} />
+      <LargeOrders symbol={symbol} />
       <LiveFeed recent={data?.recent} error={error} />
       <RelatedTools />
       <section aria-labelledby="other-coins-h" className="space-y-2">

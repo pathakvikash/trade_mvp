@@ -4,6 +4,7 @@ import usePolling from '../../lib/usePolling';
 import LiqHeatmap, { RANGES } from './LiqHeatmap';
 import LegendFab from './LegendFab';
 import { KeyLevels, Overview } from './LiqSide';
+import MaxPain from './MaxPain';
 import { FUT } from './shared';
 
 // First section of the page: predicted heatmap + side panels (stacked below 1280px).
@@ -13,6 +14,7 @@ const LiqHeat = ({ symbol }) => {
   const [highlight, setHighlight] = useState(null);
   const { data, error, loading, fetching, source } = usePolling(`${FUT}/liqheat/${symbol}?range=${range}`, 60000, tick);
   const ok = data && data.cols > 0;
+  const maxPainPanel = <MaxPain symbol={symbol} range={range} data={data} source={source} loading={loading} error={error} />;
   return (
     <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
       <LiqHeatmap symbol={symbol} range={range} onRange={setRange} data={data} source={source} loading={loading} error={error} refreshing={!!fetching} onRefresh={() => setTick((t) => t + 1)} highlight={highlight} />
@@ -20,10 +22,12 @@ const LiqHeat = ({ symbol }) => {
         <div className="relative"> {/* on desktop the panels take the heatmap's height and scroll inside it */}
           <div className="space-y-3 xl:absolute xl:inset-0 xl:overflow-y-auto xl:overscroll-contain">
             <KeyLevels data={data} onHighlight={setHighlight} />
+            {maxPainPanel}
             <Overview data={data} symbol={symbol} />
           </div>
         </div>
       )}
+      {!ok && <div className="xl:col-span-2">{maxPainPanel}</div>} {/* keeps the #liq-max-pain target (with its loading/error state) when there is no heatmap */}
       {/* fixed bottom-right toggle; mounted here because the legend needs this heatmap's largest cell */}
       <LegendFab max={ok ? data.max : undefined} />
     </div>

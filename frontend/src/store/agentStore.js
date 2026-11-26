@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 const scopeOf = (c) => `${c?.kind}:${c?.symbol}`;
-const fresh = { conversationId: null, messages: [], loading: false, error: null };
+const fresh = { conversationId: null, messages: [], loading: false, error: null, lastMessage: null };
 
 // One in-flight chat request at a time. Anything that changes the conversation (close, new scope, reset, open a
 // past one, sign-out) aborts it, so a late reply can never be appended to a different conversation.
@@ -11,6 +11,7 @@ const abortChat = () => { if (ctl) ctl.abort(); ctl = null; };
 // AI analyst dock state. ctx = {kind:'perp'|'instrument', symbol, page, interval?}. A new scope starts a new conversation.
 const useAgentStore = create((set, get) => ({
   open: false,
+  tab: 'chat',
   ctx: null,
   ...fresh,
   openWith: (ctx) => {
@@ -18,9 +19,10 @@ const useAgentStore = create((set, get) => ({
     abortChat();
     return set({ open: true, ctx, ...fresh });
   },
-  close: () => { abortChat(); set({ open: false, loading: false }); },
+  close: () => { abortChat(); set({ open: false, tab: 'chat', loading: false }); },
   reset: () => { abortChat(); set({ ...fresh }); },
-  signOut: () => { abortChat(); set({ open: false, ctx: null, ...fresh }); },
+  signOut: () => { abortChat(); set({ open: false, tab: 'chat', ctx: null, ...fresh }); },
+  setTab: (tab) => set({ tab }),
   // a past conversation: its scope ('kind:symbol') becomes the context, page unchanged
   openConv: ({ conversationId, messages, scope }) => {
     abortChat();

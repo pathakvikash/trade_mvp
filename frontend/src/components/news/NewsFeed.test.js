@@ -40,13 +40,32 @@ test('renders items, sources line, always-on disclaimer', async () => {
   expect(t).toContain('not investment advice');
 });
 
-test('links: rel set, only http(s), HTML in title is text', async () => {
+test('cards link to /news/:id in-app, never out; HTML in title is text', async () => {
   await render(ok(DATA));
   const as = [...container.querySelectorAll('li a')];
-  expect(as).toHaveLength(2);
-  as.forEach((a) => { expect(a.rel).toBe('noopener noreferrer nofollow'); expect(a.target).toBe('_blank'); expect(a.href).toMatch(/^https?:/); });
+  expect(as.map((a) => a.getAttribute('href'))).toEqual(['/news/1', '/news/2', '/news/3']);
+  as.forEach((a) => expect(a.getAttribute('target')).toBeNull());
   expect(container.querySelector('img')).toBeNull();
   expect(container.textContent).toContain('<img src=x onerror=alert(1)> Sensex');
+});
+
+test('thumbnail for https image, fallback on error or no image, summary shown', async () => {
+  const d = { ...DATA, items: [
+    { ...DATA.items[0], image: 'https://img.x/a.jpg', summary: 'Short summary' },
+    { ...DATA.items[1], image: 'http://img.x/b.jpg' },
+  ] };
+  await render(ok(d));
+  const img = container.querySelector('li img');
+  expect(img.getAttribute('src')).toBe('https://img.x/a.jpg');
+  expect(img.getAttribute('loading')).toBe('lazy');
+  expect(img.getAttribute('referrerpolicy')).toBe('no-referrer');
+  expect(img.getAttribute('alt')).toBe('');
+  expect(container.querySelectorAll('li img')).toHaveLength(1);
+  expect(container.querySelector('[data-testid=news-fallback]').textContent).toBe('M');
+  expect(container.textContent).toContain('Short summary');
+  await act(async () => { img.dispatchEvent(new Event('error')); });
+  expect(container.querySelector('li img')).toBeNull();
+  expect(container.querySelectorAll('[data-testid=news-fallback]')).toHaveLength(2);
 });
 
 test('tab switch requests that category', async () => {

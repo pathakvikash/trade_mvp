@@ -356,3 +356,105 @@ describe('validation', () => {
         expect(await chat(id)).toMatchObject({ status: 502, body: { error: 'ai_auth_failed' } });
     });
 });
+
+describe('trade intent, structured answer, plan checks', () => {
+    const PLAN = { side: 'long', entry: 100, stop: 99, target: 101, sizeUsd: 100, leverage: 5, riskUsd: 1, rewardUsd: 1, rr: 1, horizon: '15m-1h' };
+    const ST = (o = {}) => ({ verdict: 'long', confidence: 'low', headline: 'Small long scalp', summary: 'Mark near 100; range 90-110.', plan: PLAN, levels: [{ label: '24h low', price: 90, kind: 'support' }], bull: ['a'], bear: ['b'], risks: ['c'], ...o });
+    const TRADE = 'do a 15 min trade to make 10 dollar with 20 dollars or up to 1h, either side, also create a strategy for it and go ahead';
+
+    test('trade-intent message runs in strategy mode with the flag off: strategyMode auto, strategy kept, nothing-runs notice, no refusal', async () => {
+        const id = byoUser();
+        complete.mockResolvedValue(reply({ answer: 'Long scalp: 10% move needed, unlikely in 1h.', strategy: SPEC, structured: ST() }));
+        const r = await chat(id, { message: TRADE }); // no wantStrategy
+        expect(r.status).toBe(200);
+        expect(r.body.reply.strategyMode).toBe('auto');
+        expect(r.body.reply.strategy.spec.name).toBe('ema cross');
+        expect(r.body.reply.text).toMatch(/Nothing runs until you accept/);
+        expect(r.body.reply.text).not.toMatch(/can't place trades|strategy is off/);
+        const sys = complete.mock.calls[0][0].system;
+        expect(sys).toMatch(/NEVER refuse/);
+        expect(sys).not.toMatch(/strategy MUST be null/);
+        expect(complete.mock.calls[0][0].user).toContain('Strategy requested: yes');
+    });
+
+    test('a plain analysis question stays off (strategy null) and long/short alone do not trigger', async () => {
+        const id = byoUser();
+        for (const m of ['what is the long/short ratio?', 'is funding high?', 'where is the support?']) {
+            complete.mockResolvedValue(reply({ strategy: SPEC }));
+            const r = await chat(id, { message: m });
+            expect(r.body.reply.strategyMode).toBe('off');
+            expect(r.body.reply.strategy).toBeNull();
+            expect(r.body.reply.text).not.toMatch(/Nothing runs/);
+        }
+        const on = await chat(id, { wantStrategy: true });
+        expect(on.body.reply.strategyMode).toBe('on');
+        for (const m of ['go ahead', 'make $10', 'short it', 'build me a bot', 'enter now?']) expect(require('../services/ai/agentPlan').tradeIntent(m)).toBe(true);
+    });
+
+    test('valid structured passes through; plan linked to the strategy when stop/target match', async () => {
+        const id = byoUser();
+        complete.mockResolvedValue(reply({ strategy: { ...SPEC, risk: { stopPct: 1, targetPct: 1 } }, structured: ST() }));
+        const r = await chat(id, { message: TRADE });
+        const s = r.body.reply.structured;
+        expect(s).toMatchObject({ verdict: 'long', headline: 'Small long scalp', plan: { side: 'long', leverage: 5, linked: true }, levels: [{ price: 90 }] });
+        expect(r.body.reply.text).toMatch(/Long|BTC/); // text still returned
+    });
+
+    test('invalid structured (headline > 120) -> text fallback, no structured, no extra model call', async () => {
+        const id = byoUser();
+        complete.mockResolvedValue(reply({ structured: ST({ headline: 'h'.repeat(121) }) }));
+        const r = await chat(id);
+        expect(r.status).toBe(200);
+        expect(r.body.reply.structured).toBeUndefined();
+        expect(r.body.reply.text).toBe('BTC is range bound.');
+        expect(complete).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([
+        ['entry 10% off mark', { entry: 110, stop: 109, target: 111 }],
+        ['stop on the wrong side', { stop: 101 }],
+        ['target on the wrong side', { target: 99.5 }],
+        ['leverage 10 over the cap', { leverage: 10 }],
+        ['leverage not an integer', { leverage: 2.5 }],
+        ['size above the bot cap', { sizeUsd: 30000, riskUsd: 300, rewardUsd: 300 }],
+        ['size below the minimum notional', { sizeUsd: 1, riskUsd: 0.01, rewardUsd: 0.01 }],
+        ['riskUsd inconsistent with size x stop', { riskUsd: 5 }],
+        ['rr inconsistent', { rr: 3 }],
+    ])('inconsistent plan dropped, rest kept: %s', async (_n, bad) => {
+        const id = byoUser();
+        complete.mockResolvedValue(reply({ structured: ST({ plan: { ...PLAN, ...bad } }) }));
+        const r = await chat(id);
+        expect(r.body.reply.structured.plan).toBeUndefined();
+        expect(r.body.reply.structured).toMatchObject({ verdict: 'long', headline: 'Small long scalp', bull: ['a'] });
+    });
+
+    test('short plan on the right sides is accepted; instruments never get a plan', async () => {
+        const id = byoUser();
+        const short = { side: 'short', entry: 100, stop: 101, target: 99 };
+        complete.mockResolvedValue(reply({ structured: ST({ plan: { ...PLAN, ...short } }) }));
+        expect((await chat(id)).body.reply.structured.plan).toMatchObject({ side: 'short', linked: false });
+        yahoo.quotes.mockResolvedValue({ rows: [], stale: false });
+        yahoo.klines.mockResolvedValue({ candles: candles(60) });
+        const inst = await chat(id, { context: { kind: 'instrument', symbol: 'GOLD', page: 'markets', interval: '1h' } });
+        expect(inst.body.reply.structured.plan).toBeUndefined();
+    });
+
+    test('context carries the bot caps and the chart interval candles (15m) for perps', async () => {
+        const id = byoUser();
+        await chat(id, { context: { ...CTX, interval: '15m' } });
+        expect(futuresRest.klines).toHaveBeenCalledWith('BTCUSDT', '15m', 48);
+        const u = complete.mock.calls[0][0].user;
+        expect(u).toContain('"candlesIv":{');
+        expect(u).toContain('"interval":"15m"');
+        expect(u).toContain('"maxLeverage":5');
+    });
+
+    test('the AI modules never import an order path', () => {
+        const fs = require('fs');
+        for (const f of ['services/ai/agentService.js', 'services/ai/agentContext.js', 'services/ai/agentPlan.js', 'routes/agentRoutes.js']) {
+            const src = fs.readFileSync(`${__dirname}/../${f}`, 'utf8');
+            const reqs = [...src.matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]);
+            expect(reqs.filter((x) => /futuresController|futuresOrders|futuresLedger|orderMatcher|botEngine|models\/Bot|tradeFill/.test(x))).toEqual([]);
+        }
+    });
+});

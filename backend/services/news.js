@@ -1,6 +1,7 @@
-// Public headlines service: title + link-out only, from six RSS/Atom feeds. NOT analysis, NOT investment advice.
-// Never store or return descriptions, full text or images. Headlines are untrusted third-party text: NEVER put them
-// into AI contexts (prompts, agent tools, briefs): a headline can carry prompt injection.
+// Public headlines service: title + link-out + a short plain-text summary (<= 200 chars) + a hotlinked https image URL,
+// from six RSS/Atom feeds. NOT analysis, NOT investment advice. Never store or return full text or image bytes; the image
+// is only a URL the browser hotlinks (publisher-owned). Headlines AND summaries are untrusted third-party text: NEVER put
+// them into AI contexts (prompts, agent tools, briefs): they can carry prompt injection.
 // Each source has its own breaker (datacenter IPs such as Render may be blocked), 6 s timeout, 1 MB cap. Failures serve
 // last good data with stale:true for up to 24 h, then the route answers 502.
 const axios = require('axios');
@@ -26,6 +27,8 @@ const MAX_FUTURE_MS = 3600e3;
 const TTL_MS = 10 * 60e3;
 const MAX_STALE_MS = 24 * 3600e3;
 const MAX_TITLE = 200;
+const MAX_SUMMARY = 200;
+const MAX_IMAGE_URL = 500;
 
 const breakers = new Map(SOURCES.map((s) => [s.name, breaker(`news:${s.name}`, { tripOnNetwork: true, level: 'info' })]));
 const store = new Map(); // own cache store so nothing else evicts it
@@ -57,13 +60,15 @@ function elements(xml, name, max = Infinity) {
     return out;
 }
 
+const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', rsquo: '\u2019', lsquo: '\u2018', ldquo: '\u201c', rdquo: '\u201d', hellip: '\u2026', mdash: '\u2014', ndash: '\u2013' };
+// one pass, bounded token length (no backtracking); an unknown named entity becomes a space so "&foo;" never shows up in text
 function decodeEntities(s) {
-    return s.replace(/&(#x[0-9a-fA-F]{1,6}|#[0-9]{1,7}|amp|lt|gt|quot|apos);/g, (m, e) => {
+    return s.replace(/&(#x[0-9a-fA-F]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{1,31});/g, (m, e) => {
         if (e[0] === '#') {
             const n = e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
             return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : ' ';
         }
-        return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[e];
+        return Object.prototype.hasOwnProperty.call(NAMED, e) ? NAMED[e] : ' ';
     });
 }
 
@@ -101,10 +106,14 @@ function stripHtml(s) {
     return out;
 }
 
+// decode, strip tags, decode once more (publishers double-encode), strip again so nothing HTML-like survives
+function cleanText(raw) {
+    const t = stripHtml(decodeEntities(stripHtml(textOf(raw))));
+    return t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function cleanTitle(raw) {
-    // decode, strip tags, decode once more (publishers double-encode), strip again so nothing HTML-like survives
-    let t = stripHtml(decodeEntities(stripHtml(textOf(raw))));
-    t = t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ').replace(/\s+/g, ' ').trim();
+    const t = cleanText(raw);
     return t.length > MAX_TITLE ? t.slice(0, MAX_TITLE - 1).trimEnd() + '…' : t;
 }
 
@@ -114,9 +123,54 @@ function cleanLink(raw) {
     try { const u = new URL(t); return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null; } catch { return null; }
 }
 
+// plain text, <= 200 chars, cut at a word boundary with an ellipsis
+function cleanSummary(raw) {
+    const t = cleanText(raw.slice(0, 20000)); // ponytail: only the first 20 KB of a description is looked at
+    if (t.length <= MAX_SUMMARY) return t;
+    let head = t.slice(0, MAX_SUMMARY - 1);
+    if (t[MAX_SUMMARY - 1] !== ' ') { const sp = head.lastIndexOf(' '); if (sp > 0) head = head.slice(0, sp); }
+    return head.replace(/[\ud800-\udbff]$/, '').trimEnd() + '…';
+}
+
+// absolute https URL only (no http/data/javascript, nothing upgraded), <= 500 chars, no control chars
+function cleanImage(raw) {
+    if (typeof raw !== 'string') return null;
+    const t = decodeEntities(raw).trim();
+    if (t.length > MAX_IMAGE_URL || !/^https:\/\//i.test(t) || /[\u0000-\u0020\u007f-\u009f]/.test(t)) return null;
+    try { const u = new URL(t); return u.protocol === 'https:' && u.href.length <= MAX_IMAGE_URL ? u.href : null; } catch { return null; }
+}
+
+// first <img src> in an HTML string: bounded scan (the closer-less <img> tag cannot use elements())
+function firstImg(html) {
+    html = html.slice(0, 50000);
+    let i = 0;
+    for (let n = 0; n < 10; n++) {
+        const s = html.indexOf('<img', i);
+        if (s < 0) return null;
+        const gt = html.indexOf('>', s);
+        if (gt < 0) return null;
+        if (NAME_END.test(html[s + 4] || '')) { const u = cleanImage(attr(html.slice(s + 4, gt), 'src')); if (u) return u; }
+        i = s + 4;
+    }
+    return null;
+}
+
+function findImage(body, htmls) {
+    for (const [tag, urlAttr] of [['media:content', 'url'], ['media:thumbnail', 'url'], ['enclosure', 'url']]) {
+        for (const { attrs } of elements(body, tag, 3)) {
+            const type = attr(attrs, 'type');
+            if (type ? !/^image\//i.test(type) : tag === 'enclosure') continue;
+            const u = cleanImage(attr(attrs, urlAttr));
+            if (u) return u;
+        }
+    }
+    for (const h of htmls) { const u = firstImg(h); if (u) return u; }
+    return null;
+}
+
 const attr = (attrs, n) => { const m = new RegExp(`\\b${n}\\s*=\\s*(?:"([^"]{0,2000})"|'([^']{0,2000})')`).exec(attrs.slice(0, 4000)); return m ? (m[1] ?? m[2]) : null; };
 
-// RSS 2.0 (<item>) and Atom (<entry>). Only title, link and date are read: descriptions/content/images are never touched.
+// RSS 2.0 (<item>) and Atom (<entry>). Reads title, link, date, a capped plain-text summary and one image URL; full text is never returned.
 function parseFeed(xml, now = Date.now()) {
     if (typeof xml !== 'string') return [];
     xml = xml.slice(0, MAX_BYTES);
@@ -136,7 +190,12 @@ function parseFeed(xml, now = Date.now()) {
             const t = title ? cleanTitle(title.body) : '';
             if (!t || !link || !Number.isFinite(ts)) continue;
             if (now - ts > MAX_AGE_MS || ts - now > MAX_FUTURE_MS) continue;
-            out.push({ title: t, link, ts });
+            const raws = ['description', 'summary', 'content:encoded'].map((n) => { const e = elements(body, n, 1)[0]; return e ? e.body : null; }).filter((x) => x !== null);
+            let summary = '';
+            for (const r of raws) { summary = cleanSummary(r); if (summary) break; }
+            if (normTitle(summary) === normTitle(t)) summary = '';
+            const image = findImage(body, raws.map((r) => textOf(r.slice(0, 50000))));
+            out.push({ title: t, link, ts, image, summary });
         }
     }
     return out;
@@ -189,26 +248,36 @@ async function build() {
         const tk = normTitle(r.title);
         if (seenLink.has(lk) || seenTitle.has(tk)) continue;
         seenLink.add(lk); seenTitle.add(tk);
-        items.push({ id: crypto.createHash('sha1').update(r.link).digest('hex').slice(0, 12), title: r.title, link: r.link, source: r.source, category: r.category, publishedAt: new Date(r.ts).toISOString() });
+        items.push({ id: crypto.createHash('sha1').update(r.link).digest('hex').slice(0, 12), title: r.title, link: r.link, source: r.source, category: r.category, publishedAt: new Date(r.ts).toISOString(), image: r.image, summary: r.summary });
     }
     return remember('news:merged', { items, sources });
 }
 
-// -> { items, sources, stale? }; throws when nothing is available (route answers 502)
-async function headlines({ limit = 30, category = 'all' } = {}) {
-    let data;
-    let stale = false;
+// the full merged list, cached; falls back to last good (stale) for up to 24 h; throws when nothing is available
+async function load() {
     try {
-        data = await cached('news:merged', TTL_MS, build, store, 5);
+        return { data: await cached('news:merged', TTL_MS, build, store, 5), stale: false };
     } catch (e) {
         const g = lastGood.get('news:merged');
         if (!fresh(g)) throw e;
-        data = g.value; stale = true;
+        return { data: g.value, stale: true };
     }
+}
+
+// -> { items, sources, stale? }; throws when nothing is available (route answers 502)
+async function headlines({ limit = 30, category = 'all' } = {}) {
+    const { data, stale } = await load();
     const pick = (x) => category === 'all' || x.category === category;
     const out = { items: data.items.filter(pick).slice(0, limit), sources: data.sources.filter(pick) };
     if (stale) out.stale = true;
     return out;
 }
 
-module.exports = { headlines, parseFeed, CATEGORIES, DISCLAIMER, SOURCES, _test: { expire() { store.clear(); }, reset() { breakers.forEach((b) => b.reset()); store.clear(); lastGood.clear(); } } };
+// one item from the FULL merged list (not limited to a page or category); null when unknown
+const ID_RE = /^[0-9a-f]{12}$/;
+async function byId(id) {
+    if (typeof id !== 'string' || !ID_RE.test(id)) return null;
+    return (await load()).data.items.find((x) => x.id === id) || null;
+}
+
+module.exports = { headlines, byId, decodeEntities, parseFeed, CATEGORIES, DISCLAIMER, SOURCES, _test: { expire() { store.clear(); }, reset() { breakers.forEach((b) => b.reset()); store.clear(); lastGood.clear(); } } };

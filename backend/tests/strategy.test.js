@@ -5,7 +5,7 @@ const REF = {"c": [44, 44.5, 43.8, 45.2, 46.1, 45.7, 47.0, 46.2, 45.1, 44.9, 46.
 
 const { parseSpec, STRATEGY_LIMITS } = require('../services/strategy/schema');
 const ind = require('../services/strategy/indicators');
-const { evaluate } = require('../services/strategy/evaluate');
+const { evaluate, signalAt, WARMUP_MIN } = require('../services/strategy/evaluate');
 const { describe: describeSpec } = require('../services/strategy/describe');
 
 const FAR = 4e12; // "now" far in the future: every candle is closed
@@ -298,6 +298,93 @@ describe('evaluator / backtest', () => {
     expect(d).toMatch(/long only on 1h/);
     expect(d).toMatch(/Enter long when fast crosses above slow AND rsi is below 70/);
     expect(d).toMatch(/stop loss 2%/);
+  });
+});
+
+describe('signalAt (live signal)', () => {
+  const spec = () => ({ version: 1, name: 'x', timeframe: '1h', direction: 'both',
+    indicators: [{ id: 'ma', type: 'sma', period: 8 }],
+    entry: { long: { any: [{ left: 'close', op: 'crosses_above', right: 'ma' }] }, short: { any: [{ left: 'close', op: 'crosses_below', right: { ref: 'ma', mul: 1.002 } }] } },
+    exit: { long: { any: [{ left: 'close', op: 'lt', right: 'ma' }] }, short: { any: [{ left: 'close', op: 'gt', right: 'ma' }] } },
+    risk: { stopPct: 1, targetPct: 2, maxBars: 20 } });
+  const all = walk(300, rng(11));
+
+  test('parity with the simulator at every bar', () => {
+    const res = evaluate(spec(), all, { now: FAR });
+    expect(res.markers.length).toBeGreaterThan(5);
+    const at = new Map();
+    for (const m of res.markers) at.set(m.time, [...(at.get(m.time) || []), m.kind]);
+    let inPos = false, side = null, checked = 0, exits = 0;
+    for (let t = 1; t < all.length; t++) {
+      const sg = signalAt(spec(), all.slice(0, t), { now: FAR }); // decision at bar t-1
+      const warm = !sg.warmingUp; // before the warm-up the live signal is withheld; the simulator still trades, so just track its state
+      const ks = at.get(all[t].time) || [], ent = ks.find((x) => x.startsWith('entry')) || '', ext = ks.find((x) => /^exit_|^stop$|^target$/.test(x)) || '';
+      if (!inPos) {
+        if (warm) { expect(ent).toBe(sg.entryLong ? 'entry_long' : sg.entryShort ? 'entry_short' : ''); checked++; }
+      } else if (warm) {
+        const want = side === 'long' ? sg.exitLong : sg.exitShort;
+        if (want) expect(ext).toBe(`exit_${side}`);
+        // reverse direction: a simulator signal-exit means the live signal said exit on that same bar
+        if (ext === `exit_${side}`) { expect(want).toBe(true); exits++; }
+      }
+      if (ent) { inPos = true; side = ent.slice(6); }
+      if (inPos && ext) inPos = false;
+    }
+    expect(exits).toBeGreaterThan(0);
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  test('no look-ahead: changing the forming/future candle never changes the signal', () => {
+    const n = 200, now = (all[n].time + 10) * 1000; // bar n is still forming
+    const a = signalAt(spec(), all.slice(0, n + 1), { now });
+    expect(a.barTime).toBe(all[n - 1].time);
+    for (const px of [1, 50, 1e6]) {
+      const mutated = all.slice(0, n + 1);
+      mutated[n] = { ...mutated[n], open: px, high: px * 2, low: px / 2, close: px, volume: 1 };
+      expect(signalAt(spec(), mutated, { now })).toEqual(a);
+    }
+    // and the signal at a bar equals the one computed with only the candles up to it
+    expect(a).toEqual(signalAt(spec(), all.slice(0, n), { now: FAR }));
+  });
+
+  test('no look-ahead in the interpreter: rewriting a CLOSED later candle leaves every earlier marker and indicator value unchanged', () => {
+    const sp = { ...spec(), plot: ['ma'] };
+    const base = evaluate(sp, all, { now: FAR });
+    const j = 250, cut = all[j].time;
+    expect(base.markers.filter((m) => m.time < cut).length).toBeGreaterThan(3);
+    for (const px of [1, 1e6]) {
+      const mut = all.map((c, i) => (i >= j ? { ...c, open: px, high: px * 2, low: px / 2, close: px } : c));
+      const r = evaluate(sp, mut, { now: FAR });
+      expect(r.markers.filter((m) => m.time < cut)).toEqual(base.markers.filter((m) => m.time < cut));
+      expect(r.series.ma.filter((p) => p.time < cut)).toEqual(base.series.ma.filter((p) => p.time < cut));
+      // the same holds for the live signal: the signal at bar j-1 needs only candles up to j-1
+      expect(signalAt(sp, mut.slice(0, j), { now: FAR })).toEqual(signalAt(sp, all.slice(0, j), { now: FAR }));
+    }
+    // sanity: the mutation does matter at and after the cut, so the comparison above is not vacuous
+    expect(evaluate(sp, all.map((c, i) => (i >= j ? { ...c, close: 1e6, high: 2e6 } : c)), { now: FAR }).series.ma.slice(-1)).not.toEqual(base.series.ma.slice(-1));
+  });
+
+  test('warm-up: too few candles withhold the signal (no entry/exit), enough candles give the real one', () => {
+    const ema = { ...spec(), indicators: [{ id: 'ma', type: 'ema', period: 30 }] }; // need = max(30, 3*30) = 90
+    const w = signalAt(ema, all.slice(0, 89), { now: FAR });
+    expect(w).toMatchObject({ warmingUp: true, need: 90, have: 89, entryLong: false, entryShort: false, exitLong: false, exitShort: false });
+    expect(signalAt(ema, all.slice(0, 90), { now: FAR }).warmingUp).toBeUndefined();
+    expect(signalAt(spec(), all.slice(0, WARMUP_MIN - 1), { now: FAR }).warmingUp).toBe(true); // plan minimum for short periods
+    expect(signalAt(spec(), all.slice(0, WARMUP_MIN), { now: FAR }).warmingUp).toBeUndefined();
+  });
+
+  test('forming last candle is ignored', () => {
+    const n = 200, now = (all[n - 1].time + 10) * 1000; // bar n-1 still open
+    const s = signalAt(spec(), all.slice(0, n), { now });
+    expect(s.barTime).toBe(all[n - 2].time);
+    expect(s).toEqual(signalAt(spec(), all.slice(0, n - 1), { now: FAR }));
+    expect(signalAt(spec(), [], { now: FAR })).toBe(null);
+  });
+
+  test('conds carry per-condition values', () => {
+    const s = signalAt(spec(), all.slice(0, 100), { now: FAR });
+    expect(s.conds.entryLong[0]).toMatchObject({ left: 'close', op: 'crosses_above', right: 'ma' });
+    expect(typeof s.conds.entryLong[0].leftValue).toBe('number');
   });
 });
 

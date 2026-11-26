@@ -51,13 +51,19 @@ function buildBitmap(d, bottom, top, palette, lens) {
   return c;
 }
 
-const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRefresh, refreshing, highlight }) => {
-  const [H, setH] = useState(heightFor);
+// embedded: rendered inside another panel (the Trade/Market chart): no Panel shell, a compact toolbar and estimate caption,
+// the canvas fills the space it is given (min 280px below xl) and the layout/measure/screenshot extras are left out.
+const EMB_MIN = 120; // floor for the measured height; below xl the CSS min-height (280) is what sets the size
+const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRefresh, refreshing, highlight, embedded = false }) => {
+  const [H0, setH] = useState(heightFor);
+  const area = useRef(null);
+  const [eh, setEh] = useState(EMB_MIN);
   useEffect(() => {
     const f = () => setH(heightFor());
     window.addEventListener('resize', f);
     return () => window.removeEventListener('resize', f);
   }, []);
+  const H = embedded ? eh : H0;
   const { lens, setLens, palette, setPalette, display, setDisplay, intensity, setIntensity } = useHeatView();
   const [lo, hi] = intensity; // intensity clamp, both as percent of the largest cell (linear scale)
   const [hover, setHover] = useState(null); // {col, row, x, y (plot px), cx, cy (viewport px), touch, t, price}; t/price survive a refresh
@@ -91,6 +97,15 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
     return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
   }, [!!hover]); // eslint-disable-line react-hooks/exhaustive-deps
   const ok = !!data && data.cols > 0 && data.candles?.length > 0;
+  useEffect(() => {
+    if (!embedded || !ok || !area.current || typeof ResizeObserver === 'undefined') return undefined;
+    const el = area.current;
+    const f = () => setEh(Math.max(EMB_MIN, Math.round(el.clientHeight)));
+    f();
+    const ro = new ResizeObserver(f);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [embedded, ok]);
   const top = ok ? (data.max * hi) / 100 : 0;
   const bottom = ok ? (data.max * lo) / 100 : 0;
   const bitmap = useMemo(() => (ok && typeof document !== 'undefined' ? buildBitmap(data, bottom, top, palette, lens) : null), [ok, data, bottom, top, palette, lens]);
@@ -204,7 +219,7 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
   // Keyboard: arrows move the cursor cell, Enter/Space places a measure point, Escape closes the card.
   const onKey = (e) => {
     const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
-    if (e.key === 'Escape') { setHover(null); return; }
+    if (e.key === 'Escape') { if (hover) e.stopPropagation(); setHover(null); return; } // a close here must not also un-maximise the panel around it
     const cur = hover || { col: data.cols - 1, row: closeRow(data) };
     let { col, row } = cur;
     if (step) { col = Math.min(data.cols - 1, Math.max(0, col + step[0])); row = Math.min(data.rows - 1, Math.max(0, row + step[1])); } else if (!(e.key === 'Enter' || e.key === ' ')) return;
@@ -262,11 +277,15 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
     `Measured: ${fmtPct((pb.price / pa.price - 1) * 100)} in price (${fmtPrice(pa.price)} to ${fmtPrice(pb.price)}), ${dur(Math.abs(pb.t - pa.t)) || 'no time'} apart. ${pb.cell && pa.cell ? `Estimated open liquidation levels between those prices at the second time: ${fmtUsd(sweptBetween(data, pb.cell.col, pa.cell.row, pb.cell.row))} (model estimate).` : 'A point has left the visible window, so the open-level estimate is not available.'}`
   );
 
-  return (
-    <Panel
-      id="liq-heatmap"
-      title={`Predicted liquidation heatmap - ${coin(symbol)}`}
-      right={(
+  const right = (
+    embedded ? (
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <SegTabs label="Heatmap range" tabs={RANGES} active={range} onChange={(r) => { setHover(null); setPoints([]); onRange(r); }} className="[&_button]:min-h-[44px] sm:[&_button]:min-h-0" />
+        {ok && <span className="text-[11px] tabular-nums text-slate-500">Updated {hhmm(data.generatedAt)}</span>}
+        <Updating show={!!refreshing} />
+        <button type="button" onClick={onRefresh} disabled={refreshing} aria-label="Refresh heatmap" className="focus-ring inline-flex min-h-[44px] items-center gap-1 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:text-slate-100 sm:min-h-0">Refresh</button>
+      </div>
+    ) : (
         <div className="flex flex-wrap items-center gap-2">
           <SegTabs label="Heatmap range" tabs={RANGES} active={range} onChange={(r) => { setHover(null); setPoints([]); onRange(r); }} />
           <LayoutMenu value="single" onChange={() => {}} />
@@ -279,16 +298,24 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
           </button>
           {ok && <button type="button" onClick={screenshot} aria-label="Download heatmap screenshot" className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:text-slate-100">Screenshot</button>}
         </div>
+    )
+  );
+  const inner = (
+    <>
+      {embedded ? (
+        <p data-testid="heat-estimate" className="mb-1 text-[11px] text-amber-400">
+          Estimate: levels are inferred from open-interest changes, not exchange data; the liquidation feed is sampled. Not financial advice.
+        </p>
+      ) : (
+        <p className="mb-2 text-xs text-amber-400">
+          Estimated model. Exchanges do not publish liquidation prices; levels are inferred from open-interest increases, a leverage mix of 5x–125x and 0.4% maintenance margin. Not financial advice.
+        </p>
       )}
-    >
-      <p className="mb-2 text-xs text-amber-400">
-        Estimated model. Exchanges do not publish liquidation prices; levels are inferred from open-interest increases, a leverage mix of 5x–125x and 0.4% maintenance margin. Not financial advice.
-      </p>
       {sourceNote(source, 'heatmap') && <p className="mb-2 text-xs text-amber-400">{sourceNote(source, 'heatmap')}</p>}
       {ok && error && <StaleNote at={data.generatedAt} />}
       {data?.partial && <p className="mb-2 text-xs text-amber-400">{PARTIAL_NOTE}</p>}
       {shotErr && <p role="status" className="mb-2 text-xs text-amber-400">Screenshot failed in this browser. Try again, or use the system screenshot tool.</p>}
-      {ok && <HeatControls lens={lens} onLens={setLens} palette={palette} onPalette={setPalette} intensity={intensity} onIntensity={setIntensity} max={data.max} display={display} onDisplay={setDisplay} />}
+      {ok && <HeatControls lens={lens} onLens={setLens} palette={palette} onPalette={setPalette} intensity={intensity} onIntensity={setIntensity} max={data.max} display={display} onDisplay={setDisplay} className={embedded ? '[&_select]:min-h-[44px] [&_button]:min-h-[44px] sm:[&_select]:min-h-0 sm:[&_button]:min-h-0' : ''} />}
       {!ok ? (
         loading ? <LoadingBlock height={H} /> : (
           <Notice tone={error ? 'error' : 'muted'}>
@@ -297,7 +324,8 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
         )
       ) : (
         <>
-          <div ref={wrap} className={`relative transition-opacity ${refreshing ? 'opacity-60' : ''}`} style={{ height: H }}>
+          <div ref={embedded ? area : undefined} className={embedded ? 'relative min-h-[280px] flex-1 xl:min-h-0' : undefined}>
+          <div ref={wrap} className={`${embedded ? 'absolute inset-x-0 top-0' : 'relative'} transition-opacity ${refreshing ? 'opacity-60' : ''}`} style={{ height: H }}>
             <canvas ref={canvas} role="img" aria-label={label} className="block" />
             <div
               role="group"
@@ -339,6 +367,7 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
               <p className="pointer-events-none absolute inset-x-0 top-1/4 px-4 text-center text-sm text-slate-300">No open liquidation levels estimated in this window.</p>
             )}
           </div>
+          </div>
           {readout && (
             <p role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
               <span>{readout}</span>
@@ -356,6 +385,16 @@ const LiqHeatmap = ({ symbol, range, onRange, data, source, loading, error, onRe
           </div>
         </>
       )}
+    </>
+  );
+  if (embedded) return <div id="liq-heatmap-embedded" className="flex min-h-0 flex-1 flex-col xl:overflow-hidden">{right}{inner}</div>;
+  return (
+    <Panel
+      id="liq-heatmap"
+      title={`Predicted liquidation heatmap - ${coin(symbol)}`}
+      right={right}
+    >
+      {inner}
     </Panel>
   );
 };

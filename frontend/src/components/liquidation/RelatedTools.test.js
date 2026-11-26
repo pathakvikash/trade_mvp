@@ -10,15 +10,18 @@ test('six tool cards, only the existing ones are links', () => {
   const root = createRoot(container);
   act(() => root.render(<RelatedTools />));
   expect(container.querySelectorAll('li')).toHaveLength(6);
-  expect(container.querySelectorAll('a')).toHaveLength(2);
-  expect(container.textContent).toContain('Coming soon');
+  // Max Pain, CVD, Order Book Heatmap and Large Orders are live: linked, no badge, no 'Not built yet' copy
+  const live = [...container.querySelectorAll('li')].filter((li) => /Max Pain|CVD|Order Book Heatmap|Large Orders/.test(li.textContent));
+  expect(live).toHaveLength(4);
+  live.forEach((li) => { expect(li.querySelector('a')).not.toBeNull(); expect(li.textContent).not.toMatch(/Coming soon|Not built yet/); });
   act(() => root.unmount());
 });
 
-test('the two real tools link to anchors that exist on the page', () => {
+test('the live tools link to anchors that exist on the page', () => {
   const container = document.createElement('div');
   const root = createRoot(container);
   act(() => root.render(<RelatedTools />));
-  expect([...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['#liq-map', '#liq-levels']);
+  const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+  expect(hrefs).toEqual(expect.arrayContaining(['#liq-map', '#liq-levels', '#liq-max-pain', '#liq-cvd', '#order-book-heatmap', '#large-orders']));
   act(() => root.unmount());
 });

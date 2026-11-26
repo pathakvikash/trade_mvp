@@ -17,6 +17,8 @@ const Register = React.lazy(() => import('./pages/register'));
 const Market = React.lazy(() => import('./pages/Market'));
 const Stocks = React.lazy(() => import('./pages/Stocks'));
 const News = React.lazy(() => import('./pages/News'));
+const NewsItem = React.lazy(() => import('./pages/NewsItem'));
+const Bots = React.lazy(() => import('./pages/Bots'));
 const Docs = React.lazy(() => import('./pages/Docs'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 
@@ -34,6 +36,7 @@ function App() {
     { path: '/market', element: <Market /> },
     { path: '/stocks', element: <Stocks /> },
     { path: '/news', element: <News /> },
+    { path: '/news/:id', element: <NewsItem /> },
     { path: '/docs', element: <Docs /> },
     { path: '/markets', element: <Navigate to="/market" replace /> },
   ];
@@ -43,6 +46,7 @@ function App() {
     { path: '/trade', element: <Trade /> },
     { path: '/derivatives', element: <Derivatives /> },
     { path: '/portfolio', element: <Portfolio /> },
+    { path: '/bots', element: <Bots /> },
     { path: '/liquidation', element: <Liquidation /> },
     { path: '/alerts', element: <Navigate to="/trade?alerts=1" replace /> },
     { path: '/settings/*', element: <Settings /> },

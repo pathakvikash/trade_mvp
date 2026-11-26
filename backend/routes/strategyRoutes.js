@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const express = require('express');
 const mongoose = require('mongoose');
 const { createLimiter } = require('../middleware/rateLimit');
@@ -10,6 +9,7 @@ const yahoo = require('../services/marketData/providers/yahoo');
 const { parseSpec, EVAL_SECONDS } = require('../services/strategy/schema');
 const { evaluate } = require('../services/strategy/evaluate');
 const { describe } = require('../services/strategy/describe');
+const { hashOf } = require('../services/strategy/hash');
 
 // Mounted as app.use('/api/strategies', auth, strategyRoutes): req.user comes from the JWT only.
 const router = express.Router();
@@ -25,10 +25,6 @@ const validId = (id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id) && 
 const uid = (req) => req.user.userId;
 // Error bodies carry paths and short messages only, never the submitted spec.
 const invalid = (res, issues) => res.status(422).json({ error: 'invalid_spec', issues });
-
-const canon = (v) => (Array.isArray(v) ? v.map(canon)
-  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-const hashOf = (spec) => crypto.createHash('sha256').update(JSON.stringify(canon(spec))).digest('hex');
 
 // Shared body checks for create/update: whitelisted keys, strict types. Returns { error } | { doc } (doc.spec already parsed).
 // An invalid spec returns { issues } instead.

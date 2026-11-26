@@ -22,30 +22,45 @@ export const timeAgo = (iso, now = Date.now()) => {
 };
 
 // Only http(s) links go out; anything else (javascript:, data:) renders as non-link text.
-const safeHref = (u) => {
+export const safeHref = (u) => {
   try { const p = new URL(u); return p.protocol === 'http:' || p.protocol === 'https:' ? p.href : null; } catch { return null; }
 };
+// Thumbnails must be https; anything else (http:, data:, missing) gets the letter tile.
+const httpsImg = (u) => { try { return new URL(u).protocol === 'https:' ? u : null; } catch { return null; } };
+const TILE = { crypto: 'bg-amber-400/15 text-amber-300', india: 'bg-emerald-400/15 text-emerald-300' };
 
-const Row = ({ it }) => {
-  const href = safeHref(it.link);
+// Image, or a source-initial tile when absent or failed to load. `cls` sizes it.
+export const NewsThumb = ({ it, cls }) => {
+  const [bad, setBad] = useState(false);
+  const src = bad ? null : httpsImg(it.image);
+  if (src) {
+    return <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBad(true)} className={`${cls} shrink-0 rounded-md bg-slate-800 object-cover`} />;
+  }
+  return (
+    <div data-testid="news-fallback" aria-hidden="true" className={`${cls} flex shrink-0 items-center justify-center rounded-md text-lg font-semibold ${TILE[it.category] || 'bg-slate-700/40 text-slate-300'}`}>
+      {String(it.source || '?').trim().charAt(0).toUpperCase() || '?'}
+    </div>
+  );
+};
+
+const Row = ({ it, compact }) => {
   const when = new Date(it.publishedAt);
   const abs = Number.isNaN(when.getTime()) ? undefined : when.toLocaleString();
-  const inner = (
-    <>
-      <span className="min-w-0 flex-1 text-sm text-slate-200 group-hover:text-cyan-300">{String(it.title)}</span>
-      <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-slate-500">
-        <span className={`h-1.5 w-1.5 rounded-full ${DOT[it.category] || 'bg-slate-500'}`} role="img" aria-label={`${it.category} news`} />
-        <span className="max-w-[7rem] truncate rounded bg-slate-800/80 px-1.5 py-0.5 text-slate-300">{it.source}</span>
-        <time dateTime={it.publishedAt} title={abs} className="whitespace-nowrap">{timeAgo(it.publishedAt)}</time>
-      </span>
-    </>
-  );
-  const cls = 'group focus-ring flex min-h-[44px] flex-col justify-center gap-1 px-3 py-2 sm:flex-row sm:items-center sm:gap-3';
+  const summary = typeof it.summary === 'string' ? it.summary : '';
   return (
     <li className="border-t border-slate-800/60 first:border-t-0">
-      {href
-        ? <a href={href} target="_blank" rel="noopener noreferrer nofollow" className={cls}>{inner}</a>
-        : <div className={cls}>{inner}</div>}
+      <Link to={`/news/${encodeURIComponent(String(it.id ?? ''))}`} className="group focus-ring flex min-h-[44px] items-start gap-3 px-3 py-2.5">
+        <NewsThumb it={it} cls={compact ? 'h-10 w-14 text-sm' : 'h-16 w-24'} />
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="text-sm text-slate-200 group-hover:text-cyan-300">{String(it.title)}</span>
+          {summary && <span className={`line-clamp-2 text-xs text-slate-400 ${compact ? 'hidden sm:block' : ''}`}>{summary}</span>}
+          <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[it.category] || 'bg-slate-500'}`} role="img" aria-label={`${it.category} news`} />
+            <span className="max-w-[8rem] truncate rounded bg-slate-800/80 px-1.5 py-0.5 text-slate-300">{it.source}</span>
+            <time dateTime={it.publishedAt} title={abs} className="whitespace-nowrap">{timeAgo(it.publishedAt)}</time>
+          </span>
+        </span>
+      </Link>
     </li>
   );
 };
@@ -78,7 +93,7 @@ const NewsFeed = ({ compact = false, limit, category = 'all' }) => {
   } else if (!items.length) {
     body = <p className="p-6 text-center text-sm text-slate-500">No headlines right now.</p>;
   } else {
-    body = <ul className={res.fetching ? 'opacity-60' : ''}>{items.slice(0, n).map((it) => <Row key={it.id || it.link} it={it} />)}</ul>;
+    body = <ul className={res.fetching ? 'opacity-60' : ''}>{items.slice(0, n).map((it) => <Row key={it.id || it.link} it={it} compact={compact} />)}</ul>;
   }
 
   return (

@@ -15,6 +15,9 @@ const remove = (ref) => {
   if (!stack.length) window.removeEventListener('keydown', onKey);
 };
 
+// true while any layer is open: Esc handlers outside the stack (maximise) leave that Esc to the layer
+export const hasEscLayer = () => stack.length > 0;
+
 export const useEscLayer = (open, close) => {
   const ref = useRef(close);
   ref.current = close;

@@ -331,6 +331,7 @@ const Row = ({ pos, mark, wide, token, config, onSelectSymbol, onChanged }) => {
             <Icon name="pencil" className="h-2.5 w-2.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
           </button>
         </Tip>
+        {pos.botId && <span title="Opened by a bot" className="rounded border border-cyan-400/40 bg-cyan-400/10 px-1 py-0.5 text-[10px] text-cyan-300">bot</span>}
         {locked && <span className="rounded border border-amber-400/40 bg-amber-400/10 px-1 py-0.5 text-[10px] text-amber-300">Under review</span>}
       </div>
     ),

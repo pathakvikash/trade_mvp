@@ -1,7 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import Panel from '../ui/Panel';
 import SegTabs from '../ui/SegTabs';
-import { Tip } from '../ui/Tooltip';
 import CandleChart from './CandleChart';
 import AlertsPanel from '../alerts/AlertsPanel';
 import { sourceNote } from '../ui/sourceNote';
@@ -10,6 +9,7 @@ import useMaximize from '../ui/useMaximize';
 import usePersistedState from '../../lib/usePersistedState';
 import useLiqLevels from '../../lib/useLiqLevels';
 import { LiqToggle, LiqChip } from './LiqLevelsControl';
+import ChartHeatmap, { useChartView } from './ChartHeatmap';
 
 const TF_NAME = { m: 'minute', h: 'hour', d: 'day' };
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'].map((id) => ({ id, label: id, title: `${parseInt(id, 10)}-${TF_NAME[id.slice(-1)]} candles` }));
@@ -32,42 +32,46 @@ const MarketChartPanel = ({
   const mx = useMaximize();
   const alertsView = view === 'alerts';
   const [liqOn, setLiqOn] = usePersistedState('chart.liqLevels', false, { validate: (v) => typeof v === 'boolean' });
-  const liq = useLiqLevels(liqSymbol, liqOn && !!liqSymbol && !alertsView);
+  // heatmap tab: needs a futures symbol and a market (instruments without one never get it, so nothing is faked)
+  const { view: cview, setView } = useChartView(!!liqSymbol && error !== 'no_market');
+  const heat = cview === 'heatmap' && !alertsView;
+  const liq = useLiqLevels(liqSymbol, liqOn && !!liqSymbol && !alertsView && !heat);
+  // Chart | Heatmap | Alerts, always visible. Heatmap only exists with a futures market; a stored heatmap view falls back to Chart (useChartView) without being overwritten.
+  const heatOk = !!liqSymbol && error !== 'no_market';
+  const tabs = [
+    { id: 'chart', label: 'Chart', title: 'Price chart' },
+    ...(heatOk ? [{ id: 'heatmap', label: 'Heatmap', title: 'Estimated liquidation heatmap (from open-interest changes)' }] : []),
+    { id: 'alerts', label: <>Alerts{unread > 0 && <span className="ml-1.5 rounded-full bg-rose-400 px-1 text-[10px] font-semibold tabular-nums text-slate-950" aria-label={`${unread} unread`}>{unread}</span>}</>, title: 'Price alerts for this symbol' },
+  ];
+  const pick = (id) => { onView?.(id === 'alerts' ? 'alerts' : 'chart'); if (id !== 'alerts') setView(id === 'heatmap' ? 'heatmap' : 'candles'); };
+  // A new symbol never inherits the Alerts view (the stored choice otherwise stays).
+  const lastSym = useRef(alertsSymbol);
+  useEffect(() => {
+    if (lastSym.current !== alertsSymbol) { lastSym.current = alertsSymbol; if (view === 'alerts') onView?.('chart'); }
+  }, [alertsSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
   const legend = LEGEND.filter(([k]) => (lines || []).some((l) => l.kind === k)).map(([k, t, fb]) => [k, t, lines.find((l) => l.kind === k).color || fb]);
   return (
     <>
     <MaximizeBackdrop max={mx.max} onClose={mx.exit} />
     <Panel
-      title={alertsView ? 'Alerts' : 'Chart'}
-      className={`${className} ${mx.panelClass}`}
+      title={alertsView ? 'Alerts' : heat ? 'Liquidation heatmap' : 'Chart'}
+      className={`${className} ${heat ? '!h-auto' : ''} ${mx.panelClass}`} /* heatmap view: grows below xl instead of scrolling inside a fixed height */
       {...mx.panelProps}
       right={
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {headerExtra}
-          <Tip text={alertsView ? 'Back to the chart' : 'Price alerts for this symbol'}>
-          <button
-            type="button"
-            aria-pressed={alertsView}
-            onClick={() => onView?.(alertsView ? 'chart' : 'alerts')}
-            className={`focus-ring rounded-md border px-2 py-1 text-xs font-medium min-h-[36px] sm:min-h-0 ${
-              alertsView ? 'border-cyan-400/60 text-cyan-300' : 'border-slate-700 text-slate-300 hover:bg-slate-900'
-            }`}
-          >
-            Alerts
-            {unread > 0 && (
-              <span className="ml-1.5 rounded-full bg-rose-400 px-1 text-[10px] font-semibold tabular-nums text-slate-950" aria-label={`${unread} unread`}>{unread}</span>
-            )}
-          </button>
-          </Tip>
-          {liqSymbol && !alertsView && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
-          <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" className="[&_button]:min-h-[36px] sm:[&_button]:min-h-0" />
+          <SegTabs tabs={tabs} active={alertsView ? 'alerts' : heat ? 'heatmap' : 'chart'} onChange={pick} label="Panel view" className="max-w-full overflow-x-auto [&_button]:min-h-[44px] sm:[&_button]:min-h-0" />
+          {liqSymbol && !alertsView && !heat && <LiqToggle on={liqOn} onToggle={() => setLiqOn(!liqOn)} />}
+          {!heat && <SegTabs tabs={TIMEFRAMES} active={interval} onChange={onInterval} label="Timeframe" className="[&_button]:min-h-[36px] sm:[&_button]:min-h-0" />}
           <MaximizeButton max={mx.max} onToggle={mx.toggle} />
         </div>
       }
-      bodyClassName={alertsView ? 'relative min-h-[320px] xl:min-h-0 p-0' : 'relative min-h-[320px] xl:min-h-0 p-1.5 pt-0'}
+      bodyClassName={alertsView ? 'relative min-h-[320px] xl:min-h-0 p-0' : heat ? 'relative flex min-h-[320px] flex-col p-1.5 pt-0 xl:min-h-0' : 'relative min-h-[320px] xl:min-h-0 p-1.5 pt-0'}
     >
       {alertsView ? (
         <AlertsPanel symbol={alertsSymbol} />
+      ) : heat ? (
+        <ChartHeatmap symbol={liqSymbol} />
       ) : error === 'no_market' ? (
         <Message>No perpetual futures market for {ticker}</Message>
       ) : error ? (

@@ -25,6 +25,7 @@ export const NAV = [
   { path: '/derivatives', label: 'Derivatives', d: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5' },
   { path: '/liquidation', label: 'Liquidations', d: 'M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z' },
   { path: '/portfolio', label: 'Portfolio', d: 'M4 8h16v12H4zM9 8V4h6v4' },
+  { path: '/bots', label: 'Bots', d: 'M7 8h10v9H7zM12 4v4M9 12h.01M15 12h.01M10 17v3M14 17v3' },
   { path: '/docs', label: 'Docs', d: 'M6 4h9l3 3v13H6zM9 10h6M9 14h6M9 18h4' },
   { path: '/settings', label: 'Settings', d: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4' },
 ];

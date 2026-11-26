@@ -1,4 +1,5 @@
 import React from 'react';
+import CreateBotButton from '../bots/CreateBotButton';
 
 const pct = (v) => (typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(2)}%` : String(v ?? '-'));
 const fmt = (k, v) => (typeof v === 'number' ? (/pct|return|drawdown|rate/i.test(k) ? pct(v) : String(Math.round(v * 100) / 100)) : String(v ?? '-'));
@@ -10,7 +11,7 @@ const STATUS = {
 
 // A PROPOSAL from the AI: server's `describe` text + backtest stats + caveats (ALWAYS shown) + three separate actions:
 // Apply to chart (accept), Save (to your list), Decline (discard the proposal). All text is plain React text.
-const StrategyCard = ({ strategy, status = 'proposed', saved = false, allTimeframes = true, onAllTimeframes, onApply, onSave, onDecline, busy, note }) => {
+const StrategyCard = ({ strategy, status = 'proposed', saved = false, allTimeframes = true, onAllTimeframes, onApply, onSave, onDecline, busy, note, plan }) => {
   const { describe, backtest } = strategy;
   const stats = backtest?.stats || {};
   const caveats = backtest?.caveats || [];
@@ -43,7 +44,9 @@ const StrategyCard = ({ strategy, status = 'proposed', saved = false, allTimefra
       </label>
       <p role="status" className="mt-2 text-slate-400">{saved ? 'Saved to your strategies. ' : ''}{STATUS[status]}</p>
       {note && <p role="status" className="mt-1 text-amber-300">{note}</p>}
+      <p className="mt-2 text-slate-300">Nothing runs until you accept on the next screen.</p>
       <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Proposal actions">
+        <CreateBotButton spec={strategy.spec} name={strategy.spec?.name} plan={plan} />
         <button type="button" disabled={busy || applied} aria-pressed={applied} onClick={onApply} className={`${btn} border-cyan-400/60 text-cyan-200 hover:bg-cyan-400/10`}>{applied ? 'Applied to chart' : 'Apply to chart'}</button>
         <button type="button" disabled={busy || saved} onClick={onSave} className={`${btn} border-slate-700 text-slate-200 hover:bg-slate-900`}>{saved ? 'Saved' : 'Save'}</button>
         <button type="button" disabled={busy} onClick={onDecline} className={`${btn} border-rose-400/40 text-rose-300 hover:bg-rose-400/10`}>Decline</button>
