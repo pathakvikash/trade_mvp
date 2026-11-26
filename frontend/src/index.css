@@ -73,7 +73,9 @@ code {
 }
 
 /* an inner scroller that hits its end must not hand the wheel to the page */
-.overflow-auto, .overflow-y-auto, .overflow-x-auto { overscroll-behavior: contain; }
+.overflow-auto, .overflow-y-auto { overscroll-behavior: contain; }
+/* horizontal-only scrollers (tables) must never trap vertical wheel/touch: let y chain to <main> */
+.overflow-x-auto { overscroll-behavior-x: contain; overscroll-behavior-y: auto; }
 
 .hide-scrollbar {
   -ms-overflow-style: none;

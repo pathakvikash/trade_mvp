@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Notice, Panel, coin, fmtMarketPrice, fmtTime, fmtUsd } from './shared';
 import Skeleton from '../ui/Skeleton';
+import ScrollArea from '../ui/ScrollArea';
 
 const BIG = 100000;
 
@@ -13,7 +14,7 @@ const LiveFeed = ({ recent, error }) => {
           {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-3 w-full" />)}
         </div>
       ) : rows.length === 0 ? <Notice tone={error ? 'error' : 'muted'}>{error ? 'Feed unavailable, retrying.' : 'Waiting for liquidations...'}</Notice> : (
-        <div className="max-h-72 overflow-auto overscroll-contain">
+        <ScrollArea label="Live liquidation feed" footer={`Showing ${rows.length} most recent, scroll for more`}>
           <table className="w-full text-xs tabular-nums">
             <caption className="sr-only">Most recent sampled liquidations</caption>
             <thead className="sticky top-0 bg-slate-950 text-left text-[11px] uppercase tracking-wider text-slate-500">
@@ -31,7 +32,7 @@ const LiveFeed = ({ recent, error }) => {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
       )}
     </Panel>
   );

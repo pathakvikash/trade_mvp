@@ -107,13 +107,14 @@ describe('LargeOrders', () => {
   test('lists walls and trades with labels, thresholds and a no-advice caption', () => {
     mockState = { data: large(), error: null, loading: false };
     show(<LargeOrders symbol="BTCUSDT" />);
-    const rows = [...container.querySelectorAll('tbody tr')];
+    const rows = [...container.querySelectorAll('tbody tr')]; // newest first
     expect(rows).toHaveLength(2);
-    expect(rows[0].textContent).toContain('Wall');
-    expect(rows[0].textContent).toContain('Bid');
-    expect(rows[0].textContent).toContain('50x');
-    expect(rows[1].textContent).toContain('Trade');
-    expect(rows[1].textContent).toContain('Taker sell');
+    const wall = rows.find((r) => r.textContent.includes('Wall'));
+    const trade = rows.find((r) => r.textContent.includes('Trade'));
+    expect(wall.textContent).toContain('Bid');
+    expect(wall.textContent).toContain('50x');
+    expect(trade.textContent).toContain('Taker sell');
+    expect(container.querySelector('[role=region][aria-label^="Large orders"]')).not.toBeNull();
     expect(container.textContent).toContain('not advice');
     expect(container.textContent).toContain('at least 10x the median level');
     expect(container.querySelector('#large-orders')).not.toBeNull();

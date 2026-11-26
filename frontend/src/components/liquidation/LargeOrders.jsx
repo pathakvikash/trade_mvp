@@ -1,6 +1,7 @@
 import React from 'react';
 import usePolling from '../../lib/usePolling';
 import { LoadingBlock } from '../ui/Skeleton';
+import ScrollArea from '../ui/ScrollArea';
 import { ORDERFLOW, THIN_TEXT, collectingText, flowNotice } from './orderflow';
 import { Notice, Panel, StaleNote, coin, fmtMarketPrice, fmtTime, fmtUsd } from './shared';
 
@@ -16,6 +17,8 @@ const LargeOrders = ({ symbol }) => {
   const th = data?.thresholds;
   const u = coin(symbol);
   const seen = new Map(); // the feed has no trade id: disambiguate identical kind/side/price/ts rows by occurrence
+  // newest first like the Live feed; sort is stable so equal-ts rows keep server order (keys stay put across polls)
+  const rows = ok ? [...data.items].sort((a, b) => b.ts - a.ts) : [];
   const waiting = ok && (data.status === 'collecting' || data.status === 'thin');
   return (
     <Panel id="large-orders" title={`Large orders - ${u}`}>
@@ -33,31 +36,31 @@ const LargeOrders = ({ symbol }) => {
           {data.items.length === 0 ? (
             <Notice>No level or trade is above the threshold right now.</Notice>
           ) : (
-            <div className="overflow-x-auto">
+            <ScrollArea label={`Large orders for ${u}`} footer={`Showing ${rows.length} items, newest first, scroll for more`}>
               <table className="w-full min-w-[420px] text-xs tabular-nums">
                 <caption className="sr-only">Large orders for {u}</caption>
-                <thead className="text-left text-slate-500">
-                  <tr><th scope="col" className="py-1.5 pr-2 font-medium">Type</th><th scope="col" className="px-2 font-medium">Side</th><th scope="col" className="px-2 text-right font-medium">Price</th><th scope="col" className="px-2 text-right font-medium">Size</th><th scope="col" className="px-2 text-right font-medium">x median</th><th scope="col" className="pl-2 text-right font-medium">Time</th></tr>
+                <thead className="sticky top-0 z-10 bg-slate-950 text-left text-[11px] uppercase tracking-wider text-slate-500">
+                  <tr><th scope="col" className="px-2 py-1 font-medium">Type</th><th scope="col" className="px-2 font-medium">Side</th><th scope="col" className="px-2 text-right font-medium">Price</th><th scope="col" className="px-2 text-right font-medium">Size</th><th scope="col" className="px-2 text-right font-medium">x median</th><th scope="col" className="px-2 text-right font-medium">Time</th></tr>
                 </thead>
                 <tbody>
-                  {data.items.map((i) => {
+                  {rows.map((i) => {
                     const [side, cls] = SIDE[i.side] || [i.side, ''];
                     const base = i.id ?? `${i.kind}-${i.side}-${i.price}-${i.ts}`;
                     const n = seen.get(base) || 0; seen.set(base, n + 1);
                     return (
-                      <tr key={`${base}#${n}`} className="border-t border-slate-800/80 text-slate-200">
-                        <td className="py-1.5 pr-2"><span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${i.kind === 'wall' ? 'bg-cyan-400/10 text-cyan-300' : 'bg-slate-800 text-slate-300'}`}>{KIND[i.kind]}</span></td>
-                        <td className={`px-2 ${cls}`}>{side}</td>
-                        <td className="px-2 text-right">{fmtMarketPrice(i.price)}{i.kind === 'wall' && <span className="ml-1 text-slate-500">({i.distPct >= 0 ? '+' : ''}{i.distPct.toFixed(2)}%)</span>}</td>
-                        <td className="px-2 text-right">{fmtUsd(i.usd)}</td>
-                        <td className="px-2 text-right">{i.mult.toFixed(0)}x</td>
-                        <td className="pl-2 text-right text-slate-400">{fmtTime(i.ts)}</td>
+                      <tr key={`${base}#${n}`} className="border-t border-slate-800/60 text-slate-200">
+                        <td className="px-2 py-1"><span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${i.kind === 'wall' ? 'bg-cyan-400/10 text-cyan-300' : 'bg-slate-800 text-slate-300'}`}>{KIND[i.kind]}</span></td>
+                        <td className={`px-2 py-1 ${cls}`}>{side}</td>
+                        <td className="px-2 py-1 text-right">{fmtMarketPrice(i.price)}{i.kind === 'wall' && <span className="ml-1 text-slate-500">({i.distPct >= 0 ? '+' : ''}{i.distPct.toFixed(2)}%)</span>}</td>
+                        <td className="px-2 py-1 text-right">{fmtUsd(i.usd)}</td>
+                        <td className="px-2 py-1 text-right">{i.mult.toFixed(0)}x</td>
+                        <td className="px-2 py-1 text-right text-slate-400">{fmtTime(i.ts)}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollArea>
           )}
           <p className="mt-2 text-[11px] text-slate-500">
             Median level {fmtUsd(th.medianLevelUsd)}{th.medianTradeUsd > 0 && `, median trade ${fmtUsd(th.medianTradeUsd)}`}. Wall times are the snapshot they were seen in; trade times are the exchange's. Refreshes every 5 s; {collectingText(data.collectedMs).toLowerCase()}.

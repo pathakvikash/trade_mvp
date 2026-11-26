@@ -4,6 +4,7 @@ import { squarify } from './treemap';
 import { LoadingBlock } from '../ui/Skeleton';
 import { Tip } from '../ui/Tooltip';
 import StatPopover from './StatPopover';
+import ScrollArea from '../ui/ScrollArea';
 
 const W = 100;
 const H = 56;
@@ -88,7 +89,7 @@ const CoinTreemap = ({ bySymbol, error, selected, onSelect, onHeatmap }) => {
             })}
           </div>
           <p className="mt-1 text-[11px] text-slate-500">Cell size = total USD; green = mostly longs liquidated, red = mostly shorts. Top {TOP} shown. Click a coin or row for details; the i button on a large tile shows its split.</p>
-          <div className="mt-3 max-h-64 overflow-auto overscroll-contain">
+          <ScrollArea className="mt-3" label="Liquidations by coin" footer={`Showing ${sorted.length} coins, scroll for more`}>
             <table className="w-full text-xs tabular-nums">
               <caption className="sr-only">Sampled 24h liquidations by coin</caption>
               <thead className="sticky top-0 bg-slate-950 text-[11px] text-slate-500">
@@ -118,7 +119,7 @@ const CoinTreemap = ({ bySymbol, error, selected, onSelect, onHeatmap }) => {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollArea>
         </>
       )}
     </Panel>
