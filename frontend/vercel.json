@@ -1,6 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    { "source": "/.well-known/orrery-app.json", "destination": "https://cryptozen-api.onrender.com/.well-known/orrery-app.json" },
+    { "source": "/api/orrery/:path*", "destination": "https://cryptozen-api.onrender.com/api/orrery/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/static/(.*)",

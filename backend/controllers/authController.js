@@ -434,6 +434,9 @@ const usernameFor = async (email) => {
   return name;
 };
 
+// Same body as a successful login, for sign-in paths that verified the user elsewhere (Orrery SSO).
+exports.sessionFor = (user) => ({ success: true, token: sign(user), user: publicUser(user) });
+
 exports.googleLogin = BaseController.wrap(async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.status(503).json({ success: false, message: 'Google sign-in is not configured' });

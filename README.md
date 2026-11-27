@@ -510,6 +510,31 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 
 The Google client ID is **not** a frontend variable; the SPA reads it from `GET /api/auth/config`.
 
+## Using Trade from Orrery
+
+Trade can be registered as an app in Orrery (the owner's chat workspace). Orrery gets **public market data only**, read-only: no portfolio, trades, futures orders, bots, AI endpoints or any other user data. The manifest is always served; the MCP and SSO endpoints answer 503 until `ORRERY_APP_SECRET` is set.
+
+What it exposes:
+- `GET /.well-known/orrery-app.json`: manifest (`auth: "orrery-jwt"`, `permission: "read"`, capabilities `ohlc`, `timeseries`, `table`, `link`, deep links `home` -> `/` and `symbol` -> `/trade?symbol={symbol}`). Served even while the secret is unset.
+- `POST /api/orrery/mcp`: minimal MCP streamable-HTTP endpoint (JSON-RPC, stateless, no sessions; GET is 405). Tools, all `readOnlyHint: true`: `klines`, `market_stats`, `liquidation_map` (an estimate), `cvd`, `instruments`, `news`. They call the same services as `/api/market/*` and `/api/news` (same symbol/interval whitelists, candles capped at 1000). Auth is an HS256 Bearer token checked with Node `crypto` (`iss`, `aud`, `exp`/`iat` with 30 s skew, `alg` pinned). Limits: 60 calls/min per token subject (the user's email), plus 600/min per IP as a backstop. Each call logs one JSON line with the subject.
+- `POST /api/orrery/sso` and SPA route `/sso?token=&next=`: Orrery sends the user with a 60 s single-use token (`purpose: "sso"`); the SPA trades it for a normal Trade session **only if an account with that email already exists** (nothing is auto-created; otherwise the login page opens with the email prefilled). `next` must be a same-origin relative path.
+- With `REACT_APP_ORRERY_URL` set, the SPA shows a thin "Part of Orrery" strip.
+- Live refresh: `klines` (ohlc), `cvd` (timeseries) and `market_stats` (table) results carry an optional `refresh: { tool, args, everyMs }` so Orrery can re-call that same read-only tool with the normalised arguments and redraw. `everyMs` is 5000 for intervals up to 5m, 15000 up to 1h, 60000 above (`market_stats` 15000). Each refresh is a normal `tools/call`, so it counts against the 60/min per-user limit. Upstream load stays bounded by the existing per-process service caches (klines 10 s, cvd 30 s, stats 30 s), so more viewers do not mean more Binance calls.
+
+| Variable | Where | Default | Purpose |
+|---|---|---|---|
+| `ORRERY_APP_SECRET` | backend (Render) | unset = integration off | Shared HS256 secret shown once by Orrery at registration. Never commit it. |
+| `ORRERY_APP_ID` | backend | `trade` | Expected `aud`, and the manifest `id`. |
+| `ORRERY_ISSUER` | backend | `orrery` | Expected `iss`. |
+| `ORRERY_BASE_URL` | backend | `https://trade-mvp.vercel.app` | Public origin written into the manifest (must be the origin you register). |
+| `REACT_APP_ORRERY_URL` | frontend (Vercel, build time) | unset = strip hidden | Link target of the strip. |
+
+Registration steps:
+1. Deploy this branch. `frontend/vercel.json` rewrites `/.well-known/orrery-app.json` and `/api/orrery/*` from the Vercel origin to the Render API, so the manifest, MCP URL, icon and SSO path all share one origin (Orrery requires that).
+2. In Orrery (owner): register (the manifest is served before any secret exists) `https://trade-mvp.vercel.app/.well-known/orrery-app.json` with preview, check the six tools, approve. Copy the generated secret.
+3. Set `ORRERY_APP_SECRET` (and `ORRERY_ISSUER=orrery`) on Render and restart the backend. Optionally set `REACT_APP_ORRERY_URL` on Vercel and redeploy.
+4. Check: `curl https://trade-mvp.vercel.app/.well-known/orrery-app.json` returns the manifest, and `curl -X POST https://trade-mvp.vercel.app/api/orrery/mcp` returns 401 (503 means the secret is not set yet). The keepalive workflow also pings the manifest path.
+
 ## AI provider setup
 
 The AI features (`/api/ai/*`) work with one of two providers, chosen at request time by `aiService.provider()`:

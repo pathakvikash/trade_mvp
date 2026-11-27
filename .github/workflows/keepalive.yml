@@ -9,3 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: curl -fsS --retry 3 --max-time 60 https://cryptozen-api.onrender.com/api/health
+      # Best effort: a failure here must not fail the workflow.
+      # Through the Vercel rewrite: also warns a cold Render before Orrery calls it.
+      - run: curl -sS --max-time 60 -o /dev/null https://trade-mvp.vercel.app/.well-known/orrery-app.json || true
