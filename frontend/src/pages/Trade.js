@@ -71,7 +71,7 @@ const Trade = () => {
   );
 
   // The futures symbol comes from the URL, else the last pick, else the user's default pair (Settings), else BTC; CoinGecko data is only decoration when it has the coin.
-  const urlSymbol = searchParams.get('symbol')?.toUpperCase();
+  const urlSymbol = searchParams.get('symbol')?.toUpperCase().replace(/USDT$/, ''); // Orrery links may carry BTCUSDT
   const prefBase = prefSymbol?.replace(/USDT$/, '').toUpperCase();
   const symbol = [urlSymbol, storedSymbol, prefBase].find((s) => s && SYMBOL_RE.test(s)) || 'BTC';
   const futuresSymbol = `${symbol}USDT`;

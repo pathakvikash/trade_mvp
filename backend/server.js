@@ -43,6 +43,10 @@ const marketRoutes = require('./routes/marketRoutes');
 app.use('/api/market', marketRoutes);
 
 app.use('/api/news', require('./routes/newsRoutes'));
+// Orrery app integration (public market data only); inert until ORRERY_APP_SECRET is set
+const orreryRoutes = require('./routes/orreryRoutes');
+app.use('/api/orrery', orreryRoutes);
+app.get('/.well-known/orrery-app.json', orreryRoutes.manifest);
 app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/alerts', require('./routes/alertRoutes'));
 app.use('/api/strategies', require('./middleware/auth'), require('./routes/strategyRoutes'));

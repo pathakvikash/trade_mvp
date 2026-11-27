@@ -13,6 +13,7 @@ const Derivatives = React.lazy(() => import('./pages/Derivatives'));
 const Liquidation = React.lazy(() => import('./pages/Liquidation'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 const Login = React.lazy(() => import('./pages/Login'));
+const Sso = React.lazy(() => import('./pages/Sso'));
 const Register = React.lazy(() => import('./pages/register'));
 const Market = React.lazy(() => import('./pages/Market'));
 const Stocks = React.lazy(() => import('./pages/Stocks'));
@@ -33,6 +34,7 @@ function App() {
     { path: '/', element: <Home />, index: true },
     { path: '/login', element: <Login /> },
     { path: '/register', element: <Register /> },
+    { path: '/sso', element: <Sso /> },
     { path: '/market', element: <Market /> },
     { path: '/stocks', element: <Stocks /> },
     { path: '/news', element: <News /> },

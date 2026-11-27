@@ -1,10 +1,11 @@
 // src/pages/Login.js
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useUserStore from '../store/userStore';
 import { API } from '../lib/api';
 import { landingPath } from '../lib/landing';
+import { safeNext } from '../lib/orrery';
 import Spinner from '../components/ui/Spinner';
 import GoogleButton from '../components/auth/GoogleButton';
 import AuthShell, { Field, PasswordInput, inputClass } from '../components/auth/AuthShell';
@@ -13,8 +14,9 @@ const Login = () => {
   const navigate = useNavigate();
   const setLogin = useUserStore((state) => state.setLogin);
   const setLogout = useUserStore((state) => state.setLogout);
+  const handoff = useLocation().state; // from /sso when the Orrery user has no account yet: { email, next }
   const [formData, setFormData] = useState({
-    email: '',
+    email: typeof handoff?.email === 'string' ? handoff.email : '',
     password: '',
   });
   const [error, setError] = useState('');
@@ -65,7 +67,7 @@ const Login = () => {
           await axios.get(`${API}/api/auth/verify`, {
             headers: { Authorization: `Bearer ${response.data.token}` }
           });
-          navigate(landingPath(response.data.user.preferences));
+          navigate(safeNext(handoff?.next) || landingPath(response.data.user.preferences));
         } catch (verifyError) {
           throw new Error('Token verification failed');
         }

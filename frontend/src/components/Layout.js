@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import Toasts from './alerts/Toasts';
 import AgentDock from './ai/AgentDock';
 import TickerBar from './shell/TickerBar';
+import OrreryStrip from './shell/OrreryStrip';
 import useApplyPreferences from '../lib/useApplyPreferences';
 import useMainAnchorScroll from '../lib/useMainAnchorScroll';
 import usePersistedState from '../lib/usePersistedState';
@@ -46,6 +47,7 @@ const Layout = () => {
         onClose={() => setMobileOpen(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
+        <OrreryStrip />
         <Header onMenu={() => setMobileOpen(true)} />
         <TickerBar />
         <main ref={mainRef} className="relative min-h-0 flex-1 overflow-y-auto p-3">

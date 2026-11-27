@@ -11,6 +11,7 @@ jest.mock('react-router-dom', () => {
     __esModule: true,
     Link: ({ to, children, ...rest }) => React.createElement('a', { href: to, ...rest }, children),
     useNavigate: () => jest.fn(),
+    useLocation: () => ({ state: null }),
   };
 }, { virtual: true });
 jest.mock('../lib/usePolling', () => ({ __esModule: true, default: () => ({ data: null }) }));

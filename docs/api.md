@@ -81,6 +81,16 @@ Every futures response carries `X-Data-Source`: `binance-futures` (default), `ws
 
 Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** (`BTCUSDT`); trading routes use the **base ticker** (`BTC`).
 
+## Orrery (`/api/orrery`, off unless `ORRERY_APP_SECRET` is set; 503 otherwise)
+
+Public market data only, read-only. Details and env vars: README, "Using Trade from Orrery".
+
+| Method | Path | Auth | Purpose | Limit |
+|---|---|---|---|---|
+| GET | `/.well-known/orrery-app.json` | no | Manifest (404 while unset) | none |
+| POST | `/api/orrery/mcp` | Orrery HS256 Bearer | MCP JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call`; notifications -> 202; GET -> 405 | 60/min per token subject, 600/min per IP |
+| POST | `/api/orrery/sso` | `{token}` in body (60 s, single use) | Existing account -> `{success, token, user}` like login; else 404 `{code:'NO_ACCOUNT', email}` | 10/min per IP |
+
 ## AI (`/api/ai`, authenticated)
 
 | Method | Path | Purpose |
