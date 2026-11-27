@@ -66,7 +66,10 @@ router.use((req, res, next) => {
         res.set('WWW-Authenticate', 'Bearer').status(401).json({ error: 'unauthorized' });
     }
 });
-router.use(limitBy({ limit: 60, windowMs: 60e3 }, (req) => req.orrery.sub)); // per user (token subject)
+// Per user (token subject), counted on tools/call only: Orrery opens a fresh MCP session per call (initialize +
+// notifications/initialized + tools/call), so counting every request would allow 20 tool calls a minute, not 60.
+const perUser = limitBy({ limit: 60, windowMs: 60e3 }, (req) => req.orrery.sub);
+router.use((req, res, next) => (req.body && req.body.method === 'tools/call' ? perUser(req, res, next) : next()));
 
 const rpcErr = (id, code, message) => ({ jsonrpc: '2.0', id: id === undefined ? null : id, error: { code, message } });
 
