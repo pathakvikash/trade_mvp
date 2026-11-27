@@ -119,9 +119,36 @@ describe('MCP endpoint', () => {
         const spy = jest.spyOn(futuresRest, 'klines').mockResolvedValue([{ time: 1700000000, open: 1, high: 3, low: 0.5, close: 2, volume: 10 }]);
         const r = await call('klines', { symbol: 'btc', interval: '5m', limit: 99999 });
         expect(spy).toHaveBeenCalledWith('BTCUSDT', '5m', 1000);
-        expect(r.body.result.structuredContent).toEqual({ orrery: 1, type: 'ohlc', symbol: 'BTCUSDT', interval: '5m', candles: [{ t: 1700000000000, o: 1, h: 3, l: 0.5, c: 2, v: 10 }] });
+        expect(r.body.result.structuredContent).toEqual({ orrery: 1, type: 'ohlc', symbol: 'BTCUSDT', interval: '5m', candles: [{ t: 1700000000000, o: 1, h: 3, l: 0.5, c: 2, v: 10 }], refresh: { tool: 'klines', args: { symbol: 'BTCUSDT', interval: '5m', limit: 1000 }, everyMs: 5000 } });
         expect(r.body.result.content[0].text).toMatch(/BTCUSDT 5m: 1 candles/);
         expect(r.body.result.isError).toBeUndefined();
+    });
+    test('live results carry a valid refresh: read-only tool, same type when called, everyMs by interval', async () => {
+        const row = { time: 1700000000, open: 1, high: 3, low: 0.5, close: 2, volume: 10 };
+        jest.spyOn(futuresRest, 'klines').mockResolvedValue([row]);
+        jest.spyOn(cvdService, 'cvd').mockResolvedValue({ available: true, candles: [{ time: 1, cvd: 2 }], spot: { available: false } });
+        jest.spyOn(futuresRest, 'stats').mockResolvedValue({ openInterest: [{ ts: 1, oi: 1, oiUsd: 5e9 }] });
+        const { tools } = (await rpc(null, { method: 'tools/list' })).body.result;
+        const readOnly = new Set(tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name));
+        const sc = async (name, args) => (await call(name, args)).body.result.structuredContent;
+        const k = await sc('klines', { symbol: 'btc', interval: '1m' });
+        expect(k.refresh).toEqual({ tool: 'klines', args: { symbol: 'BTCUSDT', interval: '1m', limit: 200 }, everyMs: 5000 });
+        const cases = [['klines', '5m', 5000], ['klines', '15m', 15000], ['klines', '1h', 15000], ['klines', '4h', 60000], ['klines', '1d', 60000],
+            ['cvd', '1m', 5000], ['cvd', '30m', 15000], ['cvd', '1d', 60000]];
+        for (const [tool, interval, ms] of cases) {
+            const r = (await sc(tool, { symbol: 'BTC', interval })).refresh;
+            expect(r.everyMs).toBe(ms);
+            expect(r.everyMs).toBeGreaterThanOrEqual(2000);
+            expect(readOnly.has(r.tool)).toBe(true);
+            expect(r.args).toMatchObject({ symbol: 'BTCUSDT', interval });
+        }
+        for (const [tool, args] of [['klines', { symbol: 'BTC', interval: '15m', limit: 50 }], ['cvd', { symbol: 'BTC' }], ['market_stats', { symbol: 'BTC' }]]) {
+            const first = await sc(tool, args);
+            expect(readOnly.has(first.refresh.tool)).toBe(true);
+            const again = await sc(first.refresh.tool, first.refresh.args); // what Orrery does
+            expect(again.type).toBe(first.type);
+            expect(again.refresh).toEqual(first.refresh); // normalised args are a fixed point
+        }
     });
     test('unknown symbol, bad symbol and bad interval are tool errors, and the service is never called', async () => {
         const spy = jest.spyOn(futuresRest, 'klines');

@@ -22,6 +22,13 @@ async function symbolOf(raw) {
     return symbol;
 }
 
+// Optional `refresh` on live results (contract: docs/design/apps-integration.md in the Orrery repo): Orrery re-calls `tool` with `args`
+// server-side. args are the NORMALISED ones used for this result. Upstream cost is bounded by the services' own caches
+// (klines 10 s, cvd 30 s, stats 30 s, per process), so extra viewers do not multiply Binance calls; no tool-level cache needed.
+const IV_MIN = { '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60 };
+const everyMs = (interval) => (IV_MIN[interval] <= 5 ? 5000 : IV_MIN[interval] <= 60 ? 15000 : 60000); // >1h (4h, 1d): 60 s
+const refresh = (tool, args, interval) => ({ tool, args, everyMs: everyMs(interval) });
+
 const table = (title, columns, rows) => ({ orrery: 1, type: 'table', title, columns, rows });
 const out = (text, structuredContent) => ({ content: [{ type: 'text', text }], structuredContent });
 const symbolProp = { type: 'string', description: 'Perpetual futures symbol, e.g. BTC or BTCUSDT.' };
@@ -36,11 +43,12 @@ const TOOLS = [
             const symbol = await symbolOf(a.symbol);
             const interval = a.interval === undefined ? '1h' : a.interval;
             if (!INTERVALS.includes(interval)) throw bad('invalid interval');
-            const rows = await futuresRest.klines(symbol, interval, clamp(a.limit, 200, MAX_CANDLES));
+            const limit = clamp(a.limit, 200, MAX_CANDLES);
+            const rows = await futuresRest.klines(symbol, interval, limit);
             const candles = rows.map((r) => ({ t: r.time * 1000, o: r.open, h: r.high, l: r.low, c: r.close, v: r.volume }));
             if (!candles.length) throw bad(`No candles for ${symbol}`);
             const last = candles[candles.length - 1];
-            return out(`${symbol} ${interval}: ${candles.length} candles to ${iso(last.t)}, last close ${last.c}.`, { orrery: 1, type: 'ohlc', symbol, interval, candles });
+            return out(`${symbol} ${interval}: ${candles.length} candles to ${iso(last.t)}, last close ${last.c}.`, { orrery: 1, type: 'ohlc', symbol, interval, candles, refresh: refresh('klines', { symbol, interval, limit }, interval) });
         },
     },
     {
@@ -59,7 +67,7 @@ const TOOLS = [
             const tk = last('takerBuySell'); add('Taker buy/sell ratio', tk, tk && round(tk.ratio, 3));
             const f = last('funding'); add('Last funding rate (%)', f, f && round(f.rate * 100, 4));
             if (!rows.length) throw bad(`Stats for ${symbol} are unavailable right now`);
-            return out(`${symbol} 1h stats: ${rows.length} metrics (latest values).`, table(`${symbol} market stats`, ['metric', 'value', 'as of'], rows));
+            return out(`${symbol} 1h stats: ${rows.length} metrics (latest values).`, { ...table(`${symbol} market stats`, ['metric', 'value', 'as of'], rows), refresh: refresh('market_stats', { symbol }, '1h') });
         },
     },
     {
@@ -91,7 +99,7 @@ const TOOLS = [
             if (d.spot && d.spot.available) series.push({ name: 'Spot CVD', points: pts(d.spot.candles) });
             if (!series.length) throw bad((d.reason || 'CVD is unavailable for this symbol right now.'));
             return out(`${symbol} CVD (${interval}): ${series.map((s) => `${s.name} ${s.points[s.points.length - 1][1]}`).join(', ')}.`,
-                { orrery: 1, type: 'timeseries', title: `${symbol} cumulative volume delta (${interval})`, series });
+                { orrery: 1, type: 'timeseries', title: `${symbol} cumulative volume delta (${interval})`, series, refresh: refresh('cvd', { symbol, interval }, interval) });
         },
     },
     {
