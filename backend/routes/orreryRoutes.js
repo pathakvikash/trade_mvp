@@ -29,7 +29,7 @@ function manifest(req, res) {
         auth: 'orrery-jwt',
         sso: { path: '/sso' },
         capabilities: ['ohlc', 'timeseries', 'table', 'link'],
-        deepLinks: { symbol: '/trade?symbol={symbol}' },
+        deepLinks: { home: '/', symbol: '/trade?symbol={symbol}' },
         permission: 'read',
     });
 }
@@ -49,7 +49,8 @@ router.post('/sso', limitBy({ limit: 10, windowMs: 60e3 }), async (req, res, nex
         const user = await User.findOne({ email });
         logger.info(JSON.stringify({ evt: 'orrery_sso', sub: email, account: !!user }));
         // No auto-create: the SPA sends the user to the normal login with the (verified) email prefilled.
-        if (!user || user.lockedAt) return res.status(404).json({ success: false, code: 'NO_ACCOUNT', email });
+        // Never grants elevated rights: only plain 'user' accounts get a handoff session; admins log in normally.
+        if (!user || user.lockedAt || user.role !== 'user') return res.status(404).json({ success: false, code: 'NO_ACCOUNT', email });
         res.status(200).json(sessionFor(user));
     } catch (e) { next(e); }
 });

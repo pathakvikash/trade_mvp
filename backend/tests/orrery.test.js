@@ -78,7 +78,7 @@ describe('manifest and config', () => {
     test('manifest has the contract shape and a single origin', async () => {
         const r = await request(app).get('/.well-known/orrery-app.json');
         expect(r.status).toBe(200);
-        expect(r.body).toMatchObject({ manifestVersion: 1, id: 'trade', auth: 'orrery-jwt', permission: 'read', sso: { path: '/sso' }, capabilities: ['ohlc', 'timeseries', 'table', 'link'], deepLinks: { symbol: '/trade?symbol={symbol}' } });
+        expect(r.body).toMatchObject({ manifestVersion: 1, id: 'trade', auth: 'orrery-jwt', permission: 'read', sso: { path: '/sso' }, capabilities: ['ohlc', 'timeseries', 'table', 'link'], deepLinks: { home: '/', symbol: '/trade?symbol={symbol}' } });
         for (const u of [r.body.baseUrl, r.body.mcp.url, r.body.icon]) expect(new URL(u).origin).toBe('https://trade-mvp.vercel.app');
         expect(r.body.mcp.url).toBe('https://trade-mvp.vercel.app/api/orrery/mcp');
     });
@@ -181,6 +181,7 @@ describe('SSO handoff', () => {
         const a = await sso(null, { token });
         expect(a.status).toBe(200);
         expect(a.body).toMatchObject({ success: true, user: { email: 'jane@example.com' } });
+        expect(jwt.verify(a.body.token, 'k'.repeat(40), { algorithms: ['HS256'] }).role).toBe('user');
         expect(jwt.verify(a.body.token, 'k'.repeat(40), { algorithms: ['HS256'] }).userId).toBeDefined();
         const b = await sso(null, { token });
         expect(b.status).toBe(401);
@@ -190,6 +191,13 @@ describe('SSO handoff', () => {
         expect(r.status).toBe(404);
         expect(r.body).toMatchObject({ code: 'NO_ACCOUNT', email: 'new@example.com' });
         expect(User.__store.size).toBe(0);
+    });
+    test('admin account is refused like no account and never gets a session', async () => {
+        seed({ role: 'admin' });
+        const r = await sso({ sub: 'jane@example.com' });
+        expect(r.status).toBe(404);
+        expect(r.body).toEqual({ success: false, code: 'NO_ACCOUNT', email: 'jane@example.com' });
+        expect(r.body.token).toBeUndefined();
     });
     test('locked account is treated like no account', async () => {
         seed({ lockedAt: new Date() });

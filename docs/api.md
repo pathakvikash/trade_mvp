@@ -89,7 +89,7 @@ Public market data only, read-only. Details and env vars: README, "Using Trade f
 |---|---|---|---|---|
 | GET | `/.well-known/orrery-app.json` | no | Manifest (404 while unset) | none |
 | POST | `/api/orrery/mcp` | Orrery HS256 Bearer | MCP JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call`; notifications -> 202; GET -> 405 | 60/min per token subject, 600/min per IP |
-| POST | `/api/orrery/sso` | `{token}` in body (60 s, single use) | Existing account -> `{success, token, user}` like login; else 404 `{code:'NO_ACCOUNT', email}` | 10/min per IP |
+| POST | `/api/orrery/sso` | `{token}` in body (60 s, single use) | Existing plain-`user` account -> `{success, token, user}` like login; else (no account, locked, or admin) 404 `{code:'NO_ACCOUNT', email}` | 10/min per IP |
 
 ## AI (`/api/ai`, authenticated)
 
