@@ -1,8 +1,19 @@
 # Paperline
 
-A crypto **paper-trading and derivatives-analytics platform**. It pulls real Binance USDS-M futures data (prices, order book, trades, funding, open interest, liquidations), turns it into a liquidation heatmap and market dashboards, adds an AI copilot (market briefs, Q&A, natural-language alert drafting), and lets users practise with **fake money**: spot trading and leveraged futures trading with TP/SL, plus price/funding/liquidation alerts.
+Paperline is a crypto **paper-trading and derivatives-analytics platform**. It reads real Binance USDS-M futures data (prices, order book, trades, funding, open interest, liquidations), turns it into liquidation maps, heatmaps and order-flow views, and lets you practise with **fake money**: spot and leveraged futures paper trading with TP/SL and a liquidation engine, alerts, backtested strategies, and paper-trading bots. An AI copilot explains the data and can propose strategies, but it never runs code and never places an order.
 
-> Nothing here moves real money. Every balance is a paper balance (new users start with $100,000). Market data is real; fills are simulated by the server at its own Binance mark price.
+Live demo (the Render free tier sleeps when idle, so the first API call after a quiet period can take a minute):
+
+- Frontend: <https://trade-mvp.vercel.app>
+- API: <https://cryptozen-api.onrender.com> (`/api/health` is the health check)
+
+### What this is, and what it is not
+
+- It is a learning and analytics tool. Every balance is a paper balance (new users start with $100,000). Market data is real; fills are simulated by the server at its own Binance mark price.
+- It does **not** move real money, connect to an exchange account, or take deposits.
+- Liquidation maps, heatmaps, max pain and touch chances are **model estimates**, not exchange data. The liquidation feed is sampled. Backtests are hypothetical and in-sample.
+- Nothing here is financial advice. The AI describes scenarios, not certainties.
+- Real markets (NSE stocks, indices, gold, crude oil, FX) come from Yahoo Finance, which is unofficial and delayed. They are view-only; you cannot trade them.
 
 AI agents and new engineers: start at [`context/README.md`](context/README.md) (architecture, money rules, conventions, gotchas). This file is the human-facing overview and the deploy guide.
 
@@ -12,122 +23,379 @@ AI agents and new engineers: start at [`context/README.md`](context/README.md) (
 2. [Screenshots](#screenshots)
 3. [Tech stack](#tech-stack)
 4. [Architecture](#architecture)
-5. [Quick start](#quick-start)
-6. [Environment variables](#environment-variables)
-7. [AI provider setup](#ai-provider-setup)
-8. [Google OAuth setup](#google-oauth-setup)
-9. [API overview](#api-overview)
-10. [Data model](#data-model)
-11. [Security notes](#security-notes)
-12. [Testing](#testing)
-13. [Deployment](#deployment)
-14. [Pre-launch checklist](#pre-launch-checklist)
-15. [Known limitations and roadmap](#known-limitations-and-roadmap)
+5. [Project structure](#project-structure)
+6. [How it works](#how-it-works)
+7. [Quick start](#quick-start)
+8. [Environment variables](#environment-variables)
+9. [AI provider setup](#ai-provider-setup)
+10. [Google OAuth setup](#google-oauth-setup)
+11. [API overview](#api-overview)
+12. [Data model](#data-model)
+13. [Security notes](#security-notes)
+14. [Testing](#testing)
+15. [Deployment](#deployment)
+16. [Pre-launch checklist](#pre-launch-checklist)
+17. [Known limitations and roadmap](#known-limitations-and-roadmap)
+18. [Contributing and license](#contributing-and-license)
+
+There are no status badges: the repo has no CI workflow that runs the tests (only a keepalive ping), so a build badge would not be true. Current test counts are in [Testing](#testing).
 
 ## Features
 
-**Market data and analytics**
-- Real Binance USDS-M data: live kline candles, order book (20 levels), trade tape, mark price and funding over Socket.IO; REST aggregations for the top-40 perpetuals overview, open interest, long/short ratios, taker buy/sell, funding history.
-- **Liquidation page**: real-time liquidation feed (Binance `!forceOrder@arr` stream, buffered 24h), cross-symbol summary and coin treemap, a **liquidation map** (price-bucket estimate) and a **liquidation heatmap** (time x price canvas grid). Both are model-based estimates built from open-interest deltas and a leverage mix; exchanges do not publish real liquidation prices.
-- **Derivatives page**: market table, funding strip, per-symbol open interest / long-short / taker / funding charts and simple signal readouts.
-- **Markets page**: top-20 coins by market cap from CoinGecko, live over Socket.IO.
-- **Stocks page** (`/stocks`, public) and the Derivatives **Real markets** panel: curated NSE stocks (incl. Tata and Aditya Birla groups, TMPV/TMCV), NIFTY 50 / BANK NIFTY / NIFTY IT, gold, silver, WTI, Brent, USD/INR, EUR/INR, GBP/INR, EUR/USD from Yahoo (unofficial, delayed, view only). Stock trading is not implemented.
-- **Resilient data sources**: if Binance futures REST is blocked, candles, open interest, long/short and funding come from Bybit, Bitget, Gate or MEXC (labelled in the UI, `X-Data-Source`); no third-party price is ever used for fills, marks, liquidations, TP/SL or alerts.
-- **Dashboard**: tiles (price, portfolio, open interest, funding, liquidations, alerts, sentiment), movers, recent liquidations, holdings, alert triggers.
-- Command palette and a sidebar shell; per-user persisted UI state.
-
-**AI copilot (Claude)**
-- Market **brief** per symbol (structured output: headline, bias, confidence, drivers, risks, levels to watch; cached 5 min).
-- **Ask** a free-form question about a symbol's data.
-- **Alert parsing**: "tell me when BTC funding goes above 0.05%" becomes a validated alert draft you can save.
-- **AI analyst dock**: single-shot chat about the chart you are on (crypto perp or a curated market) with source-tagged data; it can propose a **strategy** as a declarative JSON spec, which the server backtests (no look-ahead, fees and slippage included, caveats shown) and overlays on the chart. AI-written code never executes. Up to 20 saved strategies and 10 conversations per user.
-- Per-user model choice (Opus 5.5, Sonnet 5.5, Haiku 5.5) in Settings, or bring your own key (Anthropic, OpenAI, Gemini, OpenRouter, custom https endpoint), plus a personal style prompt, answer length and an opt-in to share your paper portfolio with the model.
-- Settings (`/settings/profile|ai|preferences|security`): avatar, preferences (ticker bar, compact tables, reduced motion, time format, landing page, alert sound/toasts), sign out everywhere, data export and account deletion.
-
 **Paper trading**
-- **Spot**: market and limit orders, holdings, average cost, 0.1% fee, $5 minimum, limit orders reserve funds and are filled by a background matcher.
-- **Leveraged futures**: USDT-margined linear perpetuals, isolated margin, long/short, 1x to 50x (capped per symbol and per position-size tier), market and limit entries, add to position, partial/full close, editable **TP/SL**, automatic **liquidation** by a server-side risk engine, 0.05% taker fee. Funding is not charged.
-- Exactly-once money handling for futures through a write-ahead journal (see [`context/DOMAIN.md`](context/DOMAIN.md)).
+- **Spot**: market and limit orders, holdings with average cost, 0.1% fee, $5 minimum. Limit orders reserve funds and are filled by a background matcher.
+- **Leveraged futures**: USDT-margined linear perpetuals, isolated margin, long and short, 1x to 50x (capped per symbol and per position-size tier), market and limit entries, add to a position, partial or full close, change leverage on an open position, editable **TP/SL**, automatic **liquidation** by a server-side risk engine, 0.05% taker fee. Funding is not charged.
+- **Alerts**: rules on mark price, funding rate or USD liquidated in 5 minutes, evaluated every 5 s on the server and pushed to the browser (toast, optional sound).
 - Portfolio page: balance, holdings, futures margin, unrealised P&L, equity, trade history.
 
-**Alerts**
-- Rules on `price` (mark), `funding` (percent) or `liq_usd_5m` (USD liquidated in 5 minutes), `above`/`below`, with cooldown, evaluated every 5 s server-side and pushed live to the browser (toast, optional sound). Max 20 alerts and 5 symbols per user; events kept 30 days.
+**Markets and derivatives analytics**
+- **Trade page**: live candles, order book, trade tape, order card, positions. An optional **liquidation heatmap overlay** and liquidation levels can be drawn on the chart.
+- **Derivatives page**: top-40 perpetuals table, funding strip, per-symbol open interest, long/short ratio, taker flow and funding charts, simple signal readouts.
+- **Liquidation page**: real-time liquidation feed and coin treemap; a **liquidation heatmap** (time x price) and a **liquidation map** (price buckets split by leverage tier), both estimated from open-interest changes and an assumed leverage mix; a **max pain "pain field"** across the top coins; an **order book heatmap** with wall tracking; **large orders** (walls and large trades); **cumulative volume delta (CVD)** for futures and spot. Charts support zoom and pan.
+- **Markets page**: top-20 coins by market cap from CoinGecko, live over Socket.IO.
+- **Real markets** (`/stocks` and the Derivatives "Real markets" panel): curated NSE stocks, NIFTY 50 / BANK NIFTY / NIFTY IT, gold, silver, WTI, Brent, USD/INR, EUR/INR, GBP/INR, EUR/USD. View only, unofficial Yahoo data.
+- **News**: headlines from RSS feeds (3 crypto, 3 Indian markets) with in-app detail pages (`/news`, `/news/:id`) that link out to the publisher. Headline, short snippet and a hotlinked image only; no full text.
+- **Dashboard**: tiles (price, portfolio, open interest, funding, liquidations, alerts, sentiment), movers with a rule-based trade-bias readout, recent liquidations, holdings, alert triggers, news.
+- **Resilient data sources**: if Binance futures REST is blocked, analytics fall back to Bybit, Bitget, Gate or MEXC (labelled in the UI and in `X-Data-Source`). Third-party prices never feed fills, marks, liquidations, TP/SL or alerts.
 
-**Accounts**
-- Email/password and **Google sign-in**; JWT sessions (24 h); profile and preferences; password change revokes older tokens.
+**AI copilot**
+- Per-symbol market **brief** (structured: headline, bias, confidence, drivers, risks, levels; cached 5 min), free-form **Ask**, and natural-language **alert drafting** that is validated before you can save it.
+- **Analyst dock**: single-shot chat about the chart you are on (crypto perp or a curated market) with source-tagged data. Answers can be **structured** (verdict, plan, levels, bull/bear cases, risks). Prompt templates are built in.
+- **Strategy proposals**: the AI may return a strategy only as a strict declarative JSON spec (a fixed DSL of indicators, conditions and risk settings). The server validates it, backtests it with fees and slippage and no look-ahead, and overlays it on the chart. **The AI never runs code and never places orders.**
+- Model choice: Opus 5.5, Sonnet 5.5 or Haiku 5.5 on the server key, or bring your own key (Anthropic, OpenAI, Gemini, OpenRouter, custom https endpoint) with a model picker that lists the provider's models, or a local LM Studio model when you run the backend yourself. Style prompt, answer length and an opt-in to share your paper portfolio.
+
+**Strategies and bots**
+- **Strategy engine**: up to 20 saved strategies per user, backtests on server-fetched candles (signal on bar i fills at the open of bar i+1, stop before target within a candle, 0.05% fee per side and 0.02% slippage by default), applied to the chart on its timeframe.
+- **Paper-trading bots** (`/bots`): a bot is one accepted strategy spec on one symbol and interval. You must **accept the exact spec by hash** before it can start. Risk guard on every entry, a **daily-loss kill switch**, an idempotent, crash-safe engine (one decision per closed bar), a full decision log, and **performance versus buy-and-hold** with honest sample-size labels ("Too few trades to mean anything" under 30 trades, "Weak evidence" under 100). Bots are capped (5 per user, 3 running, leverage 1x to 5x) and are **off in production unless `BOTS_ENABLED=true`**.
+
+**Accounts and settings**
+- Email/password and **Google sign-in**, 24 h JWT sessions, sign out everywhere, profile, preferences (ticker bar, compact tables, reduced motion, time format, landing page, alert sound), data export and account deletion. A public `/docs` page in the app explains the features.
 
 ## Screenshots
 
-_Placeholder: add images under `docs/screenshots/` and link them here._
+There are no screenshot files in the repo yet. TODO: capture these pages and add them under `docs/screenshots/`, then link them here.
 
-| Page | Screenshot |
-|---|---|
-| Trade (chart, book, tape, order card, positions) | `docs/screenshots/trade.png` |
-| Liquidation heatmap | `docs/screenshots/liquidation-heatmap.png` |
-| Derivatives | `docs/screenshots/derivatives.png` |
-| Dashboard | `docs/screenshots/dashboard.png` |
-| AI copilot brief | `docs/screenshots/copilot.png` |
-| Alerts | `docs/screenshots/alerts.png` |
+- [ ] Trade page (chart with heatmap overlay, book, tape, order card, positions)
+- [ ] Liquidation page (heatmap, liquidation map, pain field, order book heatmap, CVD)
+- [ ] Derivatives page
+- [ ] Dashboard
+- [ ] AI analyst dock with a structured answer and a strategy card
+- [ ] Bots page (decision feed and performance panel)
+- [ ] Alerts panel
 
 ## Tech stack
 
 | Layer | Choice |
 |---|---|
-| Backend | Node.js (CommonJS), Express 4, Socket.IO 4, Mongoose 8 (MongoDB), `ws` (Binance streams), axios, Joi (env validation), express-validator, helmet, cors, morgan, winston, bcryptjs, jsonwebtoken, google-auth-library, `@anthropic-ai/sdk` + zod |
-| Frontend | React 18 (Create React App / react-scripts 5), react-router-dom 7, zustand (stores), Tailwind CSS 3, lightweight-charts (candles), chart.js, canvas (heatmaps), socket.io-client, axios |
-| Data | MongoDB (local or Atlas); in-memory buffers/caches for live market data |
-| External | Binance USDS-M futures (REST + WebSocket, no API key), CoinGecko (public API), Anthropic API, Google Identity Services |
-| Tests | Jest (backend and CRA frontend); no supertest in practice, no React Testing Library |
+| Backend | Node.js (CommonJS), Express 4, Socket.IO 4, Mongoose 8 (MongoDB), `ws` (Binance streams), axios, Joi (env validation), express-validator, helmet, cors, morgan, winston, bcryptjs, jsonwebtoken, google-auth-library, `@anthropic-ai/sdk` and zod (AI structured output and the strategy DSL) |
+| Frontend | React 18 (Create React App, react-scripts 5), react-router-dom 7, zustand, Tailwind CSS 3, lightweight-charts (candles), canvas (heatmaps), socket.io-client, axios |
+| Data | MongoDB (local or Atlas); in-memory buffers and caches for live market data |
+| External | Binance USDS-M futures and spot mirror (REST and WebSocket, no key), Bybit / Bitget / Gate / MEXC public REST (fallback analytics), CoinGecko, Yahoo Finance, RSS feeds, Anthropic API and other AI providers (optional), Google Identity Services (optional) |
+| Tests | Jest on both sides; the backend uses in-memory fakes of the Mongoose models, the frontend uses `react-dom/test-utils` (no React Testing Library) |
 
 ## Architecture
 
+The backend is **one long-running Node process**: the HTTP API, Socket.IO and every background engine live together. That is a deliberate design choice (see [How it works](#how-it-works)) and it is why the backend cannot run on a serverless platform.
+
+### 1. System context
+
 ```mermaid
 flowchart LR
-  subgraph Browser
-    SPA[React SPA<br/>zustand stores, polling hooks]
-  end
-  subgraph Backend["Backend: ONE long-running Node process"]
-    API[Express API<br/>/api/auth /trades /orders /futures /market /ai /alerts]
-    IO[Socket.IO<br/>/market /futures /alerts]
-    FS[futuresService<br/>Binance WS streams, marks, liquidation buffer]
-    FR[futuresRest<br/>cached Binance REST]
-    MS[marketService<br/>CoinGecko poll 30s]
-    OM[orderMatcher<br/>spot limit fills, 2s]
-    RE[riskEngine<br/>liq / SL / TP / limit fills, 1s]
-    LG[futuresLedger<br/>write-ahead journal]
-    AL[alertService<br/>evaluate 5s]
-    AI[aiService<br/>Anthropic API or dev CLI]
-  end
-  DB[(MongoDB)]
-  BIN[(Binance USDS-M<br/>REST + WS)]
-  CG[(CoinGecko)]
-  ANT[(Anthropic API)]
-  GOO[(Google Identity)]
+  SPA["Browser SPA<br/>React on Vercel"]
+  GID["Google Identity"]
 
-  SPA -- HTTPS REST + Bearer JWT --> API
-  SPA -- WebSocket --> IO
-  SPA -- GSI script --> GOO
-  API --> AI --> ANT
-  API --> LG --> DB
-  API --> DB
-  FS -- wss --> BIN
-  FR -- https --> BIN
-  MS --> CG
+  subgraph API["Backend: one Node process on Render"]
+    direction TB
+    REST["Express REST routes<br/>auth, trades, futures, market,<br/>news, ai, strategies, bots, alerts"]
+    IO["Socket.IO<br/>/market /futures /alerts"]
+    GW["Market-data gateway<br/>and futuresRest facade"]
+    FS["futuresService<br/>Binance WS marks and<br/>liquidation buffer"]
+    OF["Orderflow collector<br/>lazy start, idle stop"]
+    ENG["In-process engines<br/>orderMatcher, riskEngine,<br/>alertService, botEngine"]
+    AIS["AI services<br/>brief, ask, analyst, providers"]
+  end
+
+  DB[("MongoDB Atlas")]
+  BIN["Binance<br/>REST and WS"]
+  ALT["Bybit, Bitget, Gate, MEXC<br/>fallback REST"]
+  YH["Yahoo Finance"]
+  RSS["RSS news feeds"]
+  CG["CoinGecko"]
+  LLM["AI providers<br/>OpenRouter, Anthropic, OpenAI,<br/>Gemini, local LM Studio"]
+
+  SPA -->|"HTTPS REST with Bearer JWT"| REST
+  SPA <-->|"WebSocket"| IO
+  SPA -->|"sign-in script"| GID
+  REST --> GID
+  REST --> GW
+  REST --> AIS
+  REST --> OF
+  REST --> DB
+  GW --> BIN
+  GW --> ALT
+  GW --> YH
+  REST --> RSS
+  REST --> CG
+  FS -->|"wss"| BIN
   FS --> IO
-  MS --> IO
-  AL --> IO
-  OM --> DB
-  RE --> LG
-  RE --> FS
-  OM --> FR
-  AL --> FS
+  OF --> BIN
+  ENG --> DB
+  ENG --> FS
+  AIS --> LLM
 ```
 
-Key points:
-- The server is the only price authority. Fills use the server's Binance mark price (`tradeFill.fillPrice`: websocket mark within 3 s, else REST mark within 10 s, else 503). The client never sends a fill price.
-- Market data goes through a gateway (`backend/services/marketData/`): Binance first, then Bybit, Bitget, Gate, MEXC and the Binance spot mirror, each behind its own circuit breaker and tagged in `X-Data-Source`. It is analytics only; `GET /api/market/providers` shows its health.
-- Spot and futures are **separate engines** sharing one `User.balance`. Spot settles with one conditional `$inc`; futures settles through `futuresLedger` (journal, locks, per-op marker, recovery).
-- Background loops (`orderMatcher`, `riskEngine`, `alertService`, `marketService`, `futuresService`) run **inside the API process**, so the backend must be a single always-on instance. See [Deployment](#deployment).
+The SPA talks to the API over REST (JWT in the `Authorization` header) and to three Socket.IO namespaces. The engines read prices from `futuresService` (Binance WebSocket marks, with a Binance REST fallback) and write to MongoDB through the money paths only. Everything that is not Binance is analytics or content, never a price that moves paper money.
+
+### 2. Market-data gateway
+
+```mermaid
+flowchart TD
+  ROUTE["GET /api/market/futures/...<br/>validate symbol and interval"]
+  FACADE["futuresRest facade<br/>10 s cache"]
+  BINP["Binance provider<br/>own circuit breaker"]
+  FALL{"Binance failure<br/>blocked, no response or 5xx?"}
+  GATE["Gateway chain per capability<br/>klines: bybit, bitget, gate, mexc, spot"]
+  CHECK["For each provider:<br/>lists symbol? breaker closed?"]
+  CLEAN["validate.js<br/>clean rows, drop stale or empty"]
+  TAG["Tag the answer with its source"]
+  RESP["Response with X-Data-Source header"]
+  BADREQ["400 or unknown symbol<br/>rethrown, no fallback"]
+
+  ROUTE --> FACADE --> BINP
+  BINP -->|"ok"| TAG
+  BINP -->|"error"| FALL
+  FALL -->|"no"| BADREQ
+  FALL -->|"yes"| GATE --> CHECK --> CLEAN
+  CLEAN -->|"first non-empty answer"| TAG
+  CLEAN -->|"empty or stale"| CHECK
+  TAG --> RESP
+
+  subgraph MONEY["Money paths: Binance only"]
+    FILL["tradeFill.fillPrice"]
+    MARKS["Binance WS mark,<br/>else Binance REST mark"]
+    USERS["fills, marks, liquidations,<br/>TP/SL, alerts, bots"]
+  end
+  FILL --> MARKS
+  USERS --> FILL
+```
+
+Each provider has its own circuit breaker (418, 403, 451 and 429 open it for at least a few minutes, with a single probe allowed when it is due). The registry knows which symbols each provider lists, so an unlisted symbol costs no request. Answers carry a source tag that becomes `X-Data-Source` (`binance-futures`, `ws`, `bybit`, `bitget`, `gate`, `mexc`, `spot`, `yahoo`, `unavailable`) and the UI says so when the data is not Binance futures. The bottom box is the hard rule: `fillPrice` uses only Binance prices, so the gateway module is never on a money path.
+
+### 3. Paper futures order
+
+```mermaid
+sequenceDiagram
+  participant C as Client
+  participant R as futuresRoutes and controller
+  participant O as futuresOrders
+  participant F as tradeFill
+  participant L as futuresLedger
+  participant D as MongoDB
+  participant E as riskEngine
+
+  C->>R: POST /api/futures/orders
+  R->>R: auth, rate limit, validate body
+  R->>O: openMarket
+  O->>F: fillPrice for BTCUSDT
+  F-->>O: Binance mark, or 503 NO_PRICE
+  O->>O: quote in integer cents, check leverage and TP/SL
+  O->>L: run op spec
+  L->>D: journal FuturesOp as pending
+  L->>D: lock Position with lockOp
+  L->>D: one conditional User update guarded by balance, plus op marker
+  L->>D: apply Position fields, bump rev
+  L->>D: mark op done
+  L-->>O: result
+  O-->>R: position and fill
+  R-->>C: 201 position and fill
+  loop every 1 s
+    E->>F: fillPrice per symbol with open positions
+    E->>L: run liquidation, else SL, else TP
+    L->>D: same journal, lock and conditional update
+  end
+```
+
+The client never sends a price. The ledger journals the operation first, locks the position, changes the balance with one conditional update and records a per-operation marker, so a crash at any step is rolled forward by recovery without charging twice. The risk engine uses the same ledger, so a user close racing a stop-out settles exactly once (the loser gets `POSITION_BUSY`).
+
+### 4. Bot lifecycle and the AI boundary
+
+The setup path. The only thing the AI can produce is inert data, and a human acceptance by hash gates everything after it.
+
+```mermaid
+flowchart LR
+  subgraph AIB["AI boundary: no tools, no code execution, no orders"]
+    CHAT["Analyst chat<br/>single shot"]
+    SPEC["Strategy spec<br/>inert JSON"]
+  end
+  PARSE["parseSpec<br/>strict zod schema"]
+  STRAT[("Strategy saved")]
+  BOT["POST /api/bots<br/>status proposed, backtest, hash"]
+  ACC["User reviews and accepts<br/>exact hash"]
+  PAUSED["status paused"]
+  START["POST /start<br/>BOTS_ENABLED must be true"]
+  RUN["status running"]
+
+  CHAT --> SPEC --> PARSE --> STRAT --> BOT --> ACC --> PAUSED --> START --> RUN
+```
+
+The tick path. Every 5 seconds the engine walks the running bots; orders go only through `futuresOrders`.
+
+```mermaid
+flowchart TD
+  TICK["botEngine tick, every 5 s"]
+  HASH{"Accepted hash still<br/>matches the stored bot?"}
+  PAUSE["pause, log hash_mismatch"]
+  KILL{"Daily loss limit hit?<br/>realized plus unrealized"}
+  KILLED["status killed,<br/>close the position"]
+  BAR{"New closed bar<br/>waiting, inside 60 s?"}
+  SIG["signalAt on closed candles"]
+  POS{"Position open?"}
+  EXIT{"Exit signal or max bars?"}
+  GUARD["riskGuard.check<br/>symbol, size, leverage, caps"]
+  CLAIM["Claim BotDecision intent row<br/>unique botId and barTime"]
+  ORDER["futuresOrders.openMarket or closeMarket<br/>with stop and target as TP/SL"]
+  OBS["riskEngine closes on TP, SL or liquidation,<br/>next tick books the P and L"]
+  SKIP["log hold, skip or missed,<br/>advance lastBarTime"]
+
+  TICK --> HASH
+  HASH -->|"no"| PAUSE
+  HASH -->|"yes"| KILL
+  KILL -->|"yes"| KILLED
+  KILL -->|"no"| BAR
+  BAR -->|"no"| SKIP
+  BAR -->|"yes"| SIG --> POS
+  POS -->|"yes"| EXIT
+  EXIT -->|"no"| SKIP
+  EXIT -->|"yes"| CLAIM
+  POS -->|"no, entry signal"| GUARD
+  GUARD -->|"refused"| SKIP
+  GUARD -->|"ok"| CLAIM
+  CLAIM --> ORDER --> OBS
+```
+
+The unique `{botId, barTime}` index on `BotDecision` is the claim: the engine inserts the decision row before it orders, so a crash or a restart can cost at most one entry and can never place a second one for the same bar. A restart finds old `intent` rows and settles them (`recoverIntents`). The engine file imports no AI, news or ledger code (a test checks the require list). If the host sleeps, bars are missed and logged as `missed`; a closed bar may be decided up to 60 s after its close.
+
+### 5. Liquidation page data flow
+
+```mermaid
+flowchart LR
+  subgraph EST["Estimates"]
+    OI["Binance candles and<br/>open-interest history"]
+    MIX["Assumed leverage mix<br/>and tier maintenance margin"]
+    MAP["liqmap<br/>price buckets by tier"]
+    HEAT["liqheat<br/>time x price grid"]
+    PAIN["maxpain<br/>pain field, top N coins"]
+  end
+  subgraph REAL["Observed"]
+    FORCE["Binance forceOrder stream"]
+    BUF["24 h buffer<br/>memory plus Mongo"]
+    TAKER["Binance taker volume<br/>and aggTrades"]
+    CVD["cvd and cvd trades"]
+  end
+  subgraph FLOW["Order flow"]
+    ASK["Client polls<br/>orderflow heatmap or large"]
+    COL["Collector starts for that symbol<br/>REST depth every 5 s"]
+    WALLS["Matrix, walls, wall events"]
+    IDLE["Idle for 5 min:<br/>symbol and data dropped"]
+  end
+  UI["Liquidation page<br/>and Trade chart overlay"]
+
+  OI --> MAP
+  OI --> HEAT
+  MIX --> MAP
+  MIX --> HEAT
+  HEAT --> PAIN
+  FORCE --> BUF
+  TAKER --> CVD
+  ASK --> COL --> WALLS
+  COL --> IDLE
+  MAP --> UI
+  HEAT --> UI
+  PAIN --> UI
+  BUF --> UI
+  CVD --> UI
+  WALLS --> UI
+```
+
+The map and heatmap are models: open-interest increases are spread over an assumed leverage mix and turned into liquidation prices, so they are estimates by construction. The real liquidation feed is what Binance streams (sampled). The order-book collector samples REST depth itself, only for symbols someone is looking at (up to 5 at once), so the heatmap only holds the depth seen since collection started; when the exchange changes (Binance blocked, fallback used) the matrix is cleared rather than mixing venues.
+
+### Where to look in the code
+
+| Concern | Path |
+|---|---|
+| Wiring, engines start/stop, Socket.IO namespaces | `backend/server.js` |
+| Env validation | `backend/config/config.js` |
+| Auth, JWT, account checks | `backend/controllers/authController.js`, `backend/middleware/auth.js` |
+| Spot orders and matcher | `backend/controllers/tradeController.js`, `backend/services/orderMatcher.js`, `backend/services/tradeFill.js` |
+| Futures API, order logic | `backend/controllers/futuresController.js`, `backend/services/futuresOrders.js` |
+| Exactly-once money executor | `backend/services/futuresLedger.js` |
+| Money math (integer cents) | `backend/services/tradeMath.js`, `backend/services/futuresMath.js` |
+| Liquidation, TP/SL, limit fills | `backend/services/riskEngine.js` |
+| Binance streams, marks, liquidation buffer | `backend/services/futuresService.js` |
+| Market-data gateway | `backend/services/marketData/` (`index.js`, `breaker.js`, `registry.js`, `validate.js`, `providers/`) |
+| Liquidation estimate models | `backend/services/futuresUtils.js`, `backend/services/maxPain.js`, `backend/services/cvd.js` |
+| Order-book collector | `backend/services/orderflow/` |
+| Real markets allow-list | `backend/services/marketData/instruments.js`, `providers/yahoo.js` |
+| News | `backend/services/news.js` |
+| AI | `backend/services/aiService.js`, `aiProviders.js`, `secretBox.js`, `backend/services/ai/` |
+| Strategy DSL and backtests | `backend/services/strategy/` |
+| Bots | `backend/services/bot/` (`botEngine.js`, `riskGuard.js`, `performance.js`), `backend/routes/botRoutes.js` |
+| Bot research scripts | `backend/scripts/botlab/` |
+| Alerts | `backend/services/alertService.js`, `backend/routes/alertRoutes.js` |
+| Frontend pages and routing | `frontend/src/App.js`, `frontend/src/pages/` |
+| Frontend API base and sockets | `frontend/src/lib/api.js`, `apiBase.js`, `socket.js` |
+
+## Project structure
+
+```
+trade_mvp/
+├── backend/                     Express + Socket.IO + Mongoose, engines in the same process
+│   ├── server.js                wiring and engine start/stop
+│   ├── config/                  config.js (Joi env), logger.js (winston)
+│   ├── controllers/             auth, trade, order, futures, BaseController
+│   ├── middleware/              auth, rateLimit, validator, errorHandler
+│   ├── models/                  User, Trade, Order, Position, FuturesOrder, FuturesOp, Alert, AlertEvent,
+│   │                            Liquidation, Strategy, AiConversation, Bot, BotDecision
+│   ├── routes/                  auth, trade, order, futures, market, orderflow, news, ai, agent, strategy,
+│   │                            bot, alert, health
+│   ├── services/
+│   │   ├── ai/                  analyst chat, context builder, access, plan
+│   │   ├── bot/                 botEngine, riskGuard, performance
+│   │   ├── marketData/          gateway, breaker, registry, validate, providers/ (binance, bybit, bitget, gate, mexc, yahoo)
+│   │   ├── orderflow/           collector, walls, bookStats, providers
+│   │   ├── strategy/            schema, indicators, evaluate, backtest, describe, hash
+│   │   └── *.js                 futuresLedger, futuresOrders, riskEngine, orderMatcher, tradeFill, futuresService, ...
+│   ├── scripts/botlab/          offline bot capability study (fetch, study, analyze, goal)
+│   ├── tests/                   Jest, in-memory fakes
+│   └── .env.example
+├── frontend/                    Create React App (React 18, zustand, Tailwind)
+│   ├── public/
+│   ├── vercel.json              SPA rewrite and security headers
+│   └── src/
+│       ├── pages/               Home, Dashboard, Trade, Derivatives, Liquidation, Portfolio, Bots, Market, Stocks,
+│       │                        News, NewsItem, Docs, Settings (+ settings/), Login, register
+│       ├── components/          ai, alerts, auth, bots, dashboard, derivatives, home, liquidation, market, news,
+│       │                        shell, trade, ui (company/ is legacy and unused)
+│       ├── lib/                 api, sockets, hooks, pure helpers (futuresMath, moverBias, ...)
+│       └── store/               zustand stores
+├── context/                     engineering docs: ARCHITECTURE, DOMAIN, DECISIONS, GOTCHAS, TODO, bot study
+├── docs/phase2-leverage.md      original futures design spec (code wins where they differ)
+├── .github/workflows/keepalive.yml
+├── CLAUDE.md, AGENTS.md         rules and commands for AI coding agents
+└── README.md
+```
+
+## How it works
+
+**Money rules.** Both trading engines compute in **integer cents** and store dollars as `cents / 100`. Rounding always favours the house: fees and margin round up, P&L rounds down, so the house never loses a cent. Every balance change is **one conditional update** (for example "debit only if `balance >= debit`"); there is no read-modify-write of a balance. Fills happen only at the server price (`tradeFill.fillPrice`); the client never sends one. Futures money moves only through `futuresLedger`. Full rules: [`context/DOMAIN.md`](context/DOMAIN.md).
+
+**Spot and futures are separate engines** that share only `User.balance`. Spot settles with one conditional `$inc` of balance and holdings together. Futures uses a write-ahead journal (`FuturesOp`) with roll-forward recovery and a per-operation marker on the user, instead of Mongo transactions, so it works on a standalone mongod or an Atlas free tier and every step is idempotent.
+
+**Data layer.** MongoDB holds durable state (accounts, trades, orders, positions, the futures journal, alerts, strategies, bots, conversations). Live market data is in memory: Binance marks and the liquidation buffer in `futuresService`, caches in `futuresRest` and the gateway, the order-book matrix in the collector. TTL indexes expire alert events (30 days), liquidations (2 days), AI conversations (30 days) and bot decision rows (hold rows 14 days, others 1 year).
+
+**Single process.** API, sockets and engines run together because they share in-memory marks, buffers, limiters and engine state. Two live engines would race on ledger recovery, so there is exactly one instance and deploys are stop-then-start.
+
+**Design decisions.** Why it is built this way (single process, journal ledger, estimates labelled as estimates, AI never executes code, provider fallbacks, bots with accept-hash approval and more) is logged with dates in [`context/DECISIONS.md`](context/DECISIONS.md). Surprises and traps are in [`context/GOTCHAS.md`](context/GOTCHAS.md); open work is in [`context/TODO.md`](context/TODO.md).
 
 ## Quick start
 
@@ -135,7 +403,9 @@ Key points:
 
 - Node.js 18+ (20 LTS recommended) and npm
 - MongoDB 6+ running locally (`mongodb://127.0.0.1:27017`) or a MongoDB Atlas URI
-- Outbound access to `fapi.binance.com` / `fstream.binance.com` (some regions, including the US, are blocked by Binance with HTTP 451) and `api.coingecko.com`
+- Outbound access to `fapi.binance.com` and `fstream.binance.com` (some regions, including the US, are blocked by Binance with HTTP 451; analytics then fall back to other exchanges, but paper fills need a Binance price) and `api.coingecko.com`
+
+There is no root `package.json` and no single "run everything" command: run the backend and the frontend in two terminals.
 
 ### 1. MongoDB
 
@@ -157,18 +427,17 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 npm start            # node server.js, listens on 127.0.0.1:4000
 ```
 
-`backend/.env` is git-ignored. The server refuses to start if `NODE_ENV`, `MONGO_URI` or a real `JWT_SECRET` is missing.
+`.env.example` already sets `NODE_ENV=development` and `MONGO_URI=mongodb://127.0.0.1:27017/crypto_trading_mvp`. `backend/.env` is git-ignored. The server refuses to start if `NODE_ENV`, `MONGO_URI` or a real `JWT_SECRET` is missing.
 
 ### 3. Frontend
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local     # REACT_APP_API_URL=http://localhost:4000
 npm start                      # http://localhost:3000
 ```
 
-`frontend/.env.development` already sets `REACT_APP_API_URL=http://localhost:4000`, so `.env.local` is only needed to override it.
+`frontend/.env.development` already sets `REACT_APP_API_URL=http://localhost:4000`; copy `frontend/.env.example` to `.env.local` only to override it.
 
 ### 4. Demo user
 
@@ -182,10 +451,12 @@ DEMO_GUEST_PASSWORD=choose-a-12plus-char-password
 
 Restart the backend. It creates (or resets) `guest@cryptozen.com` with that password, role `user`. In development, on loopback only, `/login` shows a "test login" card filled from `GET /api/auth/dev-hint`. Seeding never creates an admin.
 
+Bots are on by default in development. AI features need `ANTHROPIC_API_KEY` or a signed-in Claude Code CLI (development only); see [AI provider setup](#ai-provider-setup).
+
 ### 5. Tests
 
 ```bash
-cd backend  && npm test                                     # jest, 430 tests at last count
+cd backend  && npm test                                     # jest
 cd frontend && CI=true npm test -- --watchAll=false         # react-scripts test
 ```
 
@@ -229,6 +500,7 @@ If npm complains about its cache directory in a sandbox, add `--cache "$TMPDIR/n
 | `YAHOO_REST` | no | `https://query1.finance.yahoo.com` | Yahoo Finance (unofficial, delayed, view only) for the curated stocks, indices, commodities and currencies. Never used for trading. |
 | `BINANCE_FUTURES_WS` | no | `wss://fstream.binance.com` | WebSocket base URL. |
 | `MARKET_POLL_INTERVAL_MS` | no | `30000` | CoinGecko poll interval for the Markets page. |
+| `BOTS_ENABLED` | no | on in development and test, **off in production** | Paper-trading bots. Exactly `true` or `false` overrides the default. When off, `POST /api/bots/:id/start` answers 403 `BOTS_DISABLED` and the bot engine runs nothing (open bot positions are still closed). Turn it on only on an always-on instance: a sleeping server misses bars. |
 
 ### Frontend (Create React App; values are inlined at **build time**)
 
@@ -265,135 +537,24 @@ The app uses Google Identity Services (ID-token flow): the browser gets a Google
 
 ## API overview
 
-Base URL: `http://localhost:4000`. "Auth" = `Authorization: Bearer <jwt>`. Errors use `{ success:false, message }` (futures adds `code`; alerts/AI/market use `{ error }`).
+Base URL `http://localhost:4000` (live: `https://cryptozen-api.onrender.com`). "Auth" means `Authorization: Bearer <jwt>`. The full route reference (every route, limits, error codes, request and response shapes) is in [`docs/api.md`](docs/api.md). Every router below is mounted in `backend/server.js`.
 
-### Auth (`/api/auth`)
-
-| Method | Path | Auth | Purpose | Limit (per IP unless noted) |
-|---|---|---|---|---|
-| POST | `/register` | no | Create account (always role `user`) | 5/hour |
-| POST | `/login` | no | Email + password -> `{token, user}` | 10/min |
-| POST | `/google` | no | Google ID token -> `{token, user}` | 10/min |
-| GET | `/config` | no | `{googleClientId}` | none |
-| GET | `/dev-hint` | no | Demo credentials; 404 unless development + seeding + loopback | 30/min |
-| GET | `/verify` | yes | Validate token, return user | none |
-| GET | `/me` | yes | `{user, aiModels, aiProviders, aiDefaultPrompt, aiServerRules}` (never keys or hashes) | none |
-| PATCH | `/me` | yes | Update `name`, `profile`, `preferences`, `ai` (provider, model, systemPrompt, temperature, length, includePortfolio, providers model/baseUrl); keys are not settable here; unknown keys -> 422 | none |
-| PUT | `/me/avatar` | yes | `{avatar}`: `emoji:<emoji>` or `data:image/jpeg\|webp;base64,...` (<= 150KB decoded, magic bytes checked) | 20/min/user |
-| DELETE | `/me/avatar` | yes | Back to initials | 20/min/user |
-| POST | `/password` | yes | Change password (Google-created accounts may omit `currentPassword` within 10 min of sign-in, else `REAUTH_REQUIRED`); returns a fresh token, revokes older ones | 5/min |
-| POST | `/logout-all` | yes | Bump `tokenVersion`, return a fresh token for this session; other sessions and their `/alerts` sockets are dropped | 5/min/user |
-| GET | `/me/export` | yes | JSON download: profile, settings (no secrets), trades, orders, positions, futures orders, alerts | 5/min/user |
-| DELETE | `/me` | yes | `{confirmEmail}`: locks the account, then deletes all its data. 409 `OPEN_FUTURES` while positions are opening/open, futures orders placing/open, or ops pending/error. 500 on partial failure leaves the account locked for manual cleanup | 3/min/user |
-
-### Spot trading
-
-| Method | Path | Purpose | Limit |
-|---|---|---|---|
-| POST | `/api/trades` | Place spot order `{cryptoSymbol, type: buy/sell, amount, orderType?: market/limit, limitPrice?}` | 30/min/user |
-| GET | `/api/trades?limit=` | Own trades, newest first (1..100) | none |
-| GET | `/api/trades/portfolio` | `{balance, holdings:[{symbol, amount, avgCost}]}` | none |
-| GET | `/api/orders` | Open spot limit orders + last 20 closed | none |
-| DELETE | `/api/orders/:id` | Cancel an open limit order, release reservation | 60/min/user |
-
-### Futures trading (`/api/futures`, all authenticated)
-
-| Method | Path | Purpose | Limit |
-|---|---|---|---|
-| GET | `/config` | Fee rate, min notional, caps, leverage tiers, `fundingIgnored` | none |
-| GET | `/positions` | `{positions: open (with busy, markPrice), closed: last 20}` | none |
-| GET | `/orders` | `{orders: open limit entries, closed: last 20}` | none |
-| POST | `/orders` | Open/add (market) or place limit entry `{symbol, side: long/short, type, size, leverage, limitPrice?, tp?, sl?}` | 30/min/user |
-| PATCH | `/orders/:id` | Set/clear `tp` / `sl` on an open limit entry (price/size/leverage: cancel and re-place) | 30/min/user |
-| DELETE | `/orders/:id` | Cancel a limit entry, credit the reservation | 30/min/user |
-| POST | `/positions/:id/close` | Close all, or `{size}` partially, at mark | 30/min/user |
-| PATCH | `/positions/:id` | Set/clear `tp` / `sl` (`null` clears) and/or change `leverage` (re-sizes isolated margin: releases or debits the difference); all applied together or none | 30/min/user |
-
-Futures error codes: `INSUFFICIENT_BALANCE`, `MIN_NOTIONAL`, `LEVERAGE_TOO_HIGH`, `LEVERAGE_MISMATCH`, `MAX_POSITIONS`, `MAX_ORDERS`, `BAD_TPSL`, `LIQ_BREACH` (leverage change would put liq at/through the mark), `BAD_SIZE`, `UNKNOWN_MARKET`, `NOT_FOUND`, `NOT_OPEN`, `POSITION_BUSY` (retry), `NO_PRICE` (503), `OP_FAILED` (500), 422 validation, 429 limiter.
-
-### Market data (`/api/market`, public, 120/min per IP for the whole router)
-
-| Method | Path | Purpose |
+| Prefix | Auth | What it covers |
 |---|---|---|
-| GET | `/market_chart/:id`, `/ohlc/:id` | CoinGecko proxies (`?days=`) |
-| GET | `/futures/overview` | Top-40 perpetuals by 24h volume (mark, funding, OI USD), cached 10 s |
-| GET | `/futures/symbols` | Tradable USDT perpetuals (pair picker), cached 5 min |
-| GET | `/futures/klines/:symbol?interval=&limit=` | Candles (`1m,5m,15m,1h,4h,1d`, limit 1..1000), cached 10 s |
-| GET | `/futures/stats/:symbol?period=` | OI, long/short, top-trader ratio, taker buy/sell, funding (`5m,15m,1h,4h`) |
-| GET | `/futures/liqmap/:symbol` | Estimated liquidation levels (price buckets) |
-| GET | `/futures/liqheat/:symbol?range=` | Estimated heatmap grid (`12h,24h,3d,1w`) |
-| GET | `/futures/maxpain?window=&top=` | Pain field: strongest long level below / short level above price for the top N perps by volume (`window` as liqheat, `top` 1-30, default 20); 60 s cache + stale-while-revalidate, 10 req/min per IP, `skipped` counts coins left out; touch estimate is volatility-based, not a forecast |
-| GET | `/futures/cvd/:symbol?interval=` (or `range=6h,24h,3d,1w`) | Cumulative volume delta from real Binance taker volume: futures `candles` plus a `spot` series (Binance spot klines), interval `1m,5m,15m,30m,1h,4h,1d`, 30 s cache; each side is `available:false` with a reason when unreachable (nothing approximated) |
-| GET | `/futures/cvd/:symbol/trades?min=` | Recent Binance futures aggTrades at or above `min` USD (`10000,50000,100000,500000,1000000`), taker side, plus taker buy/sell flow of the last 60 s, `windowMs`/`count`/`medianUsd` of the fetched tape and `perMin` (15 clock minutes of buy/sell USD at or above `min`) (5 s cache) |
-| GET | `/futures/liquidations` | Cross-symbol summary of the in-memory buffer (cached 2 s) |
-| GET | `/futures/liquidations/:symbol` | Buffered real liquidation events `{since, events}` |
-| GET | `/stocks/quotes`, `/stocks/klines/:symbol?interval=&limit=` | Curated NSE stocks (Yahoo, unofficial, delayed, view only). Display symbols only (`RELIANCE`, `TMPV`); anything off the allow-list is 404/400. Intervals `1m,5m,15m,1h,1d`; `stale: true` when the last good answer is served; 502 when Yahoo is down |
-| GET | `/instruments/quotes?category=`, `/instruments/klines/:symbol` | Same for all curated markets: `stock`, `index` (`NIFTY50`, `BANKNIFTY`, `NIFTYIT`), `commodity` (`GOLD`, `SILVER`, `CRUDEOIL`, `BRENT`), `currency` (`USDINR`, `EURINR`, `GBPINR`, `EURUSD`) |
-| GET | `/orderflow/heatmap/:symbol`, `/orderflow/large/:symbol` | Order Book Heatmap and Large Orders (walls + large trades) from an in-process depth collector. The `large` answer also carries `levels` (up to 40 book levels >= 5x median with `mult`/`distPct`), `activeWalls` (tracked, with `upForMs`) and `wallEvents` (the same log as the heatmap). The heatmap answer also carries the latest book ladder (20 levels a side with cumulative), spread, depth and imbalance within `band` (0.5/1/2/5 %, the covered band is reported when the snapshot is narrower) with the value ~5 min ago, tracked walls (largest per side, distance, up-for) and a wall event log (appeared/pulled/filled, max 200), and up to 300 taker-trade bubbles; query `grid` (1/2/5/10/20 x the base bucket) and `band`. Any USDT perp in the futures list (404 `no_futures` otherwise), 503 `collector_busy` when 5 coins are already collected and none is idle >30 s; `status` `collecting`/`ok`/`thin`/`stale`/`unavailable`; extra limit 40/min per IP |
-| GET | `/providers` | Health of each data source: name, capabilities, breaker state, listed-symbol count (no URLs or errors) |
+| `/api/health` | no | `GET /` liveness: `{ok, uptime, mongo}`, 200 even if Mongo is down |
+| `/api/auth` | mixed | register, login, Google sign-in, `config`, verify, `me` (get, patch, avatar, export, delete), password, logout-all, dev-only `dev-hint` |
+| `/api/trades`, `/api/orders` | yes | spot orders, portfolio, open limit orders and cancel |
+| `/api/futures` | yes | `config`, positions, orders, place order, close, edit TP/SL and leverage, cancel |
+| `/api/market` | no (120/min per IP) | CoinGecko proxies; `futures/` overview, symbols, klines, stats, `liqmap`, `liqheat`, `maxpain`, `cvd` (and `cvd/:symbol/trades`), `liquidations`; `stocks/` and `instruments/` (Yahoo); `orderflow/heatmap` and `orderflow/large`; `providers` health |
+| `/api/news` | no (60/min per IP) | headline list and one headline by id |
+| `/api/ai` | yes | `status`, `brief`, `ask`, `alerts/parse`, BYO keys (`keys/:provider`), `test`, `models`, `lmstudio/models`, and the analyst under `agent/` (`chat`, `conversations`) |
+| `/api/strategies` | yes | validate, evaluate (backtest), CRUD |
+| `/api/bots` | yes | config, CRUD, accept, decline, start, pause, stop, stop-all, decisions, performance |
+| `/api/alerts` | yes | CRUD and recent events |
 
-### News headlines (`/api/news`, public, 60/min per IP)
+Conventions: errors use `{success:false, message}` (futures adds `code`; alerts, AI, market and bots use `{error}`). Symbols in `/api/market/*`, `/api/ai/*` and alerts are full futures symbols (`BTCUSDT`); trading routes use the base ticker (`BTC`). Every market response carries `X-Data-Source`.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/news?limit=30&category=all\|crypto\|india` | Headlines with a short summary and image (`{items:[{id,title,link,source,category,publishedAt,image,summary}], sources:[{name,category,ok,at}], stale?, disclaimer}`), from 3 crypto and 3 Indian-markets RSS feeds; limit 1..50; cached 10 min; `stale: true` when every source fails and an older answer is served (up to 24 h); 502 `News unavailable` otherwise. `X-Data-Source: rss`. Titles are text-only, links http(s) only. `summary` is plain text, snippet capped at 200 chars (`''` if none); `image` is a hotlinked, publisher-owned https URL or `null` (we never copy or proxy the bytes); no full text. Publisher terms for snippets and images are still to be checked manually. External headlines, not our analysis, not investment advice. |
-| GET | `/api/news/:id` | One headline by its 12-hex `id`, looked up in the full merged cached list (not limited to 50 or a category): `{item:{id,title,link,source,category,publishedAt,image,summary}, disclaimer}`. 404 `{error:'not found'}` for an unknown or malformed id; 502 `News unavailable` when no data. Same 60/min limit and `X-Data-Source: rss`. |
-
-Every futures response carries `X-Data-Source`: `binance-futures` (default), `ws`, `bybit`, `bitget`, `gate`, `mexc`, `spot`, `unavailable` or `yahoo`. Anything other than `binance-futures` is third-party or reduced data and the UI says so. `/futures/liqheat` adds `partial: true` when the history is shorter than the range (new listing). Third-party data is analytics only: fills, marks, liquidations, TP/SL and alerts use Binance prices only.
-
-Symbols in `/api/market/*`, `/api/ai/*` and alerts are **full futures symbols** (`BTCUSDT`); trading routes use the **base ticker** (`BTC`).
-
-### AI (`/api/ai`, authenticated)
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/status` | `{configured, model, provider}` |
-| GET | `/brief/:symbol` | Structured market brief (cached 5 min) |
-| POST | `/ask` | `{symbol, question (3..500 chars)}` -> `{answer}` |
-| POST | `/alerts/parse` | `{text (3..300 chars)}` -> `{draft}` or 422 |
-| PUT | `/keys/:provider` | `{apiKey}` (8..300 chars) -> `{provider, keySet, keyLast4}`; 20/min/user |
-| DELETE | `/keys/:provider` | Remove the saved key |
-| POST | `/test` | `{provider}` -> `{ok, provider, model, latencyMs, models?}` using the saved key/model/baseUrl; `models` (same shape as `/models`) is added when the provider's list call also works |
-| POST | `/models` | `{provider, apiKey?, baseUrl?}` -> `{models: [{id, name, contextLength?, pricePerMTokIn?, pricePerMTokOut?, free?}]}`; a typed `apiKey` is used for this one call and never stored, otherwise the saved key and saved base URL are used; 10/min/user; errors `ai_no_key`, `ai_auth_failed`, `ai_rate_limited`, `ai_unreachable`, `ai_bad_response` |
-| GET | `/lmstudio/models` | `{models: [id]}`: chat models loaded in the user's LM Studio (saved base URL or default) |
-| POST | `/agent/chat` | `{context: {kind: perp/instrument, symbol, page, interval?}, message (1..1000), conversationId?, wantStrategy?}` -> `{conversationId, reply, disclaimer}`. Single-shot analyst, no tools; it may return a strategy spec (inert JSON). A trade-intent message (trade, strategy, bot, go ahead, make $N...) runs in strategy mode even with `wantStrategy` off (`reply.strategyMode`: `on`/`auto`/`off`). `reply.structured` (verdict, headline, plan, levels, bull/bear/risks) is optional and server-checked; `reply.text` is always present. Nothing runs until the user accepts on the bot screen |
-| GET | `/agent/conversations`, `/agent/conversations/:id` | Own conversations (max 10, 40 messages each, expire after 30 days) |
-| DELETE | `/agent/conversations/:id`, `/agent/conversations` | Delete one / all own conversations |
-
-AI-written code never executes. Strategies are a strict declarative JSON spec evaluated by the server.
-
-### Strategies (`/api/strategies`, authenticated)
-
-| Method | Path | Purpose | Limit |
-|---|---|---|---|
-| POST | `/validate` | `{spec}` -> `{spec, describe}` or 422 `invalid_spec` | 60/min/user |
-| POST | `/evaluate` | `{spec` or `strategyId, kind: perp/instrument, symbol, limit?, costs?: {slippagePct}}` -> stats, trades, markers, series, caveats, `candlesSource`. The server fetches candles; client candles are rejected | 30/min/user |
-| GET | `/`, `/:id` | Own strategies | none |
-| POST | `/` | `{spec, name?, symbol?, origin?: ai/user}` (max 20, 409 `STRATEGY_LIMIT`) | none |
-| PUT | `/:id` | Update `name`, `spec`, `symbol` | none |
-| DELETE | `/:id` | Delete | none |
-
-Backtest rules: signal on bar i fills at the open of bar i+1, stop is checked before target within a candle, fee 0.05% per side and slippage 0.02% by default, one position, fixed size, no compounding. Results are hypothetical and in-sample; the caveats are always returned.
-
-Per user: 10 requests/min across brief/ask/parse/test/lmstudio models and agent chat; agent chat on the server's own key is also capped at 60/day. Process-wide hourly budget `AI_MAX_CALLS_PER_HOUR` applies only to the `default` provider. Error codes: `ai_no_key` 400, `ai_bad_base_url` 400, `ai_no_model` 400, `ai_local_disabled` 400 (LM Studio in production without `ALLOW_LOCAL_LLM`), `ai_key_unreadable` 409, `ai_rate_limited` 429, `ai_not_configured` 503, `ai_auth_failed` / `ai_unreachable` / `ai_upstream_error` / `ai_reasoning_budget` 502 (`ai_auth_failed` is 502 on purpose: the SPA signs out on any 401).
-
-### Alerts (`/api/alerts`, authenticated, 60/min/user)
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/` | Own alerts with live `status` (`watching` / `no_data`) |
-| GET | `/events?limit=` | Recent triggers (1..200, default 50) |
-| POST | `/` | Create `{symbol, metric: price/funding/liq_usd_5m, op: above/below, value, note?, cooldownMin?}` (max 20 alerts, 5 symbols) |
-| PATCH | `/:id` | Update `active`, `value`, `note`, `cooldownMin` |
-| DELETE | `/:id` | Delete |
-
-### Socket.IO namespaces
-
-| Namespace | Auth | Client -> server | Server -> client |
-|---|---|---|---|
-| `/market` | none | none | `market:update` (top-20 CoinGecko list; snapshot on connect) |
-| `/futures` | none | `futures:subscribe {symbol}`, `futures:unsubscribe {symbol}` (max 3 symbols per socket, 50 per server) | `futures:kline` (1m), `futures:mark`, `futures:book`, `futures:trades`, `futures:liquidation`, `futures:error` |
-| `/alerts` | JWT in `handshake.auth.token` | none | `alert:triggered` to room `user:<id>` |
+Socket.IO namespaces: `/market` (public, `market:update`), `/futures` (public, subscribe per symbol: kline, mark, book, trades, liquidation), `/alerts` (JWT in the handshake, `alert:triggered`).
 
 ## Data model
 
@@ -407,6 +568,10 @@ Per user: 10 requests/min across brief/ask/parse/test/lmstudio models and agent 
 | `FuturesOp` | Write-ahead journal for futures money ops | `kind`, `targets`, `deltaCents`, `post`, `status` (pending/done/rolled_back/error), `attempts` |
 | `Alert` / `AlertEvent` | Alert rules / trigger history (TTL 30 days) | `metric`, `op`, `value`, `cooldownMin`, `lastTriggeredAt` |
 | `Liquidation` | Persisted realised liquidation events (TTL 2 days) | `symbol`, `side`, `price`, `qty`, `usd`, `ts` |
+| `Strategy` | Saved declarative strategy spec | `userId`, `name`, `spec`, `specHash`, `symbol`, `origin` (ai/user), `allTimeframes` |
+| `AiConversation` | Analyst chat history (TTL 30 days) | `userId`, `messages` (max 40), `updatedAt` |
+| `Bot` | One accepted strategy spec on one symbol and interval, with limits | `spec`, `specHash`, `acceptedHash`, `status` (proposed/declined/paused/running/stopped/killed), `rev`, `lastBarTime`, `positionId`, `day` counters, `startMark` |
+| `BotDecision` | Append-only decision log; unique `{botId, barTime}` is the per-bar claim | `kind` (tick/risk/observed/lifecycle), `action`, `status` (intent/done/failed/abandoned), `reason` (built in code), `fillPrice`, `pnlCents` |
 
 Money units: spot and futures engines compute in **integer cents**; stored dollar fields are `cents / 100`. Details in [`context/DOMAIN.md`](context/DOMAIN.md); the original futures design is [`docs/phase2-leverage.md`](docs/phase2-leverage.md) (where code and doc differ, the code wins: for example `Position.rev` exists in code only).
 
@@ -434,11 +599,15 @@ Dev-only gates (all depend on `NODE_ENV=development`): the `GET /api/auth/dev-hi
 
 ## Testing
 
-| Where | Command | Notes |
+Counts below are from running both suites on 2026-11-27.
+
+| Where | Command | Result |
 |---|---|---|
-| Backend | `cd backend && npm test` | Jest; `tests/setupEnv.js` injects dummy `NODE_ENV/MONGO_URI/JWT_SECRET` and ignores `backend/.env`. Tests use in-memory fakes of the Mongoose models, not a database, and no `supertest` (a small in-process dispatcher is used in `futuresApi.test.js`). 705 tests passing at last count (2026-11-21); frontend 35 suites / 179 tests passing. |
-| Frontend | `cd frontend && CI=true npm test -- --watchAll=false` | react-scripts/Jest, DOM tests via `react-dom/test-utils` + `createRoot` (no React Testing Library). At last run 27 suites / 128 tests passed and 3 suites (`Market`, `Liquidation`, `SymbolLiquidations`) failed to load with `Cannot use import statement outside a module` (the ESM build of axios pulled in through `lib/api.js`); treat as a known open issue, see [`context/TODO.md`](context/TODO.md). |
-| Frontend build | `cd frontend && npm run build` | With `CI=true` (typical on Vercel and CI) **warnings are errors**: an unused import or hook-deps warning fails the build. |
+| Backend | `cd backend && npm test` (or `npx jest`) | 50 suites, 1,240 tests passed |
+| Frontend | `cd frontend && CI=true npm test -- --watchAll=false` | 104 suites, 608 tests passed |
+| Frontend build | `cd frontend && CI=true npm run build` | With `CI=true` (typical on Vercel and CI) warnings are errors: an unused import or hook-deps warning fails the build. Not run for this refresh. |
+
+The backend tests use in-memory fakes of the Mongoose models with atomic conditional updates, not a database, and a small in-process request dispatcher instead of a live server. `tests/setupEnv.js` injects dummy `NODE_ENV/MONGO_URI/JWT_SECRET` and ignores `backend/.env`. Frontend DOM tests use `react-dom/test-utils` and `createRoot` (no React Testing Library). Money, auth and concurrency changes need a test that fails without the change.
 
 ## Deployment
 
@@ -484,7 +653,7 @@ Deploy semantics, from the code (`server.js`, `riskEngine.js`): **stop-then-star
 Also on the host:
 - **MongoDB Atlas**: create a cluster (a free M0 works for a demo), a database user, and a network access rule. The backend host's egress IPs are usually not static on Render/Railway, so for an MVP you may have to allow `0.0.0.0/0` and rely on a strong password; use static IPs or private networking when available. Use the SRV connection string in `MONGO_URI`. Indexes (including TTL indexes) are built automatically by Mongoose on boot.
 - **WebSockets**: all three platforms proxy WebSocket upgrades on the normal HTTPS port; the client connects with `transports: ['websocket','polling']`.
-- **Logs**: in production the app logs to files only (`error.log`, `combined.log` in the working directory) and not to stdout, so the platform's log tab will be empty. Either add a console transport in `config/logger.js` (not done) or ship the files elsewhere.
+- **Logs**: the app always logs to the console (JSON in production), so the platform's log tab works. `error.log` and `combined.log` are written only outside production or with `LOG_TO_FILES=true`, and are ephemeral on most hosts.
 - **Secrets**: set them in the host dashboard, never in the repo.
 
 ### Keepalive (Render free tier)
@@ -500,35 +669,30 @@ Also on the host:
 
 ## Pre-launch checklist
 
-- [ ] `NODE_ENV=production`, fresh `JWT_SECRET` (48+ random bytes), no placeholder values.
-- [ ] Backend reachable over HTTPS (`HOST` defaults to `0.0.0.0` in production); `TRUST_PROXY=1` set; platform health-check path is `GET /api/health` (`{ok, uptime, mongo: up or down}`, public, 200 even if Mongo is down); frontend `REACT_APP_API_URL` points at it and the app was **rebuilt** after setting it.
-- [ ] `CORS_ORIGINS` lists exactly the production frontend origin(s); verify login, a market order and the live chart from the deployed frontend.
-- [ ] `TRUST_PROXY` set (usually `1`) and rate limiting verified per client.
-- [ ] Backend region is not blocked by Binance; `/api/market/futures/overview` returns data.
-- [ ] Exactly one backend instance; deploys are stop-then-start.
-- [ ] MongoDB Atlas: strong user password, network access decided, backups on, connection string in the host's secrets.
-- [ ] `SEED_DEMO_USERS` is off (or consciously on with a strong `DEMO_GUEST_PASSWORD`); no real accounts use the seeded guest.
-- [ ] Review any `role: admin` users in the database (startup logs a SECURITY warning if some exist).
-- [ ] Google OAuth: production origin added to Authorized JavaScript origins; `GOOGLE_CLIENT_ID` set on the backend; consent screen published if needed.
-- [ ] AI: `ANTHROPIC_API_KEY` set (or AI left off); `AI_MAX_CALLS_PER_HOUR` set to a budget you accept; CLI provider cannot activate (`NODE_ENV=production`).
-- [ ] Logging: a way to see backend errors in production (console transport or log shipping).
-- [ ] No secret committed: `git ls-files | grep -i env` shows only `.env.example` / the frontend public-value env files; rotate anything that ever leaked.
-- [ ] `CI=true npm run build` passes locally; backend and frontend tests are green.
-- [ ] Decide on the dev-only code (`dev-hint` route and Login card) and remove it if you prefer not to ship it (it is inert unless `NODE_ENV=development`).
-- [ ] UI states clearly that this is paper trading with simulated fills and no funding.
+The checklist of what to verify before a public deploy (secrets, `CORS_ORIGINS`, `TRUST_PROXY`, backend region, single instance, Atlas access, Google origins, AI budget, bots off) is in [`docs/pre-launch-checklist.md`](docs/pre-launch-checklist.md).
 
 ## Known limitations and roadmap
 
 Limitations (by design or not yet done):
-- Paper trading only; fills happen at the server mark price, no slippage, no order-book matching. Funding is never charged. No cross margin, no leverage change on an open position, no reduce-only limit exits, no trailing stops, no hedge/netting modes beyond one long and one short per symbol.
-- Spot only trades symbols that exist as Binance USDT perpetuals (`BTC` -> `BTCUSDT`); the price source is the futures mark.
-- Liquidation map and heatmap are estimates from open-interest changes and an assumed leverage mix. Liquidation feed data is sampled (Binance throttles the stream) and the in-memory buffer only covers the time since the server started (plus up to 24 h reloaded from Mongo).
-- Local models (LM Studio) work only when the backend runs on your own machine: a hosted server cannot reach your `localhost` (`ALLOW_LOCAL_LLM` exists but does not help remotely).
-- Yahoo data is unofficial and delayed; stocks, indices, commodities and currencies are view-only (no INR ledger, no NSE sessions, no trading yet).
-- Strategy backtests are hypothetical and in-sample, not a prediction.
+- **Paper trading only.** Fills happen at the server's Binance mark price with no spread, depth or order-book matching, so they are optimistic compared with a real exchange. **Funding is never charged.** No cross margin, no reduce-only limit exits, no trailing stops, no hedge or netting modes beyond one long and one short per symbol.
+- Spot only trades symbols that exist as Binance USDT perpetuals (`BTC` becomes `BTCUSDT`); the price source is the futures mark.
+- **Estimates, not exchange data.** The liquidation map, heatmap, max pain and touch chances are models built from open-interest changes and an assumed leverage mix. The liquidation feed is **sampled** (Binance throttles the stream), and the in-memory buffer covers only the time since the server started plus up to 24 h reloaded from Mongo.
+- **The order-book heatmap and large-orders views hold only the depth seen since the collector started** for that symbol (REST snapshots every 5 s, up to 5 symbols, dropped after 5 idle minutes), and fast order changes between snapshots are invisible.
+- **Bots miss bars if the host sleeps** (a closed bar can be decided for 60 s after it closes, then it is logged as `missed`), and a sleeping instance also pauses TP/SL, liquidations and limit fills. The keepalive workflow is best-effort. Bots are off in production by default.
+- **Bot study result.** In `context/bot-capability-study.md`, 11,880 DSL bot configurations across five Binance perpetuals were tested out of sample after fees and slippage: only 12.6% were net profitable, the in-sample best config lost a median 13.9% out of sample, and just 3 of 405 selected cells survived a multiple-comparison correction (none under Bonferroni). No strategy was shown to be reliably profitable after costs, and the out-of-sample window was mostly a bear market; read the study before trusting any bot.
+- Strategy backtests are hypothetical and in-sample (one position, fixed size), not a prediction.
+- **News**: publisher terms for snippets and images are still to be checked manually. We show only headline, a short snippet and a hotlinked image, and link out.
+- **Yahoo data** (stocks, indices, commodities, currencies) is unofficial and delayed, and is view-only: no INR ledger, no NSE sessions, no trading.
+- Local models (LM Studio) work only when the backend runs on your own machine: a hosted server cannot reach your `localhost`.
 - Single process: in-memory rate limits, caches, liquidation buffer, risk engine and matchers; no horizontal scaling and no leader election.
-- No email verification, password reset, refresh tokens or 2FA; JWT in `localStorage`.
-- Frontend: Create React App (unmaintained upstream); some legacy files are unused (`CompanyDash.jsx` and the `company/` components); default CRA `index.html` title/description; marketing copy on `/` is placeholder.
-- Futures journal (`FuturesOp`) has no TTL; limit-order and position count caps use count-then-insert and can overshoot by a few under parallel requests.
+- No email verification, password reset, refresh tokens or 2FA; the JWT lives in `localStorage`.
+- Frontend: Create React App (unmaintained upstream); some legacy files are unused (`CompanyDash.jsx` and the `company/` components); the default CRA `index.html` title and description are still placeholders.
+- The futures journal (`FuturesOp`) has no TTL; limit-order and position count caps use count-then-insert and can overshoot by a few under parallel requests.
 
 Roadmap ideas: Redis-backed limiter and a leader lock to allow more than one instance, push events for liquidations/TP/SL instead of 3 s polling, funding simulation, cross margin, leaderboard/competitions, migrate off CRA (Vite), production-grade session handling (httpOnly cookies). Tracked in [`context/TODO.md`](context/TODO.md).
+
+## Contributing and license
+
+There is no `LICENSE` file in the repo, so no open-source license is granted: by default all rights are reserved. (`backend/package.json` says `ISC`, but that field alone is not a license grant.) Add a `LICENSE` before inviting reuse or contributions.
+
+If you work on the code, read [`CLAUDE.md`](CLAUDE.md) first: tests must stay green, never commit secrets, money changes follow the rules in `context/DOMAIN.md`, and keep user-facing claims honest (paper trading, no funding, estimates, sampled feed).
