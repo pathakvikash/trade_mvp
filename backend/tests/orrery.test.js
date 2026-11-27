@@ -82,9 +82,13 @@ describe('manifest and config', () => {
         for (const u of [r.body.baseUrl, r.body.mcp.url, r.body.icon]) expect(new URL(u).origin).toBe('https://trade-mvp.vercel.app');
         expect(r.body.mcp.url).toBe('https://trade-mvp.vercel.app/api/orrery/mcp');
     });
-    test('unset secret: manifest 404, every /api/orrery route 503', async () => {
+    test('unset secret: manifest still served (Orrery registers before it has a secret), every /api/orrery route 503', async () => {
         delete process.env.ORRERY_APP_SECRET;
-        expect((await request(app).get('/.well-known/orrery-app.json')).status).toBe(404);
+        process.env.ORRERY_APP_ID = 'trade-staging';
+        const m = await request(app).get('/.well-known/orrery-app.json');
+        delete process.env.ORRERY_APP_ID;
+        expect(m.status).toBe(200);
+        expect(m.body).toMatchObject({ id: 'trade-staging', auth: 'orrery-jwt' });
         const r = await request(app).post('/api/orrery/mcp').send({});
         expect(r.status).toBe(503);
         expect(r.body).toEqual({ error: 'orrery integration not configured' });

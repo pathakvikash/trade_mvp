@@ -1,4 +1,4 @@
-// Orrery app integration (public market data only, read-only). Off (503 / manifest 404) until ORRERY_APP_SECRET is set.
+// Orrery app integration (public market data only, read-only). The manifest is always served (Orrery reads it to register the app, and only then issues the secret); MCP and SSO answer 503 until ORRERY_APP_SECRET is set.
 //   GET  /.well-known/orrery-app.json   manifest  (the SPA's Vercel project rewrites it here; see frontend/vercel.json)
 //   POST /api/orrery/mcp                 MCP streamable HTTP, JSON responses, stateless, Bearer HS256 JWT
 //   POST /api/orrery/sso                 60 s single-use handoff token -> normal Trade session for an EXISTING account
@@ -15,7 +15,6 @@ const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const base = () => (process.env.ORRERY_BASE_URL || 'https://trade-mvp.vercel.app').replace(/\/+$/, '');
 
 function manifest(req, res) {
-    if (!auth.enabled()) return res.status(404).json({ error: 'not found' });
     const b = base();
     res.json({
         manifestVersion: 1,
